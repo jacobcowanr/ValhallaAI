@@ -1,21 +1,49 @@
-<script>
+<script lang="ts">
   import { onMount } from "svelte";
   import ModelPicker from "./routes/ModelPicker.svelte";
   import VaultBrowser from "./routes/VaultBrowser.svelte";
   import AgentControl from "./routes/AgentControl.svelte";
+  import Sessions from "./routes/Sessions.svelte";
   import Settings from "./routes/Settings.svelte";
   import logoWordmark from "./assets/ValhallaAI_Logo.png";
   import norseFontUrl from "./assets/fonts/Norse.otf";
   import norseBoldFontUrl from "./assets/fonts/Norse-Bold.otf";
+  // createSession() import (not loadSessions — that now runs automatically
+  // at module-evaluation time inside sessions.ts itself, see the comment
+  // there on why an onMount call here was the wrong place for it).
+  import { createSession } from "./lib/sessions";
+  import { FALLBACK_PROVIDER, FALLBACK_MODEL } from "./lib/providers";
+  import type { LLMProvider } from "./lib/llm-router";
 
   const sections = [
     { id: "models", label: "Models & Chat", icon: "💬" },
+    { id: "sessions", label: "Sessions", icon: "🕘" },
     { id: "vault", label: "Vault Browser", icon: "🗂" },
     { id: "agents", label: "Agent Control", icon: "🤖" },
     { id: "settings", label: "Settings", icon: "⚙" },
   ];
 
   let activeTab = "models";
+
+  function startNewSession() {
+    // Seed the new session with whatever provider/model the user has as
+    // their default, not always the hardcoded fallback — same source
+    // Settings.svelte and ModelPicker.svelte already read from.
+    let provider: LLMProvider = FALLBACK_PROVIDER;
+    let model = FALLBACK_MODEL;
+    const prefs = localStorage.getItem("valhallaai-prefs");
+    if (prefs) {
+      try {
+        const parsed = JSON.parse(prefs) as { defaultProvider?: LLMProvider; defaultModel?: string };
+        if (parsed.defaultProvider) provider = parsed.defaultProvider;
+        if (parsed.defaultModel) model = parsed.defaultModel;
+      } catch {
+        // Malformed prefs — fall back to the defaults above rather than crash.
+      }
+    }
+    createSession(provider, model);
+    activeTab = "models";
+  }
 
   // Sidebar can be hidden entirely — persisted so it stays hidden/shown
   // across restarts rather than resetting to open every launch.
@@ -52,6 +80,10 @@
 <div class="shell">
   {#if sidebarOpen}
     <aside class="sidebar">
+      <button class="new-session-btn" on:click={startNewSession}>
+        <span class="icon">+</span> New Session
+      </button>
+
       <nav>
         {#each sections as section}
           <button class:active={activeTab === section.id} on:click={() => (activeTab = section.id)}>
@@ -73,6 +105,8 @@
     <section class="content">
       {#if activeTab === "models"}
         <ModelPicker {logoWordmark} />
+      {:else if activeTab === "sessions"}
+        <Sessions onSelect={() => (activeTab = "models")} />
       {:else if activeTab === "vault"}
         <VaultBrowser />
       {:else if activeTab === "agents"}
@@ -147,6 +181,33 @@
     display: flex;
     flex-direction: column;
     padding: 1.5rem 1rem;
+  }
+
+  .new-session-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    width: 100%;
+    padding: 0.75rem;
+    margin-bottom: 1.25rem;
+    background: var(--accent);
+    color: var(--accent-text);
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-weight: 600;
+    transition: background 0.15s;
+  }
+
+  .new-session-btn:hover {
+    background: var(--accent-hover);
+  }
+
+  .new-session-btn .icon {
+    font-size: 1.1rem;
+    width: auto;
   }
 
   nav {
