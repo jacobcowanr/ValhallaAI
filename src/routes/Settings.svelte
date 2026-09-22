@@ -7,49 +7,77 @@
   let saved = false;
 
   const providers = {
-    nous: {
-      name: "Nous Portal",
-      models: ["x-ai/grok-4.7", "deepseek/deepseek-v4.1-flash", "meta-llama/llama-3.1-405b"],
-    },
     anthropic: {
       name: "Anthropic API Key",
-      models: ["claude-3.5-sonnet", "claude-opus-5", "claude-haiku-4.5-20251001"],
+      models: ["claude-opus-5", "claude-3.5-sonnet", "claude-haiku-4.5-20251001"],
     },
     anthropic_oauth: {
       name: "Anthropic OAuth (Usage Credits)",
-      models: ["claude-3.5-sonnet", "claude-opus-5", "claude-haiku-4.5-20251001"],
-    },
-    claude_directsdk: {
-      name: "Claude Subscription DirectSDK",
-      models: ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4.5-20251001"],
+      models: ["claude-opus-5", "claude-3.5-sonnet", "claude-haiku-4.5-20251001"],
     },
     chatgpt: {
       name: "ChatGPT or Codex Subscription",
       models: ["gpt-4-turbo", "gpt-4o", "gpt-3.5-turbo"],
     },
-    minimax: {
-      name: "MiniMax",
-      models: ["minimax-text-01", "minimax-abab6.5s-chat"],
-    },
-    qwen: {
-      name: "Qwen Code",
-      models: ["qwen-coder-32b", "qwen-turbo"],
-    },
-    xai_grok: {
-      name: "xAI Grok",
-      models: ["grok-3", "grok-vision"],
-    },
-    github_copilot: {
-      name: "GitHub Copilot (ACP)",
-      models: ["gpt-4-turbo", "gpt-4o"],
+    claude_directsdk: {
+      name: "Claude Subscription DirectSDK",
+      models: ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4.5-20251001"],
     },
     fireworks: {
       name: "Fireworks AI",
       models: ["llama-v3p1-405b", "mixtral-8x22b"],
     },
+    google: {
+      name: "Google (Gemini)",
+      models: ["gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash"],
+    },
+    groq: {
+      name: "Groq (Fast Inference)",
+      models: ["mixtral-8x7b-32768", "llama2-70b-4096", "gemma-7b-it"],
+    },
+    huggingface: {
+      name: "Hugging Face Inference API",
+      models: ["meta-llama/Llama-2-70b-chat-hf", "mistralai/Mistral-7B-Instruct-v0.1"],
+    },
+    minimax: {
+      name: "MiniMax",
+      models: ["minimax-text-01", "minimax-abab6.5s-chat"],
+    },
+    nous: {
+      name: "Nous Portal",
+      models: ["x-ai/grok-4.7", "meta-llama/llama-3.1-405b", "deepseek/deepseek-v4.1-flash"],
+    },
+    ollama: {
+      name: "Ollama (Local)",
+      models: ["neural-chat", "zephyr", "mistral", "llama2:13b", "llama2", "orca-mini", "dolphin-mixtral"],
+    },
+    openclaw: {
+      name: "OpenClaw",
+      models: ["openclaw-default"],
+    },
     openrouter: {
       name: "OpenRouter",
-      models: ["openai/gpt-4o", "anthropic/claude-3.5-sonnet", "deepseek/deepseek-chat", "x-ai/grok-3"],
+      models: ["openai/gpt-4o", "anthropic/claude-3.5-sonnet", "x-ai/grok-3", "deepseek/deepseek-chat"],
+    },
+    perplexity: {
+      name: "Perplexity (Search + LLM)",
+      models: ["pplx-7b-online", "pplx-70b-online"],
+    },
+    qwen: {
+      name: "Qwen Code",
+      models: ["qwen-coder-32b", "qwen-turbo"],
+    },
+    replicate: {
+      name: "Replicate",
+      models: ["meta/llama-2-70b-chat", "mistralai/mistral-7b-instruct-v0.1"],
+    },
+    together: {
+      name: "Together AI",
+      models: ["meta-llama/Llama-2-70b-chat-hf", "mistralai/Mistral-7B-Instruct-v0.1"],
+    },
+    xai_grok: {
+      name: "xAI Grok",
+      models: ["grok-3", "grok-vision"],
     },
   };
 
@@ -127,6 +155,32 @@
       <button on:click={savePreferences} class="save-btn">
         {saved ? "✓ Saved" : "Save Preferences"}
       </button>
+    </section>
+
+    <section class="section">
+      <h3>Ollama Configuration</h3>
+      <p class="section-description">Configure your local Ollama instance</p>
+
+      <div class="field">
+        <label>Ollama Endpoint:</label>
+        <input
+          type="text"
+          id="ollama-endpoint"
+          placeholder="http://localhost:11434"
+          on:blur={(e) => localStorage.setItem("ollama-endpoint", e.target.value)}
+        />
+        <small>Default: http://localhost:11434</small>
+      </div>
+
+      <div class="ollama-help">
+        <p><strong>Getting started with Ollama:</strong></p>
+        <ol>
+          <li>Download from <a href="https://ollama.ai" target="_blank">ollama.ai</a></li>
+          <li>Run: <code>ollama serve</code></li>
+          <li>Pull a model: <code>ollama pull llama2</code></li>
+          <li>Select Ollama (Local) in Vahalla and choose your model</li>
+        </ol>
+      </div>
     </section>
 
     <section class="section">
@@ -251,5 +305,53 @@
     margin: 0.5rem 0;
     font-size: 0.9rem;
     color: #666;
+  }
+
+  .ollama-help {
+    background: #f0f4ff;
+    padding: 1rem;
+    border-radius: 4px;
+    margin-top: 1rem;
+    font-size: 0.9rem;
+  }
+
+  .ollama-help p {
+    margin: 0 0 0.5rem 0;
+    font-weight: 600;
+    color: #333;
+  }
+
+  .ollama-help ol {
+    margin: 0;
+    padding-left: 1.5rem;
+  }
+
+  .ollama-help li {
+    margin: 0.25rem 0;
+    color: #666;
+  }
+
+  .ollama-help code {
+    background: white;
+    padding: 2px 4px;
+    border-radius: 2px;
+    font-family: monospace;
+    font-size: 0.85rem;
+  }
+
+  .ollama-help a {
+    color: #667eea;
+    text-decoration: none;
+  }
+
+  .ollama-help a:hover {
+    text-decoration: underline;
+  }
+
+  small {
+    display: block;
+    font-size: 0.8rem;
+    color: #999;
+    margin-top: 0.25rem;
   }
 </style>

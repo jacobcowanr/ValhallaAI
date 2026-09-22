@@ -3,7 +3,7 @@
  * Abstraction layer for multiple LLM providers: OpenRouter, OpenAI, DeepSeek, Anthropic, local
  */
 
-export type LLMProvider = "nous" | "anthropic" | "anthropic_oauth" | "claude_directsdk" | "chatgpt" | "minimax" | "qwen" | "xai_grok" | "github_copilot" | "fireworks" | "openrouter" | "local";
+export type LLMProvider = "anthropic" | "anthropic_oauth" | "chatgpt" | "claude_directsdk" | "fireworks" | "google" | "groq" | "huggingface" | "minimax" | "nous" | "ollama" | "openclaw" | "openrouter" | "perplexity" | "qwen" | "replicate" | "together" | "xai_grok" | "local";
 
 export interface LLMConfig {
   provider: LLMProvider;
@@ -38,27 +38,41 @@ export async function callLLM(
 ): Promise<LLMResponse> {
   try {
     switch (config.provider) {
-      case "nous":
-        return await callNous(config, messages);
       case "anthropic":
       case "anthropic_oauth":
         return await callAnthropic(config, messages);
-      case "claude_directsdk":
-        return await callClaudeDirectSDK(config, messages);
       case "chatgpt":
         return await callOpenAI(config, messages);
-      case "minimax":
-        return await callMiniMax(config, messages);
-      case "qwen":
-        return await callQwen(config, messages);
-      case "xai_grok":
-        return await callGrok(config, messages);
-      case "github_copilot":
-        return await callOpenAI(config, messages);
+      case "claude_directsdk":
+        return await callClaudeDirectSDK(config, messages);
       case "fireworks":
         return await callFireworks(config, messages);
+      case "google":
+        return await callGoogle(config, messages);
+      case "groq":
+        return await callGroq(config, messages);
+      case "huggingface":
+        return await callHuggingFace(config, messages);
+      case "minimax":
+        return await callMiniMax(config, messages);
+      case "nous":
+        return await callNous(config, messages);
+      case "ollama":
+        return await callOllama(config, messages);
+      case "openclaw":
+        return await callOpenClaw(config, messages);
       case "openrouter":
         return await callOpenRouter(config, messages);
+      case "perplexity":
+        return await callPerplexity(config, messages);
+      case "qwen":
+        return await callQwen(config, messages);
+      case "replicate":
+        return await callReplicate(config, messages);
+      case "together":
+        return await callTogether(config, messages);
+      case "xai_grok":
+        return await callGrok(config, messages);
       case "local":
         return await callLocal(config, messages);
       default:
@@ -315,6 +329,53 @@ async function callLocal(
 }
 
 /**
+ * Ollama: local LLM runtime
+ */
+async function callOllama(
+  config: LLMConfig,
+  messages: LLMMessage[]
+): Promise<LLMResponse> {
+  const baseURL = config.baseURL || localStorage.getItem("ollama-endpoint") || "http://localhost:11434";
+
+  try {
+    const response = await fetch(`${baseURL}/api/chat`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: config.model,
+        messages: messages,
+        temperature: config.temperature || 0.7,
+        stream: false,
+      }),
+    });
+
+    if (!response.ok) {
+      return {
+        success: false,
+        error: `Ollama error: HTTP ${response.status}. Make sure Ollama is running at ${baseURL}`,
+      };
+    }
+
+    const data = await response.json();
+    return {
+      success: true,
+      content: data.message?.content,
+      usage: {
+        inputTokens: data.prompt_eval_count || 0,
+        outputTokens: data.eval_count || 0,
+      },
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: `Failed to connect to Ollama at ${baseURL}. Is it running? (ollama serve)`,
+    };
+  }
+}
+
+/**
  * Nous Portal: aggregated endpoint (same as OpenRouter for Nous)
  */
 async function callNous(
@@ -451,6 +512,271 @@ async function callFireworks(
     method: "POST",
     headers: {
       "Authorization": `Bearer ${config.apiKey || process.env.FIREWORKS_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: config.model,
+      messages: messages,
+      temperature: config.temperature || 0.7,
+      max_tokens: config.maxTokens || 2048,
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    return {
+      success: false,
+      error: error.error?.message || `HTTP ${response.status}`,
+    };
+  }
+
+  const data = await response.json();
+  return {
+    success: true,
+    content: data.choices[0]?.message?.content,
+    usage: {
+      inputTokens: data.usage?.prompt_tokens || 0,
+      outputTokens: data.usage?.completion_tokens || 0,
+    },
+  };
+}
+
+/**
+ * Google Gemini
+ */
+async function callGoogle(
+  config: LLMConfig,
+  messages: LLMMessage[]
+): Promise<LLMResponse> {
+  const apiKey = config.apiKey || process.env.GOOGLE_API_KEY;
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${config.model}:generateContent?key=${apiKey}`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        contents: messages.map((m) => ({
+          role: m.role === "assistant" ? "model" : "user",
+          parts: [{ text: m.content }],
+        })),
+        generationConfig: {
+          temperature: config.temperature || 0.7,
+          maxOutputTokens: config.maxTokens || 2048,
+        },
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    return {
+      success: false,
+      error: `HTTP ${response.status}`,
+    };
+  }
+
+  const data = await response.json();
+  return {
+    success: true,
+    content: data.candidates?.[0]?.content?.parts?.[0]?.text,
+  };
+}
+
+/**
+ * Groq: fast inference
+ */
+async function callGroq(
+  config: LLMConfig,
+  messages: LLMMessage[]
+): Promise<LLMResponse> {
+  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${config.apiKey || process.env.GROQ_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: config.model,
+      messages: messages,
+      temperature: config.temperature || 0.7,
+      max_tokens: config.maxTokens || 2048,
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    return {
+      success: false,
+      error: error.error?.message || `HTTP ${response.status}`,
+    };
+  }
+
+  const data = await response.json();
+  return {
+    success: true,
+    content: data.choices[0]?.message?.content,
+    usage: {
+      inputTokens: data.usage?.prompt_tokens || 0,
+      outputTokens: data.usage?.completion_tokens || 0,
+    },
+  };
+}
+
+/**
+ * Hugging Face Inference API
+ */
+async function callHuggingFace(
+  config: LLMConfig,
+  messages: LLMMessage[]
+): Promise<LLMResponse> {
+  const response = await fetch("https://api-inference.huggingface.co/models/" + config.model, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${config.apiKey || process.env.HUGGINGFACE_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      inputs: messages.map((m) => m.content).join(" "),
+      parameters: {
+        temperature: config.temperature || 0.7,
+        max_new_tokens: config.maxTokens || 2048,
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    return {
+      success: false,
+      error: `HTTP ${response.status}`,
+    };
+  }
+
+  const data = await response.json();
+  return {
+    success: true,
+    content: data[0]?.generated_text || data.text,
+  };
+}
+
+/**
+ * OpenClaw
+ */
+async function callOpenClaw(
+  config: LLMConfig,
+  messages: LLMMessage[]
+): Promise<LLMResponse> {
+  const response = await fetch("https://api.openclaw.ai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${config.apiKey || process.env.OPENCLAW_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: config.model,
+      messages: messages,
+      temperature: config.temperature || 0.7,
+      max_tokens: config.maxTokens || 2048,
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    return {
+      success: false,
+      error: error.error?.message || `HTTP ${response.status}`,
+    };
+  }
+
+  const data = await response.json();
+  return {
+    success: true,
+    content: data.choices[0]?.message?.content,
+  };
+}
+
+/**
+ * Perplexity: search + LLM
+ */
+async function callPerplexity(
+  config: LLMConfig,
+  messages: LLMMessage[]
+): Promise<LLMResponse> {
+  const response = await fetch("https://api.perplexity.ai/chat/completions", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${config.apiKey || process.env.PERPLEXITY_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: config.model,
+      messages: messages,
+      temperature: config.temperature || 0.7,
+      max_tokens: config.maxTokens || 2048,
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    return {
+      success: false,
+      error: error.error?.message || `HTTP ${response.status}`,
+    };
+  }
+
+  const data = await response.json();
+  return {
+    success: true,
+    content: data.choices[0]?.message?.content,
+  };
+}
+
+/**
+ * Replicate: model hosting
+ */
+async function callReplicate(
+  config: LLMConfig,
+  messages: LLMMessage[]
+): Promise<LLMResponse> {
+  const response = await fetch("https://api.replicate.com/v1/predictions", {
+    method: "POST",
+    headers: {
+      "Authorization": `Token ${config.apiKey || process.env.REPLICATE_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      version: config.model,
+      input: {
+        prompt: messages[messages.length - 1]?.content || "",
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    return {
+      success: false,
+      error: `HTTP ${response.status}`,
+    };
+  }
+
+  const data = await response.json();
+  return {
+    success: true,
+    content: data.output?.join("") || data.output,
+  };
+}
+
+/**
+ * Together AI
+ */
+async function callTogether(
+  config: LLMConfig,
+  messages: LLMMessage[]
+): Promise<LLMResponse> {
+  const response = await fetch("https://api.together.xyz/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${config.apiKey || process.env.TOGETHER_API_KEY}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
