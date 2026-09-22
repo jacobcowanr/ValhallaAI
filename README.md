@@ -4,6 +4,30 @@
 
 **Status:** Local development. Not public yet — see [CONTRIBUTING.md](./CONTRIBUTING.md#why-local-first) for why.
 
+## What it does
+
+| | |
+|---|---|
+| **Chat** | 13 providers behind one UI. Drop or paste a screenshot and 12 of them read it. |
+| **Agents** | Three runtimes, run one at a time. Claude and Hermes run on a subscription login first and fall back to a paid key only when there is no login. |
+| **Coordination** | A git-synced markdown vault. Each agent writes its own outbox; a relay folds them into one log. No database. |
+| **Extensible** | Add a provider or an agent from Settings, without editing the source. |
+
+```mermaid
+flowchart LR
+    You[You] --> Chat[Models and Chat]
+    You --> Agents[Agent Control]
+    You --> Vault[Vault Browser]
+    Chat --> Providers[13 providers]
+    Chat -. screenshots .-> Providers
+    Agents --> Runtimes[3 runtimes<br/>subscription first]
+    Runtimes --> Outbox[per-agent outbox]
+    Outbox --> Log[AGENT_SYNC.md]
+    Vault --> Log
+```
+
+The one caveat worth knowing up front: the default chat provider, Claude Subscription DirectSDK, cannot read images. It bills a flat-rate subscription, which is why it is the default, but it sends a text prompt to the `claude` CLI and there is no field an image can travel in. Switch to Google or Nous Portal for screenshots. The reason, and what it would take to change, is in [ARCHITECTURE.md §5](./ARCHITECTURE.md).
+
 ## Start here
 
 | Document | What it covers |
@@ -66,7 +90,9 @@ ValhallaAI/
 ├─ env.example               .env template (copy to .env; never commit .env)
 ├─ src/                      Svelte frontend (Tauri desktop app)
 │  ├─ routes/                Models & Chat, Sessions, Vault, Agents, Profile, Settings
-│  └─ lib/                   llm-router.ts, providers.ts, provider-keys.ts, sessions.ts
+│  └─ lib/                   llm-router.ts, providers.ts, provider-keys.ts,
+│                           sessions.ts, profiles.ts, custom-providers.ts,
+│                           custom-agents.ts
 ├─ src-tauri/src/main.rs     Tauri commands: run_agent, provider_keys, vault_status
 ├─ scripts/valhallaai       Launcher symlinked onto PATH
 ├─ scripts/run_agent.sh      One-shot runner the UI and the terminal share
@@ -76,8 +102,22 @@ ValhallaAI/
 └─ docker-compose.local.yml
 ```
 
-## Providers (13, alphabetical)
+## Providers (13)
 
-Anthropic (API key) · ChatGPT/Codex · Claude Subscription DirectSDK · Fireworks AI · Google Gemini · Groq · MiniMax · Nous Portal · **Ollama** (local) · OpenRouter · Perplexity · Qwen Code · xAI Grok
+| Provider | Reads images | Billed how |
+|---|---|---|
+| Anthropic (API key) | yes | per token |
+| ChatGPT / Codex | yes | per token |
+| Claude Subscription DirectSDK | no — text only | flat-rate subscription, the default |
+| Fireworks AI | yes | per token |
+| Google Gemini | yes | per token |
+| Groq | yes | per token |
+| MiniMax | yes | per token |
+| Nous Portal | yes | flat-rate, via the local Hermes proxy |
+| Ollama | yes | free — runs on this machine |
+| OpenRouter | yes | per token |
+| Perplexity | yes | per token |
+| Qwen Code | yes | per token |
+| xAI Grok | yes | per token |
 
-Full rationale for this list in [POSITIONING.md §2](./POSITIONING.md#2-comparison).
+Why the list is this shape, and what was removed from it, is in [POSITIONING.md §3.2](./POSITIONING.md). How each one is called is in [ARCHITECTURE.md §8](./ARCHITECTURE.md).
