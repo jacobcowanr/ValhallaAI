@@ -1,80 +1,52 @@
 # Vahalla
 
-**Multi-agent orchestration platform** — deploy agents to your own cloud, coordinate via Obsidian vault, switch between models (OpenRouter, OpenAI, DeepSeek, Anthropic, local).
+**Multi-provider AI orchestration, self-hosted.** One app to talk to 17 LLM providers, run agents against them, and coordinate those agents through a git-synced markdown vault instead of a database.
 
-**Status:** Local development. Not ready for public use yet.
+**Status:** Local development. Not public yet — see [CONTRIBUTING.md](./CONTRIBUTING.md#why-local-first) for why.
 
-## Architecture
+## Start here
 
-```
-Vahalla (Desktop App — Tauri)
-├─ Model Picker (OpenRouter + direct API providers)
-├─ Vault Browser (read AGENT_SYNC.md, agent status)
-├─ Agent Control Panel (spawn, monitor, logs)
-└─ LLM Router (abstraction over multiple providers)
+| Document | What it covers |
+|---|---|
+| [ARCHITECTURE.md](./ARCHITECTURE.md) | System design, diagrams, data flow, how the pieces fit together |
+| [POSITIONING.md](./POSITIONING.md) | What problem this solves, how it differs from Hermes/LangChain/Open WebUI/etc., and what's honestly *not* novel |
+| [CONTRIBUTING.md](./CONTRIBUTING.md) | Local-first policy, project conventions, how to add a provider or agent |
 
-Agent Runtime (Docker Compose)
-├─ Hermes Agent
-├─ Claude Agent
-├─ Grok Agent
-└─ Custom Agents
-
-Vault (Git-synced coordination)
-├─ AGENT_SYNC.md (live coordination log)
-├─ Agents/ (agent configs)
-└─ Skills/ (tool catalog)
-```
-
-## Project Structure
-
-```
-Vahalla/
-├─ src-tauri/           (Rust backend — Tauri)
-│  └─ src/main.rs
-├─ src/                 (Svelte frontend)
-│  ├─ routes/
-│  ├─ lib/
-│  └─ App.svelte
-├─ agents/              (Agent runtimes — Docker)
-│  ├─ claude/
-│  ├─ hermes/
-│  └─ grok/
-├─ vault/               (Default vault template)
-│  ├─ AGENT_SYNC.md
-│  ├─ agents/
-│  └─ .gitignore
-├─ docker-compose.local.yml
-├─ package.json
-└─ README.md
-```
-
-## Quick Start (Local Dev)
+## Quick start (local dev)
 
 ```bash
 # Install dependencies
 npm install
 
 # Start Tauri dev server
-npm run tauri dev
+npm run tauri-dev
 
 # In another terminal, start Docker agents
 docker-compose -f docker-compose.local.yml up
 
-# Vault syncs to your private GitHub repo
-# (configure VAULT_REPO env var)
+# Vault syncs to your private GitHub repo (optional)
+# configure VAULT_REPO env var when ready
 ```
 
-## Development Notes
+First run: open **Settings**, pick your default provider and model — nothing is hardcoded, see [ARCHITECTURE.md §4.2](./ARCHITECTURE.md#42-settings-srcroutessettingssvelte).
 
-- **Local-first:** Build for your own workflow before considering public release
-- **No GitHub push yet:** Iterate privately, test with real agents
-- **Vault is the source of truth:** All agent coordination happens via git + markdown
-- **Model switching:** Use OpenRouter for broad model access; add direct APIs as needed
+## Project structure
 
-## Next Steps
+```
+Vahalla/
+├─ ARCHITECTURE.md       Design of record — read first
+├─ POSITIONING.md        Why this exists, differentiation
+├─ CONTRIBUTING.md        Conventions, known issues
+├─ src/                  Svelte frontend (Tauri desktop app)
+│  ├─ routes/             Settings, ModelPicker, VaultBrowser, AgentControl
+│  └─ lib/llm-router.ts   Single abstraction over all 17 providers
+├─ agents/                Docker agent runtimes (Claude, Hermes, Grok, custom)
+├─ vault/                 Coordination log template (AGENT_SYNC.md pattern)
+└─ docker-compose.local.yml
+```
 
-1. Initialize Tauri + Svelte scaffold
-2. Build LLM router (OpenRouter abstraction)
-3. Create model picker UI
-4. Add vault browser
-5. Connect to Docker agent runtime
+## Providers (17, alphabetical)
+
+Anthropic (API key & OAuth) · ChatGPT/Codex · Claude Subscription DirectSDK · Fireworks AI · Google Gemini · Groq · Hugging Face · MiniMax · Nous Portal · **Ollama** (local) · OpenClaw · OpenRouter · Perplexity · Qwen Code · Replicate · Together AI · xAI Grok
+
+Full rationale for this list in [POSITIONING.md §2](./POSITIONING.md#2-comparison).
