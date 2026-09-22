@@ -70,6 +70,89 @@ ValhallaAI/
 ### Frontend credentials
 `src/lib/llm-router.ts` reads API keys **only** from `config.apiKey` — never from `process.env`. The desktop app fills `config.apiKey` from the project `.env` for Anthropic, OpenAI, OpenRouter, Google, and xAI, and from Settings for everyone else. This code runs in the browser (inside the Tauri webview via Vite), where `process` doesn't exist unless polyfilled. Don't reintroduce `process.env`.
 
+### Profiles and per-profile storage
+
+A profile is a **namespace over `localStorage`**, not an account. There is no
+server, so there is nothing to log in to and nothing syncs anywhere.
+
+`src/lib/profiles.ts` is the single source of truth. Anything per-user goes
+through `scopedKey(base)`, which prefixes with `vai:<profileId>:`.
+
+| Scoped per profile | Global per machine |
+|---|---|
+| chat sessions, active session | sidebar open/closed |
+| default provider + model prefs | Ollama endpoint |
+| API keys pasted into Settings | `.env` |
+
+**`.env` stays global on purpose.** `scripts/run_agent.sh` and
+`docker-compose.local.yml` read the same file, and agents run from a terminal
+with no app open and no notion of an active profile — a per-profile `.env`
+would break them. A profile wanting full isolation sets `ignoreEnvKeys`, which
+makes `envKeyFor()` return empty so it falls through to its own pasted keys.
+
+Two ordering rules that are easy to break:
+
+1. `initProfiles()` runs at **module-evaluation time**, not in `onMount`.
+   `sessions.ts` calls `scopedKey()` at import time, so a deferred init would
+   build `vai::valhallaai-sessions` and silently show an empty history. Same
+   reasoning as `loadSessions()` — see the comment there.
+2. `switchProfile()` **reloads the window**. Re-reading stores in place would
+   mean every module growing a "profile changed" subscriber, and any module
+   that missed one would serve the previous profile's data — that class of bug
+   leaks one profile's chat history into another. A reload cannot.
+
+Adding a new piece of per-user state means routing it through `scopedKey()`
+**and** adding it to `LEGACY_SCOPED_KEYS` if installs already have it flat,
+or existing users silently lose it.
+
+### Sign in with Google
+
+**Working end to end as of 2026-09-22** — real round trip against the
+`valhallaai` Google project: browser consent, loopback callback, `state` check,
+token exchange, and name/email/avatar rendered on the profile.
+
+Identity only. It attaches a name, email, and avatar to a local profile and
+**nothing else** — there is no backend, so there is nothing to authorize
+against and nothing syncs. The only network traffic is the handshake.
+
+- **Rust command `google_sign_in`** in `main.rs`. A desktop client cannot keep
+  a secret, so this is OAuth 2.0 + **PKCE** with a **loopback redirect**
+  (RFC 8252 §7.3): bind `127.0.0.1:0`, open the system browser, catch the one
+  callback, exchange `code` + `code_verifier` at Google's token endpoint.
+- **Why Rust and not the webview:** the flow needs a real listening socket,
+  which the webview cannot open. The allowlist stays `{"all": false}` — no
+  `http` or `shell` entries were added for this.
+- **Two variables, and the prefix difference is load-bearing.**
+  `VITE_GOOGLE_CLIENT_ID` is read by the frontend, so it needs the `VITE_`
+  prefix and is inlined into the bundle — public by design, since it ships
+  inside the binary anyway. `GOOGLE_CLIENT_SECRET` has **no** prefix on
+  purpose: it is read by the Rust process via `envfile::value()`, and a `VITE_`
+  prefix would inline it into the JS bundle for no reason.
+- **The secret is required**, contrary to what a plain reading of RFC 8252
+  suggests. Google's "Desktop app" client type still demands `client_secret` at
+  the token endpoint even with PKCE, and answers
+  `400 invalid_request: client_secret is missing` without it. Google treats it
+  as a low-value secret (it ships in every installed copy); PKCE is the actual
+  protection.
+- **No token is stored.** Nothing here calls a Google API, so keeping an access
+  or refresh token would be holding a credential for no reason. The three
+  display fields are read out of the `id_token` and the rest is dropped.
+- **The `state` check is not optional.** Without it the loopback callback is
+  forgeable by anything that can reach localhost.
+- **The `id_token` signature is not verified locally**, deliberately: it
+  arrives straight from Google's token endpoint over TLS, which is the case
+  Google's docs exempt. If that token ever starts arriving from anywhere else —
+  a redirect fragment, a cache, another process — that reasoning stops holding
+  and the signature must be checked.
+- **Testing mode gotcha:** while the consent screen is in Testing, only
+  accounts listed under **Audience → Test users** can sign in. Everyone else
+  gets `access_denied`, which the command translates into a message naming that
+  exact cause, because it is the failure people lose an hour to.
+- Signing in overwrites the profile name only when it is still an app-assigned
+  default (`Local`, `New profile`). A profile the user deliberately renamed
+  keeps its name. Signing out clears the identity fields only — sessions, keys,
+  and prefs belong to the machine, not the Google account.
+
 ### Before claiming something works
 Actually run it — all three of these, not just the first one:
 
