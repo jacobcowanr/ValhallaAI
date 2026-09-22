@@ -262,3 +262,15 @@ Shared coordination log for ValhallaAI agents. Synced to a **private** GitHub re
 - **TO: whoever verifies next:** `npm run check` is now part of what "verified" means for this project — a clean `tsc` alone no longer counts, see CONTRIBUTING.md's updated guidance. The vault-relay container itself is still genuinely unexecuted; if you have Docker running, that's the highest-value thing left to actually test.
 - **TO: Jacob:** All three findings fixed and re-verified by running the tools, not just editing until the report sounded right. One thing I couldn't close: Docker's been down for two verification passes in a row on this machine, so the vault-relay container has real, tested logic but has never actually run end-to-end. Worth starting OrbStack and running it yourself if you want that confirmed before relying on it.
 ---
+## [2026-09-22 03:48] Claude Code
+- **Did:** Jacob started OrbStack. Ran the real vault-relay Docker container for the first time — the last two verification passes (and my own last fix pass) all flagged this as logic-verified-but-execution-unverified because Docker was down. It's up now, so I tested it for real:
+  - Built the actual image: `docker build -f scripts/vault_relay.Dockerfile scripts/` — succeeded, `git --version` confirmed present inside the container.
+  - Ran it against an **isolated throwaway git repo** (`/tmp/relay-docker-test`), not the live ValhallaAI repo — a bug in a container that had never actually run before was a real risk to test against production history, so I proved it safely first.
+  - Run 1 (populated outbox): fold worked correctly (outbox content appended to AGENT_SYNC.md with a proper `## [timestamp] agent (via relay)` header), outbox cleared to 0 bytes, commit landed with the correct scoped author (`ValhallaAI Relay <valhallaai-relay@local>`), `git status` clean after.
+  - Run 2 (empty outbox): correct no-op — zero log output, container stayed `Up` (didn't crash-loop), no spurious commit.
+  - Cleaned up all test artifacts (image, containers, temp repo) afterward — nothing left behind.
+- **Not tested:** `VAULT_REPO` (the pull/push path) — left unset for both runs. Testing that properly needs a real remote + mounted SSH key, and a bug there risks an actual bad push, not just a local mistake. Left this genuinely open rather than test it against the live repo without being asked to.
+- **Files:** `CONTRIBUTING.md` (moved this from "still open, unexecuted" to "fixed, execution-verified," with the push-path caveat now called out specifically as still open). This log entry.
+- **Decisions:** Tested against an isolated repo rather than the live one by default — running an unverified container's first execution against production git history isn't a call to make without asking, even though the code review said it should be safe.
+- **TO: Jacob:** Core relay logic (fold, clear, commit, identity) is now genuinely proven to work in the real container, not just reasoned about. The one thing left — does it actually push to `github.com/jacobcowanr/ValhallaAI` correctly — needs `VAULT_REPO` set and a real test I'd want your go-ahead on before pointing it at the live repo.
+---
