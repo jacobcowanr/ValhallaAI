@@ -3,13 +3,14 @@
   import VaultBrowser from "./routes/VaultBrowser.svelte";
   import AgentControl from "./routes/AgentControl.svelte";
   import Settings from "./routes/Settings.svelte";
+  import logoWordmark from "./assets/logo-wordmark.png";
 
   let activeTab = "models";
 </script>
 
 <main>
   <header>
-    <h1>ValhallaAI</h1>
+    <img class="logo" src={logoWordmark} alt="ValhallaAI" />
     <p>Multi-agent orchestration • Model switching • Vault coordination</p>
   </header>
 
@@ -58,22 +59,23 @@
   }
 
   header {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
+    background: #ffffff;
+    border-bottom: 1px solid #e0e0e0;
     padding: 2rem;
     text-align: center;
   }
 
-  header h1 {
-    margin: 0;
-    font-size: 2.5rem;
-    font-weight: 700;
+  header .logo {
+    display: block;
+    height: 56px;
+    width: auto;
+    margin: 0 auto;
   }
 
   header p {
-    margin: 0.5rem 0 0 0;
+    margin: 0.75rem 0 0 0;
     font-size: 0.9rem;
-    opacity: 0.9;
+    color: #666;
   }
 
   nav {
