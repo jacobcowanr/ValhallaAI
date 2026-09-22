@@ -5,17 +5,23 @@
     activeProfileId,
     googleClientId,
     signInProfileWithGoogle,
-    completeOnboardingLocally,
+    isSignedIn,
   } from "../lib/profiles";
 
-  // Shown once per profile, at startup, before anything else in the app is
-  // usable. Visibility is fully derived from the store -- there is no local
-  // "open" flag to fall out of sync with reality. See the "onboarded" field's
-  // comment in profiles.ts for why existing profiles do not see this: it is
-  // backfilled true for any profile that existed before this shipped, so this
-  // component only ever renders for a genuinely new profile.
+  // A gate, not a welcome screen. Jacob reversed the earlier "skippable"
+  // decision on 2026-09-22: the app must not be usable until a profile exists
+  // with a verified email. The only verification this app can perform is
+  // Google's — there is no server to send a confirmation mail from — so
+  // "verified" means signed in with Google and carrying an email. A typed
+  // name cannot satisfy that, so there is no local path.
+  //
+  // Keyed off isSignedIn() rather than the `onboarded` flag. That flag is
+  // backfilled true for every profile that predates this screen, which would
+  // hide the gate from exactly the installs it now has to cover. isSignedIn
+  // requires both an auth provider and an email, so a profile that is already
+  // signed in passes through and never sees this.
   $: activeProfile = $profiles.find((p) => p.id === $activeProfileId) ?? null;
-  $: visible = activeProfile !== null && !activeProfile.onboarded;
+  $: visible = activeProfile !== null && !isSignedIn(activeProfile);
 
   let signingIn = false;
   let signInError = "";
@@ -26,9 +32,8 @@
     signInError = "";
     try {
       await signInProfileWithGoogle(activeProfile.id);
-      // No need to hide the modal explicitly: signInProfileWithGoogle's patch
-      // sets onboarded: true, the profiles store updates, and `visible`
-      // above goes false on its own.
+      // signInProfileWithGoogle sets authProvider and email together, so
+      // isSignedIn() flips true and `visible` clears on its own.
     } catch (err) {
       signInError = typeof err === "string" ? err : err instanceof Error ? err.message : "Sign-in failed.";
     } finally {
@@ -36,36 +41,30 @@
     }
   }
 
-  function continueLocally(): void {
-    if (!activeProfile) return;
-    completeOnboardingLocally(activeProfile.id);
-  }
+  // No Google client, or not running in the desktop app: the sign-in button
+  // cannot succeed, and with no local path that would leave the app
+  // permanently blocked. Say so instead of presenting a button that fails.
+  $: blocked = !inTauri() || !googleClientId();
 </script>
 
 {#if visible}
-  <!-- Not an accidental dismiss surface: there is no backdrop-click-to-close
-       and no Escape handler. Both paths (sign in / continue) are deliberate
-       choices, and either one is fine -- this is a welcome screen, not a
-       gate, so there is nothing to "cancel" out of. -->
+  <!-- No backdrop-click and no Escape handler. This is a gate: the only way
+       through is a verified sign-in, so there is nothing to dismiss. -->
   <div class="backdrop" role="dialog" aria-modal="true" aria-labelledby="onboarding-title">
     <div class="card">
-      <h2 id="onboarding-title">Welcome to ValhallaAI</h2>
-      <p class="lede">
-        This app is local-first: everything runs on this machine, and nothing
-        you do here requires an account.
-      </p>
+      <h2 id="onboarding-title">Create your profile</h2>
+      <p class="lede">Sign in with Google to use ValhallaAI.</p>
       <p>
-        You can attach a name, verified email, and avatar to this profile by
-        signing in with Google — that's identity only, not a login. There is
-        no server, so nothing syncs anywhere and no data ever leaves your
-        control. See <code>CONTRIBUTING.md</code> if you want the details.
+        Your Google account supplies the name, verified email, and avatar for
+        this profile. That's identity only — there is no server here, nothing
+        syncs, and no data leaves this machine.
       </p>
 
       <div class="actions">
         <button
           class="primary-btn"
           on:click={signIn}
-          disabled={!googleClientId() || !inTauri() || signingIn}
+          disabled={blocked || signingIn}
           title={!inTauri()
             ? "Only works in the desktop app"
             : !googleClientId()
@@ -75,17 +74,16 @@
           <span class="g-mark">G</span>
           {signingIn ? "Waiting for your browser…" : "Sign in with Google"}
         </button>
-        <button class="secondary-btn" on:click={continueLocally} disabled={signingIn}>
-          Continue without an account
-        </button>
       </div>
 
       {#if !inTauri()}
-        <p class="hint">Sign-in only runs in the desktop app — the local port it needs isn't available here.</p>
+        <p class="hint">
+          Sign-in only runs in the desktop app — the local port it needs isn't available here, so this
+          screen can't be completed in a browser tab.
+        </p>
       {:else if !googleClientId()}
         <p class="hint">
-          Sign-in needs <code>VITE_GOOGLE_CLIENT_ID</code> set in <code>.env</code>. You can still continue
-          without an account.
+          Sign-in needs <code>VITE_GOOGLE_CLIENT_ID</code> set in <code>.env</code>, then a restart.
         </p>
       {/if}
       {#if signInError}
@@ -153,8 +151,7 @@
     margin-top: 1.25rem;
   }
 
-  .primary-btn,
-  .secondary-btn {
+  .primary-btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -173,21 +170,9 @@
     color: var(--text-primary);
   }
 
-  .primary-btn:disabled,
-  .secondary-btn:disabled {
+  .primary-btn:disabled {
     opacity: 0.55;
     cursor: not-allowed;
-  }
-
-  .secondary-btn {
-    border: 1px solid transparent;
-    background: none;
-    color: var(--text-secondary);
-    font-weight: 500;
-  }
-
-  .secondary-btn:hover:not(:disabled) {
-    color: var(--text-primary);
   }
 
   .g-mark {
