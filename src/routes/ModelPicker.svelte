@@ -31,6 +31,47 @@
   // appendToSession() instead of mutating an array directly.
   $: responses = $sessions.find((s) => s.id === $activeSessionId)?.messages ?? [];
 
+  // Copy-to-clipboard for individual messages.
+  //
+  // Uses the plain web clipboard API, not `@tauri-apps/api/clipboard`: the
+  // Tauri allowlist is `{"all": false}`, so the built-in clipboard module is
+  // not enabled, and turning it on would mean an allowlist change plus a
+  // rebuild for something the webview can already do. The execCommand branch
+  // is the fallback for a non-secure context, where navigator.clipboard is
+  // undefined.
+  //
+  // Keyed by index rather than a message id because ChatMessage has no id and
+  // adding one would change the persisted session shape. The 1.5s reset makes
+  // a stale index harmless.
+  let copiedIndex: number | null = null;
+  let copyResetTimer: ReturnType<typeof setTimeout>;
+
+  async function copyMessage(text: string, index: number): Promise<void> {
+    let ok = false;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        ok = true;
+      } else {
+        const scratch = document.createElement("textarea");
+        scratch.value = text;
+        scratch.setAttribute("readonly", "");
+        scratch.style.position = "fixed";
+        scratch.style.opacity = "0";
+        document.body.appendChild(scratch);
+        scratch.select();
+        ok = document.execCommand("copy");
+        document.body.removeChild(scratch);
+      }
+    } catch {
+      ok = false;
+    }
+
+    copiedIndex = ok ? index : null;
+    clearTimeout(copyResetTimer);
+    if (ok) copyResetTimer = setTimeout(() => (copiedIndex = null), 1500);
+  }
+
   let attachedImages: AttachedImage[] = [];
   let attachMenuOpen = false;
   let fileInput: HTMLInputElement;
@@ -250,17 +291,28 @@
           {/if}
         </div>
       {/if}
-      {#each responses as msg}
+      {#each responses as msg, i}
         <div class="message {msg.type}">
           {#if msg.imageCount}
             <div class="attachment-note">📎 {msg.imageCount} image{msg.imageCount > 1 ? "s" : ""} attached</div>
           {/if}
           <div class="content">{msg.text}</div>
-          {#if msg.usage}
-            <div class="usage">
-              {msg.usage.inputTokens} in • {msg.usage.outputTokens} out
-            </div>
-          {/if}
+          <div class="message-footer">
+            {#if msg.usage}
+              <span class="usage">
+                {msg.usage.inputTokens} in • {msg.usage.outputTokens} out
+              </span>
+            {/if}
+            <button
+              class="copy-btn"
+              class:copied={copiedIndex === i}
+              on:click={() => copyMessage(msg.text, i)}
+              title="Copy this message"
+              aria-label="Copy message to clipboard"
+            >
+              {copiedIndex === i ? "✓ Copied" : "⧉ Copy"}
+            </button>
+          </div>
         </div>
       {/each}
     </div>
@@ -448,8 +500,17 @@
     word-break: break-word;
   }
 
-  .usage {
+  /* Usage and the copy button share one row under the message body. The
+     button sits at the end, so it lands in the same place whether or not a
+     message reports token usage (user turns don't). */
+  .message-footer {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
     margin-top: 0.5rem;
+  }
+
+  .usage {
     font-size: 0.8rem;
     color: var(--text-secondary);
     opacity: 0.8;
@@ -457,6 +518,45 @@
 
   .message.user .usage {
     color: rgba(255, 255, 255, 0.75);
+  }
+
+  /* Always rendered, not hover-only: hover-only controls are unreachable by
+     keyboard and invisible on touch. Low opacity keeps it quiet until the
+     message is hovered or the button itself is focused. */
+  .copy-btn {
+    margin-left: auto;
+    padding: 0.2rem 0.5rem;
+    font-family: inherit;
+    font-size: 0.75rem;
+    line-height: 1.4;
+    color: inherit;
+    background: transparent;
+    border: 1px solid currentColor;
+    border-radius: 5px;
+    opacity: 0.4;
+    cursor: pointer;
+    transition: opacity 0.15s ease, background 0.15s ease;
+  }
+
+  .message:hover .copy-btn,
+  .copy-btn:focus-visible {
+    opacity: 0.85;
+  }
+
+  .copy-btn:hover {
+    opacity: 1;
+    background: rgba(127, 127, 127, 0.16);
+  }
+
+  .copy-btn:focus-visible {
+    outline: 2px solid currentColor;
+    outline-offset: 1px;
+  }
+
+  .copy-btn.copied {
+    opacity: 1;
+    border-color: transparent;
+    background: rgba(127, 127, 127, 0.2);
   }
 
   /* Everything below the message list: attachments, input row, then the
