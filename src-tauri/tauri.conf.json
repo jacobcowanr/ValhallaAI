@@ -7,7 +7,7 @@
     "distDir": "../dist"
   },
   "package": {
-    "productName": "valhallaai",
+    "productName": "ValhallaAI",
     "version": "0.1.0"
   },
   "tauri": {

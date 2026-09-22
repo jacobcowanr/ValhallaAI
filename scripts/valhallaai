@@ -45,7 +45,11 @@ fi
 # where it takes precedence over the pointer file.
 VALHALLAAI_PROJECT_DIR=$PROJECT_DIR
 export VALHALLAAI_PROJECT_DIR
-APP_BUNDLE="$PROJECT_DIR/src-tauri/target/release/bundle/macos/valhallaai.app"
+# Resolved by glob, not hardcoded: the bundle filename comes from
+# productName in tauri.conf.json, so pinning the literal name means a rename
+# silently drops this back to the dev build forever.
+BUNDLE_DIR="$PROJECT_DIR/src-tauri/target/release/bundle/macos"
+APP_BUNDLE=$(ls -d "$BUNDLE_DIR"/*.app 2>/dev/null | head -1)
 
 die() {
     echo "valhallaai: $1" >&2
