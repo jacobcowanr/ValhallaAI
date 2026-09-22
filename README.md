@@ -89,7 +89,7 @@ ValhallaAI/
 ├─ CONTRIBUTING.md           Conventions, known issues
 ├─ env.example               .env template (copy to .env; never commit .env)
 ├─ src/                      Svelte frontend (Tauri desktop app)
-│  ├─ routes/                Models & Chat, Sessions, Vault, Agents, Profile, Settings
+│  ├─ routes/                Models & Chat, Recent, Projects, Sessions, Vault, Agents, Profile, Settings
 │  └─ lib/                   llm-router.ts, providers.ts, provider-keys.ts,
 │                           sessions.ts, profiles.ts, custom-providers.ts,
 │                           custom-agents.ts

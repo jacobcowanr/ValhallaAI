@@ -4,66 +4,51 @@
   import VaultBrowser from "./routes/VaultBrowser.svelte";
   import AgentControl from "./routes/AgentControl.svelte";
   import Sessions from "./routes/Sessions.svelte";
+  import Recent from "./routes/Recent.svelte";
+  import Projects from "./routes/Projects.svelte";
   import Settings from "./routes/Settings.svelte";
   import Profile from "./routes/Profile.svelte";
   import Onboarding from "./routes/Onboarding.svelte";
   import logoWordmark from "./assets/ValhallaAI_Header.png";
   import norseFontUrl from "./assets/fonts/Norse.otf";
   import norseBoldFontUrl from "./assets/fonts/Norse-Bold.otf";
-  // createSession() import (not loadSessions — that now runs automatically
-  // at module-evaluation time inside sessions.ts itself, see the comment
-  // there on why an onMount call here was the wrong place for it).
-  import { createSession } from "./lib/sessions";
-  import { FALLBACK_PROVIDER, FALLBACK_MODEL } from "./lib/providers";
   // Register stored user-defined providers with the router at startup, so a
   // custom provider is routable before Settings is ever opened. Without
   // this, the first send after a restart would fail with "Unknown provider"
   // while the picker happily displayed it.
   import { initCustomProviders } from "./lib/custom-providers";
-  import { scopedKey, profiles, activeProfileId, switchProfile, isSignedIn } from "./lib/profiles";
-  import { isKnownProvider } from "./lib/providers";
+  import { profiles, activeProfileId, switchProfile, isSignedIn } from "./lib/profiles";
 
   // "settings" deliberately excluded from this list — it's pinned to the
   // bottom of the sidebar separately (see the markup below). The profile
-  // card lives at the TOP of the sidebar instead, above "New Session" --
-  // identity is the first thing in the column, app config (Settings) is
-  // the last. Clicking the profile card opens its own "profile" tab,
-  // still fully separate from "settings" (provider defaults, Ollama, API
-  // keys) -- same split Gemini/most chat apps use between an account
-  // surface and an app-settings page.
+  // card lives at the TOP of the sidebar, above the nav -- identity is the
+  // first thing in the column, app config (Settings) is the last. Clicking
+  // the profile card opens its own "profile" tab, still fully separate from
+  // "settings" (provider defaults, Ollama, API keys) -- same split
+  // Gemini/most chat apps use between an account surface and an app-settings
+  // page.
+  //
+  // There is deliberately no "New Session" entry here. It used to be a
+  // sidebar button that called createSession() and then switched to
+  // "Models & Chat" — which made it a second button for a tab that already
+  // existed, since the chat creates a session on first send anyway. Starting
+  // a fresh conversation is now an action inside Models & Chat, where the
+  // conversation actually is.
+  //
+  // The three conversation views have distinct jobs and are not duplicates:
+  //   Recent   — previous chats not filed under a project (where one lands)
+  //   Projects — filed chats, grouped by project
+  //   Sessions — all of them, newest first, the place to delete from
   const sections = [
     { id: "models", label: "Models & Chat" },
+    { id: "recent", label: "Recent" },
+    { id: "projects", label: "Projects" },
     { id: "sessions", label: "Sessions" },
     { id: "vault", label: "Vault Browser" },
     { id: "agents", label: "Agent Control" },
   ];
 
   let activeTab = "models";
-
-  function startNewSession() {
-    // Seed the new session with whatever provider/model the user has as
-    // their default, not always the hardcoded fallback — same source
-    // Settings.svelte and ModelPicker.svelte already read from.
-    let provider: string = FALLBACK_PROVIDER;
-    let model = FALLBACK_MODEL;
-    const prefs = localStorage.getItem(scopedKey("valhallaai-prefs"));
-    if (prefs) {
-      try {
-        const parsed = JSON.parse(prefs) as { defaultProvider?: string; defaultModel?: string };
-        // Only trust a provider that still resolves — a custom provider the
-        // user deleted afterwards would otherwise seed a session that cannot
-        // route, and the session would fail on its first send.
-        if (parsed.defaultProvider && isKnownProvider(parsed.defaultProvider)) {
-          provider = parsed.defaultProvider;
-        }
-        if (parsed.defaultModel) model = parsed.defaultModel;
-      } catch {
-        // Malformed prefs — fall back to the defaults above rather than crash.
-      }
-    }
-    createSession(provider, model);
-    activeTab = "models";
-  }
 
   // The chip shows who the active profile is. Reactive on $profiles too,
   // not just $activeProfileId, so a rename in Settings updates it without
@@ -162,10 +147,6 @@
         </div>
       {/if}
 
-      <button class="new-session-btn" on:click={startNewSession}>
-        New Session
-      </button>
-
       <nav>
         {#each sections as section}
           <button class:active={activeTab === section.id} on:click={() => (activeTab = section.id)}>
@@ -195,6 +176,10 @@
         <ModelPicker {logoWordmark} />
       {:else if activeTab === "sessions"}
         <Sessions onSelect={() => (activeTab = "models")} />
+      {:else if activeTab === "recent"}
+        <Recent onSelect={() => (activeTab = "models")} />
+      {:else if activeTab === "projects"}
+        <Projects onSelect={() => (activeTab = "models")} />
       {:else if activeTab === "vault"}
         <VaultBrowser />
       {:else if activeTab === "agents"}
@@ -359,29 +344,6 @@
     border: 1px solid var(--border-color);
     background: var(--bg-surface);
     color: var(--text-primary);
-  }
-
-  .new-session-btn {
-    display: flex;
-    align-items: center;
-    width: 100%;
-    padding: 0.7rem 0.85rem;
-    margin-bottom: 0.25rem;
-    background: none;
-    color: var(--text-primary);
-    border: none;
-    border-radius: 8px;
-    cursor: pointer;
-    font-family: var(--font-display);
-    font-size: 1.1rem;
-    font-weight: 400;
-    letter-spacing: 0.06em;
-    text-align: left;
-    transition: color 0.15s;
-  }
-
-  .new-session-btn:hover {
-    color: var(--accent);
   }
 
   nav {
