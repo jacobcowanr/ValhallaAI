@@ -3,7 +3,7 @@
  * Abstraction layer for multiple LLM providers: OpenRouter, OpenAI, DeepSeek, Anthropic, local
  */
 
-export type LLMProvider = "openrouter" | "openai" | "deepseek" | "anthropic" | "grok" | "local";
+export type LLMProvider = "nous" | "anthropic" | "anthropic_oauth" | "claude_directsdk" | "chatgpt" | "minimax" | "qwen" | "xai_grok" | "github_copilot" | "fireworks" | "openrouter" | "local";
 
 export interface LLMConfig {
   provider: LLMProvider;
@@ -38,16 +38,27 @@ export async function callLLM(
 ): Promise<LLMResponse> {
   try {
     switch (config.provider) {
+      case "nous":
+        return await callNous(config, messages);
+      case "anthropic":
+      case "anthropic_oauth":
+        return await callAnthropic(config, messages);
+      case "claude_directsdk":
+        return await callClaudeDirectSDK(config, messages);
+      case "chatgpt":
+        return await callOpenAI(config, messages);
+      case "minimax":
+        return await callMiniMax(config, messages);
+      case "qwen":
+        return await callQwen(config, messages);
+      case "xai_grok":
+        return await callGrok(config, messages);
+      case "github_copilot":
+        return await callOpenAI(config, messages);
+      case "fireworks":
+        return await callFireworks(config, messages);
       case "openrouter":
         return await callOpenRouter(config, messages);
-      case "openai":
-        return await callOpenAI(config, messages);
-      case "deepseek":
-        return await callDeepSeek(config, messages);
-      case "anthropic":
-        return await callAnthropic(config, messages);
-      case "grok":
-        return await callGrok(config, messages);
       case "local":
         return await callLocal(config, messages);
       default:
@@ -300,6 +311,172 @@ async function callLocal(
   return {
     success: true,
     content: data.message?.content,
+  };
+}
+
+/**
+ * Nous Portal: aggregated endpoint (same as OpenRouter for Nous)
+ */
+async function callNous(
+  config: LLMConfig,
+  messages: LLMMessage[]
+): Promise<LLMResponse> {
+  const response = await fetch("https://inference-api.nousresearch.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${config.apiKey || process.env.NOUS_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: config.model,
+      messages: messages,
+      temperature: config.temperature || 0.7,
+      max_tokens: config.maxTokens || 2048,
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    return {
+      success: false,
+      error: error.error?.message || `HTTP ${response.status}`,
+    };
+  }
+
+  const data = await response.json();
+  return {
+    success: true,
+    content: data.choices[0]?.message?.content,
+    usage: {
+      inputTokens: data.usage?.prompt_tokens || 0,
+      outputTokens: data.usage?.completion_tokens || 0,
+    },
+  };
+}
+
+/**
+ * Claude Subscription DirectSDK (via Claude CLI)
+ */
+async function callClaudeDirectSDK(
+  config: LLMConfig,
+  messages: LLMMessage[]
+): Promise<LLMResponse> {
+  // This delegates to the Hermes DirectSDK plugin or local Claude CLI
+  // For now, use Anthropic API as fallback
+  return await callAnthropic(config, messages);
+}
+
+/**
+ * MiniMax: direct endpoint
+ */
+async function callMiniMax(
+  config: LLMConfig,
+  messages: LLMMessage[]
+): Promise<LLMResponse> {
+  const response = await fetch("https://api.minimax.chat/v1/text/chatcompletion", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${config.apiKey || process.env.MINIMAX_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: config.model,
+      messages: messages,
+      temperature: config.temperature || 0.7,
+      tokens_to_generate: config.maxTokens || 2048,
+    }),
+  });
+
+  if (!response.ok) {
+    return {
+      success: false,
+      error: `HTTP ${response.status}`,
+    };
+  }
+
+  const data = await response.json();
+  return {
+    success: true,
+    content: data.reply,
+  };
+}
+
+/**
+ * Qwen: direct endpoint
+ */
+async function callQwen(
+  config: LLMConfig,
+  messages: LLMMessage[]
+): Promise<LLMResponse> {
+  const response = await fetch("https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${config.apiKey || process.env.QWEN_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: config.model,
+      input: {
+        messages: messages,
+      },
+      parameters: {
+        temperature: config.temperature || 0.7,
+        max_tokens: config.maxTokens || 2048,
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    return {
+      success: false,
+      error: `HTTP ${response.status}`,
+    };
+  }
+
+  const data = await response.json();
+  return {
+    success: true,
+    content: data.output?.text,
+  };
+}
+
+/**
+ * Fireworks AI: direct endpoint
+ */
+async function callFireworks(
+  config: LLMConfig,
+  messages: LLMMessage[]
+): Promise<LLMResponse> {
+  const response = await fetch("https://api.fireworks.ai/inference/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${config.apiKey || process.env.FIREWORKS_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: config.model,
+      messages: messages,
+      temperature: config.temperature || 0.7,
+      max_tokens: config.maxTokens || 2048,
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    return {
+      success: false,
+      error: error.error?.message || `HTTP ${response.status}`,
+    };
+  }
+
+  const data = await response.json();
+  return {
+    success: true,
+    content: data.choices[0]?.message?.content,
+    usage: {
+      inputTokens: data.usage?.prompt_tokens || 0,
+      outputTokens: data.usage?.completion_tokens || 0,
+    },
   };
 }
 

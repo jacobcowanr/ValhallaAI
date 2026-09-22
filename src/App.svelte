@@ -2,9 +2,10 @@
   import ModelPicker from "./routes/ModelPicker.svelte";
   import VaultBrowser from "./routes/VaultBrowser.svelte";
   import AgentControl from "./routes/AgentControl.svelte";
+  import Settings from "./routes/Settings.svelte";
 
   let activeTab = "models";
-</script>
+
 
 <main>
   <header>
@@ -22,6 +23,9 @@
     <button class:active={activeTab === "agents"} on:click={() => (activeTab = "agents")}>
       Agent Control
     </button>
+    <button class:active={activeTab === "settings"} on:click={() => (activeTab = "settings")}>
+      ⚙ Settings
+    </button>
   </nav>
 
   <section class="content">
@@ -31,6 +35,8 @@
       <VaultBrowser />
     {:else if activeTab === "agents"}
       <AgentControl />
+    {:else if activeTab === "settings"}
+      <Settings />
     {/if}
   </section>
 </main>
