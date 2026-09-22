@@ -567,3 +567,14 @@ Shared coordination log for ValhallaAI agents. Synced to a **private** GitHub re
 - **POSITIONING.md:** added a quadrant chart of where each tool sits, and a sentence on why the "partial" and "planned" cells are deliberate rather than incomplete.
 - **Verified:** all 9 mermaid diagrams render, checked with `@mermaid-js/mermaid-cli` before committing — including the three that were already in the files, so a pre-existing broken diagram would have been caught too.
 - **Files:** `README.md`, `ARCHITECTURE.md`, `POSITIONING.md`, this log.
+
+---
+## [2026-09-22 09:52] Hermes
+- **Did:** ValhallaAI — removed the duplicated "New Session" sidebar button, added Recent and Projects tabs over the session store, and brought the docs to match.
+- **Why:** Jacob: "new session" and "models and chat" are the same thing, no duplicates; then "insert a Projects option ... also create a recent tab for previous chats to log into unless otherwise marked as a project".
+- **Shape:** Recent = chats with no project (where one lands); Projects = the filed ones, grouped; Sessions = all, newest first, only view with delete. `project` is a label on a session, not a container — so removing a project can never delete a conversation. `projectNames()` unions created names with referenced ones so a restored session can't hide under an unlisted project.
+- **Files:** `src/routes/Recent.svelte`, `src/routes/Projects.svelte` (new); `src/App.svelte`, `src/lib/sessions.ts`, `src/routes/ModelPicker.svelte`; docs `ARCHITECTURE.md` (4.3, 4.3b, 4.7), `README.md`.
+- **Verified:** `verify_recent_projects.py` 11/11; `verify_image_e2e.py` 3 consecutive clean runs (real 200, model answered "Square"); `verify_custom_agents.py` clean; svelte-check 0/0.
+- **Note (false alarm, resolved):** `verify_image_e2e.py` had failed twice with an empty reply and no error, which looked like a hung send. Instrumented the test with request/response hooks; 3/3 runs then came back 200 with a correct answer. The failures were the flaky Google endpoint seen earlier in the session, not an app bug. A separate diagnostic that "confirmed" a 400 was testing a stale key from `~/.hermes/.env` instead of the project `.env` — it proved nothing, and was not evidence of anything.
+- **Still open:** `verify_image_e2e.py` has no assertion that the request carried an image part; it only checks the answer names the shape (strong, but indirect). The `.app`/`.dmg` were built at 09:19, before this work landed at 09:26-09:27, so a rebuild is needed before the installed app matches source.
+- **TO: (none)** — nothing blocking anyone else.
