@@ -14,6 +14,7 @@
 const https = require("https");
 const fs = require("fs");
 const path = require("path");
+const { buildPrompt } = require("./task.cjs");
 
 const VAULT_PATH = process.env.VAULT_PATH || "/vault";
 const AGENT_NAME = process.env.AGENT_NAME || "grok-agent";
@@ -101,7 +102,12 @@ async function runAgent() {
   }
 
   try {
-    const prompt = "You are an agent running in ValhallaAI. Report your status and capabilities.";
+    // See the claude agent: task from vault/agent-tasks.json, status ping as
+    // the fallback so this stays a usable connectivity check.
+    const task = buildPrompt(VAULT_PATH, AGENT_NAME);
+    const prompt =
+      task || "You are an agent running in ValhallaAI. Report your status and capabilities.";
+    console.log(`[${AGENT_NAME}] ${task ? "running task from agent-tasks.json" : "no task defined, sending status ping"}`);
     const result = await callGrok(config.config.model, prompt);
 
     console.log(`[${AGENT_NAME}] Response:`, result);

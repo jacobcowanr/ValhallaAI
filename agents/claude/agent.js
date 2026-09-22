@@ -7,6 +7,7 @@
 const Anthropic = require("@anthropic-ai/sdk");
 const fs = require("fs");
 const path = require("path");
+const { buildPrompt } = require("./task.cjs");
 
 const VAULT_PATH = process.env.VAULT_PATH || "/vault";
 const AGENT_NAME = process.env.AGENT_NAME || "claude-agent";
@@ -57,9 +58,14 @@ async function runAgent() {
   const client = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
 
   try {
-    // Example: simple echo task
+    // The task comes from vault/agent-tasks.json, so changing what this agent
+    // does is a config edit rather than a rebuild. With no task defined it
+    // falls back to the old self-description ping, which keeps Agent Control
+    // usable as a plain connectivity check.
+    const task = buildPrompt(VAULT_PATH, AGENT_NAME);
     const prompt =
-      "You are an agent running in ValhallaAI. Report your status and capabilities.";
+      task || "You are an agent running in ValhallaAI. Report your status and capabilities.";
+    console.log(`[${AGENT_NAME}] ${task ? "running task from agent-tasks.json" : "no task defined, sending status ping"}`);
 
     const response = await client.messages.create({
       model: config.config.model,
