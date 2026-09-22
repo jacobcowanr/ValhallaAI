@@ -1,12 +1,26 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/tauri";
 
   interface AgentStatus {
     name: string;
     blurb: string;
     status: "running" | "stopped" | "error";
+    /** Timestamp of the last real run, recovered from the agent's outbox. */
     lastRun: string | null;
+    /** "OK" / "ERROR" from that run. */
+    lastResult: string;
+    /** From agents-config.json, not hardcoded. */
+    enabled: boolean;
     output: string;
+  }
+
+  /** Shape of the agent_status command's reply. */
+  interface AgentInfo {
+    name: string;
+    enabled: boolean;
+    lastRun: string;
+    lastStatus: string;
   }
 
   let agents: AgentStatus[] = [
@@ -15,6 +29,8 @@
       blurb: "One-shot Docker container. Needs ANTHROPIC_API_KEY in .env.",
       status: "stopped",
       lastRun: null,
+      lastResult: "",
+      enabled: true,
       output: "",
     },
     {
@@ -22,13 +38,19 @@
       blurb: "Runs the Hermes CLI on this Mac, one shot, then exits.",
       status: "stopped",
       lastRun: null,
+      lastResult: "",
+      enabled: true,
       output: "",
     },
     {
       name: "grok-agent",
-      blurb: "One-shot Docker container. Disabled in agents-config.json until XAI_API_KEY is set.",
+      // No longer claims to be disabled: that is read from agents-config.json
+      // and shown as a badge, because the file can change without this text.
+      blurb: "One-shot Docker container. Calls api.x.ai directly and needs XAI_API_KEY in .env.",
       status: "stopped",
       lastRun: null,
+      lastResult: "",
+      enabled: true,
       output: "",
     },
   ];
@@ -36,6 +58,45 @@
   function inTauri(): boolean {
     return typeof window !== "undefined" && "__TAURI__" in window;
   }
+
+  /** Format an outbox timestamp for display, falling back to the raw value if
+   * it is not a date this runtime can parse. */
+  function formatStamp(raw: string): string {
+    const d = new Date(raw);
+    return Number.isNaN(d.getTime()) ? raw : d.toLocaleString();
+  }
+
+  /**
+   * Pull real state from disk.
+   *
+   * The cards used to say "Never run" on every launch, because last-run lived
+   * in component state and reset each time. The outbox files are the durable
+   * record of what actually happened, so they are the source here.
+   */
+  async function loadStatus(): Promise<void> {
+    if (!inTauri()) return;
+    try {
+      const info = await invoke<AgentInfo[]>("agent_status");
+      const byName = new Map(info.map((a) => [a.name, a]));
+      agents = agents.map((a) => {
+        const live = byName.get(a.name);
+        if (!live) return a;
+        return {
+          ...a,
+          enabled: live.enabled,
+          lastRun: live.lastRun ? formatStamp(live.lastRun) : a.lastRun,
+          lastResult: live.lastStatus || a.lastResult,
+        };
+      });
+    } catch {
+      // Non-fatal: the cards still render and Run still works, they just
+      // cannot show history. Better than blocking the page on it.
+    }
+  }
+
+  onMount(() => {
+    void loadStatus();
+  });
 
   async function runAgent(agent: AgentStatus): Promise<void> {
     if (agent.status === "running") return;
@@ -53,7 +114,11 @@
       agent.status = "error";
       agent.output = typeof error === "string" ? error : error instanceof Error ? error.message : "Run failed";
     }
-    agent.lastRun = new Date().toLocaleString();
+    agents = agents;
+    // Re-read from disk rather than stamping the clock locally, so the card
+    // shows what the outbox actually recorded -- including a run that failed
+    // before it could write one.
+    await loadStatus();
   }
 </script>
 
@@ -69,13 +134,21 @@
       <div class="agent-card">
         <div class="agent-header">
           <h3>{agent.name}</h3>
+          {#if !agent.enabled}
+            <span class="status disabled" title="enabled: false in vault/agents-config.json">disabled</span>
+          {/if}
           <span class="status {agent.status}">{agent.status}</span>
         </div>
 
         <div class="agent-body">
           <p>{agent.blurb}</p>
           {#if agent.lastRun}
-            <p>Last run: {agent.lastRun}</p>
+            <p class="last-run">
+              Last run: {agent.lastRun}
+              {#if agent.lastResult}
+                <span class="result {agent.lastResult === 'OK' ? 'ok' : 'bad'}">{agent.lastResult}</span>
+              {/if}
+            </p>
           {:else}
             <p class="empty">Never run</p>
           {/if}
@@ -99,6 +172,35 @@
 </div>
 
 <style>
+  .status.disabled {
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+  }
+
+  .last-run {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+  }
+
+  .result {
+    padding: 0.05rem 0.35rem;
+    font-size: 0.7rem;
+    font-weight: 600;
+    border-radius: 4px;
+  }
+
+  .result.ok {
+    color: #7ee2a8;
+    background: rgba(126, 226, 168, 0.12);
+  }
+
+  .result.bad {
+    color: #ff8a80;
+    background: rgba(255, 138, 128, 0.12);
+  }
+
   .container {
     max-width: 1000px;
   }
