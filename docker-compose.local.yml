@@ -2,6 +2,9 @@ version: "3.9"
 
 services:
   # Agent Runtime for Claude SDK
+  # Subscription first: run_agent.sh prefers the `claude auth login` session
+  # and only falls back to this container (the paid key) when there is no
+  # login. Kept because the container is still the fallback path.
   claude-agent:
     build:
       context: ./agents

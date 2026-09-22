@@ -40,7 +40,7 @@
   let agents: AgentStatus[] = [
     {
       name: "claude-agent",
-      blurb: "One-shot Docker container. Needs ANTHROPIC_API_KEY in .env.",
+      blurb: "Subscription first via `claude auth login`. Falls back to the Docker container on ANTHROPIC_API_KEY only when there is no subscription login.",
       status: "stopped",
       lastRun: null,
       lastResult: "",

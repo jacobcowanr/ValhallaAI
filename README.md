@@ -28,7 +28,7 @@ Run one agent at a time. Do not start the stack with `docker compose up`: `claud
 
 ```bash
 scripts/run_agent.sh hermes-agent    # host Hermes CLI, one shot
-scripts/run_agent.sh claude-agent    # needs ANTHROPIC_API_KEY, one paid call
+scripts/run_agent.sh claude-agent    # subscription first, paid key only as fallback
 scripts/run_agent.sh grok-agent      # needs XAI_API_KEY and enabled: true
 ```
 
