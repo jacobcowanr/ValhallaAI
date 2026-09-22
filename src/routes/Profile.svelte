@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { invoke } from "@tauri-apps/api/tauri";
   import { inTauri } from "../lib/provider-keys";
   import {
     profiles,
@@ -9,6 +8,9 @@
     deleteProfile,
     switchProfile,
     isSignedIn,
+    googleClientId,
+    signInProfileWithGoogle,
+    signOutProfile,
   } from "../lib/profiles";
 
   // Split out of Settings.svelte: identity/profile management and app
@@ -18,38 +20,17 @@
   // except for the profiles store itself.
   $: activeProfile = $profiles.find((p) => p.id === $activeProfileId) ?? null;
 
-  // Public by design: a Desktop-app client id ships inside the binary, and
-  // PKCE -- not a secret -- is what protects the exchange. Read from .env
-  // only so a different machine can use a different client without a code
-  // change. There is no client secret anywhere in this app.
-  const googleClientId: string = import.meta.env.VITE_GOOGLE_CLIENT_ID ?? "";
-
   let signingIn = false;
   let signInError = "";
 
-  // Names the app assigned, not ones the user chose. Signing in overwrites
-  // these with the Google display name; a profile the user deliberately
-  // renamed keeps its name.
-  const AUTO_PROFILE_NAMES = new Set(["Local", "New profile"]);
-
+  // The actual OAuth call and patch-building live in profiles.ts, shared with
+  // the first-launch onboarding prompt -- see the comment there.
   async function signInWithGoogle(): Promise<void> {
     if (!activeProfile || signingIn) return;
     signingIn = true;
     signInError = "";
     try {
-      const identity = await invoke<{ email: string; name: string; avatarUrl: string }>(
-        "google_sign_in",
-        { clientId: googleClientId }
-      );
-      const patch: Record<string, unknown> = {
-        email: identity.email,
-        avatarUrl: identity.avatarUrl,
-        authProvider: "google",
-      };
-      if (identity.name && AUTO_PROFILE_NAMES.has(activeProfile.name)) {
-        patch.name = identity.name;
-      }
-      updateProfile(activeProfile.id, patch);
+      await signInProfileWithGoogle(activeProfile.id);
     } catch (err) {
       signInError = typeof err === "string" ? err : err instanceof Error ? err.message : "Sign-in failed.";
     } finally {
@@ -59,13 +40,7 @@
 
   function signOut(): void {
     if (!activeProfile) return;
-    // Clears the identity, not the profile: sessions, keys, and prefs are
-    // this machine's data and have nothing to do with the Google account.
-    updateProfile(activeProfile.id, {
-      email: undefined,
-      avatarUrl: undefined,
-      authProvider: undefined,
-    });
+    signOutProfile(activeProfile.id);
     signInError = "";
   }
 
@@ -157,7 +132,16 @@
             <strong>{activeProfile?.name ?? "Local"}</strong>
             <button class="link-btn" on:click={beginRename}>Rename</button>
           {/if}
-          <div class="profile-email">{activeProfile?.email ?? "Not signed in"}</div>
+          <div class="profile-email">
+            {activeProfile?.email ?? "Not signed in"}
+            {#if activeProfile?.email}
+              {#if activeProfile.emailVerified}
+                <span class="verify-badge verified" title="Confirmed by Google's email_verified claim at sign-in">✓ Verified</span>
+              {:else}
+                <span class="verify-badge unverified" title="Google's email_verified claim was false at sign-in">Unverified</span>
+              {/if}
+            {/if}
+          </div>
         </div>
       </div>
 
@@ -172,10 +156,10 @@
           <button
             class="signin-btn"
             on:click={signInWithGoogle}
-            disabled={!googleClientId || !inTauri() || signingIn}
+            disabled={!googleClientId() || !inTauri() || signingIn}
             title={!inTauri()
               ? "Only works in the desktop app"
-              : !googleClientId
+              : !googleClientId()
                 ? "Set VITE_GOOGLE_CLIENT_ID in .env"
                 : "Sign in with Google"}
           >
@@ -186,7 +170,7 @@
             {#if !inTauri()}
               Sign-in only runs in the desktop app — it needs a local port the
               browser can't open.
-            {:else if !googleClientId}
+            {:else if !googleClientId()}
               Set <code>VITE_GOOGLE_CLIENT_ID</code> in <code>.env</code> (see
               <code>env.example</code>), then restart the dev server.
             {:else}
@@ -355,8 +339,29 @@
   }
 
   .profile-email {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
     font-size: 0.8rem;
     opacity: 0.7;
+  }
+
+  .verify-badge {
+    padding: 0.05rem 0.4rem;
+    font-size: 0.68rem;
+    font-weight: 600;
+    border-radius: 999px;
+    opacity: 1;
+  }
+
+  .verify-badge.verified {
+    color: #7ee2a8;
+    background: rgba(126, 226, 168, 0.14);
+  }
+
+  .verify-badge.unverified {
+    color: #ffb020;
+    background: rgba(255, 176, 32, 0.14);
   }
 
   .link-btn {
