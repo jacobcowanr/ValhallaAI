@@ -56,10 +56,13 @@
     "windows": [
       {
         "fullscreen": false,
-        "height": 600,
+        "height": 860,
         "resizable": true,
         "title": "ValhallaAI",
-        "width": 800
+        "width": 1280,
+        "minWidth": 900,
+        "minHeight": 600,
+        "center": true
       }
     ]
   }

@@ -73,6 +73,155 @@
     if (ok) copyResetTimer = setTimeout(() => (copiedIndex = null), 1500);
   }
 
+  // Text attachments are a separate list from images because they take a
+  // completely different path: images ride along as multimodal content on the
+  // 9 providers that support it, while file text is inlined into the prompt
+  // and therefore works on every provider.
+  interface AttachedFile {
+    /** Relative path for a folder pick, bare filename for a single file. */
+    path: string;
+    text: string;
+    bytes: number;
+  }
+
+  // Caps exist so a stray click on a big folder cannot lock the UI or blow
+  // the context window. Skipped files are reported, never dropped silently.
+  const MAX_FILE_BYTES = 256 * 1024;
+  const MAX_TOTAL_BYTES = 1024 * 1024;
+  const MAX_FILES = 40;
+
+  let attachedFiles: AttachedFile[] = [];
+  let folderInput: HTMLInputElement;
+  let anyFileInput: HTMLInputElement;
+
+  $: attachedBytes = attachedFiles.reduce((sum, f) => sum + f.bytes, 0);
+
+  function looksBinary(text: string): boolean {
+    // A NUL in the first few KB is the cheapest reliable binary tell; real
+    // source and config files never contain one.
+    return text.slice(0, 4096).includes("\u0000");
+  }
+
+  function readFileAsText(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsText(file);
+    });
+  }
+
+  async function ingestFiles(files: File[]): Promise<void> {
+    const skipped: string[] = [];
+    let total = attachedBytes;
+
+    for (const file of files) {
+      const rel = (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name;
+
+      if (attachedFiles.length >= MAX_FILES) {
+        skipped.push(`${rel} (over ${MAX_FILES}-file limit)`);
+        continue;
+      }
+      if (file.size > MAX_FILE_BYTES) {
+        skipped.push(`${rel} (over 256 KB)`);
+        continue;
+      }
+      if (total + file.size > MAX_TOTAL_BYTES) {
+        skipped.push(`${rel} (would exceed the 1 MB total)`);
+        continue;
+      }
+
+      let text: string;
+      try {
+        text = await readFileAsText(file);
+      } catch {
+        skipped.push(`${rel} (unreadable)`);
+        continue;
+      }
+      if (looksBinary(text)) {
+        skipped.push(`${rel} (binary)`);
+        continue;
+      }
+
+      attachedFiles = [...attachedFiles, { path: rel, text, bytes: file.size }];
+      total += file.size;
+    }
+
+    attachError = skipped.length
+      ? `Skipped ${skipped.length} file${skipped.length > 1 ? "s" : ""}: ${skipped.slice(0, 4).join(", ")}${skipped.length > 4 ? "…" : ""}`
+      : "";
+  }
+
+  function triggerFolderPicker(): void {
+    closeAttachMenu();
+    folderInput.click();
+  }
+
+  function triggerAnyFilePicker(): void {
+    closeAttachMenu();
+    anyFileInput.click();
+  }
+
+  async function handleTextFileSelect(e: Event): Promise<void> {
+    const input = e.target as HTMLInputElement;
+    if (!input.files || input.files.length === 0) return;
+    await ingestFiles(Array.from(input.files));
+    input.value = "";
+  }
+
+  const COMPOSER_MAX_HEIGHT = 200;
+
+  /** Start at one line, grow with the text, then scroll at the cap.
+   *
+   * Halving the composer meant dropping to a single row, and a fixed
+   * one-row box that cannot grow is worse than the two-row box it replaced --
+   * anything past one line would scroll in a 44px slot. The parameter is the
+   * bound value, so Svelte re-runs `update` when the text is cleared on send;
+   * an input listener alone would miss that, because clearing it in code
+   * fires no input event and the box would stay tall after sending.
+   */
+  function autosize(node: HTMLTextAreaElement, _value: string) {
+    const resize = () => {
+      node.style.height = "auto";
+      node.style.height = `${Math.min(node.scrollHeight, COMPOSER_MAX_HEIGHT)}px`;
+    };
+
+    // The first measurement is deferred a frame on purpose. An action runs as
+    // soon as the element is in the DOM, which in dev is before Vite has
+    // injected the component's CSS -- so scrollHeight gets measured against an
+    // unstyled textarea, comes back larger than the cap, and the box sticks at
+    // 200px on a cold load with nothing typed in it. A frame later the styles
+    // are applied and the measurement is real.
+    requestAnimationFrame(resize);
+
+    // The display font loads via the FontFace API after first paint, and a
+    // metric change alters scrollHeight. Re-measure once it settles.
+    if (typeof document !== "undefined" && document.fonts) {
+      document.fonts.ready.then(resize).catch(() => {});
+    }
+
+    node.addEventListener("input", resize);
+    return {
+      update: resize,
+      destroy: () => node.removeEventListener("input", resize),
+    };
+  }
+
+  function removeFile(index: number): void {
+    attachedFiles = attachedFiles.filter((_, i) => i !== index);
+    attachError = "";
+  }
+
+  /** Inline file contents ahead of the typed message. Delimited by path so
+   * the model can tell where each one starts and stops. */
+  function buildOutgoingText(typed: string): string {
+    if (attachedFiles.length === 0) return typed;
+    const blocks = attachedFiles
+      .map((f) => `<file path="${f.path}">\n${f.text}\n</file>`)
+      .join("\n\n");
+    return `${blocks}\n\n${typed}`;
+  }
+
   let attachedImages: AttachedImage[] = [];
   let attachMenuOpen = false;
   let fileInput: HTMLInputElement;
@@ -201,13 +350,20 @@
   }
 
   async function sendMessage(): Promise<void> {
-    if (!userMessage.trim() && attachedImages.length === 0) return;
+    if (!userMessage.trim() && attachedImages.length === 0 && attachedFiles.length === 0) return;
     if (attachedImages.length > 0 && !imagesSupported) return; // attachError already shown
 
     loading = true;
     const imageUrls = attachedImages.map((img) => img.dataUrl);
     const imageCount = attachedImages.length;
-    const outgoingText = userMessage;
+    // What actually goes to the model: file contents inlined ahead of the
+    // typed text. The session stores the typed text plus the file NAMES
+    // instead of the full expansion -- same choice already made for images,
+    // which store imageCount rather than the data URLs. A 40-file paste would
+    // otherwise bury the transcript it is supposed to be a record of.
+    const outgoingText = buildOutgoingText(userMessage);
+    const fileNames = attachedFiles.map((f) => f.path);
+    const typedText = userMessage;
 
     // A session gets created lazily, on the first message, rather than
     // requiring the "New Session" button first — the empty state's own
@@ -247,8 +403,9 @@
       [
         {
           type: "user",
-          text: outgoingText,
+          text: typedText,
           imageCount: imageCount > 0 ? imageCount : undefined,
+          fileNames: fileNames.length > 0 ? fileNames : undefined,
         },
         {
           type: "assistant",
@@ -262,6 +419,7 @@
 
     userMessage = "";
     attachedImages = [];
+    attachedFiles = [];
     loading = false;
   }
 </script>
@@ -296,6 +454,11 @@
         <div class="message {msg.type}">
           {#if msg.imageCount}
             <div class="attachment-note">📎 {msg.imageCount} image{msg.imageCount > 1 ? "s" : ""} attached</div>
+          {/if}
+          {#if msg.fileNames?.length}
+            <div class="attachment-note" title={msg.fileNames.join("\n")}>
+              📄 {msg.fileNames.length} file{msg.fileNames.length > 1 ? "s" : ""} inlined: {msg.fileNames.slice(0, 3).join(", ")}{msg.fileNames.length > 3 ? "…" : ""}
+            </div>
           {/if}
           <div class="content">{msg.text}</div>
           <div class="message-footer">
@@ -332,6 +495,18 @@
         </div>
       {/if}
 
+      {#if attachedFiles.length > 0}
+        <div class="file-chips">
+          {#each attachedFiles as f, i}
+            <span class="file-chip" title={f.path}>
+              <span class="file-path">{f.path}</span>
+              <button class="remove-chip" on:click={() => removeFile(i)} title="Remove">✕</button>
+            </span>
+          {/each}
+          <span class="file-total">{attachedBytes < 1024 ? `${attachedBytes} B` : `${(attachedBytes / 1024).toFixed(0)} KB`} of 1 MB</span>
+        </div>
+      {/if}
+
       {#if attachError}
         <p class="attach-error">⚠ {attachError}</p>
       {/if}
@@ -353,6 +528,12 @@
               <button class="attach-menu-item" on:click={triggerFilePicker}>
                 <span class="menu-icon">🖼</span> Upload image{!imagesSupported ? " (not supported by this provider)" : ""}
               </button>
+              <button class="attach-menu-item" on:click={triggerAnyFilePicker}>
+                <span class="menu-icon">📄</span> Upload file
+              </button>
+              <button class="attach-menu-item" on:click={triggerFolderPicker}>
+                <span class="menu-icon">📁</span> Upload folder
+              </button>
             </div>
           {/if}
         </div>
@@ -366,17 +547,61 @@
           style="display: none;"
         />
 
+        <!-- No accept filter: the binary check in ingestFiles() decides what
+             is usable, which is more honest than an extension allowlist that
+             would reject a perfectly readable file with an unusual suffix. -->
+        <input
+          type="file"
+          multiple
+          bind:this={anyFileInput}
+          on:change={handleTextFileSelect}
+          style="display: none;"
+        />
+
+        <!-- webkitdirectory goes through a spread rather than a plain
+             attribute: it is non-standard, so written inline it trips
+             svelte-check's DOM attribute validation. Spreading keeps it
+             declarative -- an onMount assignment can silently not run. -->
+        <input
+          type="file"
+          multiple
+          {...{ webkitdirectory: true }}
+          bind:this={folderInput}
+          on:change={handleTextFileSelect}
+          style="display: none;"
+        />
+
         <textarea
+          rows="1"
+          use:autosize={userMessage}
           bind:value={userMessage}
           placeholder="Send a message..."
           on:keydown={(e) => e.key === "Enter" && !e.shiftKey && sendMessage()}
         />
+        <!-- Icon-only, so it carries an aria-label and a title: the arrow
+             alone says nothing to a screen reader, and the previous "Send"
+             text was doing that job implicitly. -->
         <button
           class="send-btn"
           on:click={sendMessage}
           disabled={loading || (attachedImages.length > 0 && !imagesSupported)}
+          aria-label={loading ? "Sending" : "Send message"}
+          title={loading ? "Sending…" : "Send message"}
         >
-          {loading ? "Sending..." : "Send"}
+          {#if loading}
+            <span class="send-spinner" aria-hidden="true"></span>
+          {:else}
+            <svg class="send-arrow" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M12 19V5M12 5l-6 6M12 5l6 6"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          {/if}
         </button>
       </div>
     </div>
@@ -424,9 +649,11 @@
     justify-content: center;
   }
 
+  /* One knob for the chat column width. Change here, both the message
+     list and the composer follow. */
   .messages-inner {
     width: 100%;
-    max-width: 720px;
+    max-width: var(--chat-width, 680px);
     display: flex;
     flex-direction: column;
     gap: 1rem;
@@ -570,7 +797,7 @@
   }
 
   .composer-inner {
-    max-width: 720px;
+    max-width: var(--chat-width, 680px);
     margin: 0 auto;
     padding: 1rem 2rem;
   }
@@ -612,6 +839,39 @@
     font-size: 0.65rem;
     line-height: 1;
     cursor: pointer;
+  }
+
+  .file-chips {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.5rem 0 0;
+  }
+
+  .file-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    max-width: 260px;
+    padding: 0.15rem 0.35rem 0.15rem 0.5rem;
+    font-size: 0.75rem;
+    border: 1px solid var(--border-color);
+    border-radius: 5px;
+    background: var(--bg-surface);
+  }
+
+  .file-path {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    direction: rtl;  /* keep the filename visible when the path is truncated */
+    text-align: left;
+  }
+
+  .file-total {
+    font-size: 0.72rem;
+    color: var(--text-muted);
   }
 
   .attach-error {
@@ -700,13 +960,21 @@
 
   textarea {
     flex: 1;
-    padding: 0.85rem 1rem;
+    /* Without this the element is content-box, so assigning scrollHeight --
+       which already includes padding -- to `height` adds the padding a second
+       time and the box renders ~40px taller than requested. There is no
+       global border-box reset in this app, so it is set here explicitly. */
+    box-sizing: border-box;
+    padding: 0.6rem 0.9rem;
     border: 1px solid var(--border-color);
     border-radius: 8px;
     font-family: inherit;
     font-size: 0.95rem;
+    line-height: 1.4;
     resize: none;
-    min-height: 52px;
+    overflow-y: auto;
+    /* Matches the send button's 44px so the two line up on one row. */
+    min-height: 44px;
     max-height: 200px;
     background: var(--bg-surface-raised);
     color: var(--text-primary);
@@ -717,17 +985,54 @@
     border-color: var(--accent);
   }
 
+  /* Square icon button rather than a wide text button -- it gives the text
+     box back roughly 70px of the column, which is most of what "narrower"
+     was asking for. */
   .send-btn {
-    padding: 0 1.75rem;
-    height: 52px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    padding: 0;
     background: var(--accent);
     color: var(--accent-text);
     border: none;
-    border-radius: 8px;
+    border-radius: 50%;
     cursor: pointer;
-    font-weight: 600;
     transition: background 0.2s;
     flex-shrink: 0;
+    align-self: flex-end;
+  }
+
+  .send-arrow {
+    width: 20px;
+    height: 20px;
+  }
+
+  .send-spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid currentColor;
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: send-spin 0.7s linear infinite;
+  }
+
+  @keyframes send-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  /* Respect a reduced-motion preference: hold a static ring instead of
+     spinning. The disabled state already signals that a send is in flight. */
+  @media (prefers-reduced-motion: reduce) {
+    .send-spinner {
+      animation: none;
+      border-top-color: currentColor;
+      opacity: 0.6;
+    }
   }
 
   .send-btn:hover:not(:disabled) {
@@ -746,7 +1051,13 @@
   .model-bar {
     display: flex;
     gap: 1.5rem;
-    padding: 0.6rem 2rem;
+    /* Sibling of .composer-inner, so it needs the cap applied here too --
+       otherwise the selects run edge to edge beneath a centred text box and
+       the composer stops reading as one column. */
+    width: 100%;
+    max-width: var(--chat-width, 680px);
+    margin: 0 auto;
+    padding: 0.6rem 0;
     border-top: 1px solid var(--border-color);
     background: var(--bg-surface-raised);
   }

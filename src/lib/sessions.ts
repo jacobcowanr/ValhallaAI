@@ -24,6 +24,9 @@ export interface ChatMessage {
   text: string;
   usage?: LLMResponse["usage"];
   imageCount?: number;
+  /** Paths of text files inlined into the prompt. Names only -- the full
+   * contents went to the model but would bury the transcript here. */
+  fileNames?: string[];
 }
 
 export interface ChatSession {
