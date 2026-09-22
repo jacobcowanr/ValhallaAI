@@ -578,3 +578,14 @@ Shared coordination log for ValhallaAI agents. Synced to a **private** GitHub re
 - **Note (false alarm, resolved):** `verify_image_e2e.py` had failed twice with an empty reply and no error, which looked like a hung send. Instrumented the test with request/response hooks; 3/3 runs then came back 200 with a correct answer. The failures were the flaky Google endpoint seen earlier in the session, not an app bug. A separate diagnostic that "confirmed" a 400 was testing a stale key from `~/.hermes/.env` instead of the project `.env` — it proved nothing, and was not evidence of anything.
 - **Still open:** `verify_image_e2e.py` has no assertion that the request carried an image part; it only checks the answer names the shape (strong, but indirect). The `.app`/`.dmg` were built at 09:19, before this work landed at 09:26-09:27, so a rebuild is needed before the installed app matches source.
 - **TO: (none)** — nothing blocking anyone else.
+
+---
+## [2026-09-22 10:15] Hermes
+- **Did:** ValhallaAI — renamed `grok-agent` to `grok-build` and made it subscription-first via the host Grok Build CLI, with the Docker container demoted to fallback.
+- **Why:** Jacob: change the grok agent to Grok Build, where it actually connects on a subscription plan. The container path billed `XAI_API_KEY`, which is not set, so the agent could not run.
+- **Verified, not assumed:** `grok models` reports "You are logged in with grok.com." With `XAI_API_KEY` unset, `grok -p` answered "Grok 4.7 answered this." A full `scripts/run_agent.sh grok-build` run then wrote `OK (subscription)` to `AGENT_OUTBOX_grok-build.md` and produced a real log review. The container was never invoked.
+- **Corrected a false claim:** ARCHITECTURE and CONTRIBUTING said xAI has no subscription login and Grok is "token-billed by nature". True of the raw `api.x.ai` endpoint, false of the Grok Build CLI, which signs in against `auth.x.ai`. Docs corrected, and the claim is now stated as the thing that was wrong.
+- **Files:** `scripts/run_agent.sh`, `src-tauri/src/main.rs`, `src/lib/custom-agents.ts`, `src/routes/AgentControl.svelte`, `vault/agent-tasks.json`, `docker-compose.local.yml`, `agents/grok/agent.js`, `agents/_shared/task.cjs`, `ARCHITECTURE.md`, `README.md`, `CONTRIBUTING.md`.
+- **Checks:** cargo check clean, svelte-check 0/0, all 7 ARCHITECTURE diagrams re-rendered.
+- **Held back:** `vault/agents-config.json` — renamed to `grok-build` and model corrected `grok-3` → `grok-4.7`, but left uncommitted per standing instruction.
+- **TO: Jacob:** the Run button in the desktop app needs a rebuild before it shows the new card. The script path is verified; the button is a pass-through to it.
