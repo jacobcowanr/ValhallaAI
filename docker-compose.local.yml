@@ -6,7 +6,7 @@ services:
     build:
       context: ./agents/claude
       dockerfile: Dockerfile
-    container_name: vahalla-claude
+    container_name: valhallaai-claude
     volumes:
       - ./vault:/vault
       - ./agents/claude/config:/app/config
@@ -15,7 +15,7 @@ services:
       - VAULT_PATH=/vault
       - AGENT_NAME=claude-agent
     networks:
-      - vahalla
+      - valhallaai
     # One-shot: the agent exits 0 after a single run (see agent.js). A
     # restart policy here would put it in a loop, re-billing the Anthropic
     # API every cycle — this was `unless-stopped` until a 2026-09-21
@@ -27,7 +27,7 @@ services:
     build:
       context: ./agents/hermes
       dockerfile: Dockerfile
-    container_name: vahalla-hermes
+    container_name: valhallaai-hermes
     volumes:
       - ./vault:/vault
       # Tilde home-dir shortcuts are not reliably expanded by Docker
@@ -39,7 +39,7 @@ services:
       - VAULT_PATH=/vault
       - AGENT_NAME=hermes-agent
     networks:
-      - vahalla
+      - valhallaai
     # One-shot — see the claude-agent comment above. Also: this Dockerfile
     # doesn't install the hermes CLI yet (see agents/hermes/Dockerfile), so
     # today this container's run.sh takes its "not found" exit-1 path. A
@@ -51,7 +51,7 @@ services:
     build:
       context: ./agents/grok
       dockerfile: Dockerfile
-    container_name: vahalla-grok
+    container_name: valhallaai-grok
     volumes:
       - ./vault:/vault
     environment:
@@ -59,7 +59,7 @@ services:
       - VAULT_PATH=/vault
       - AGENT_NAME=grok-agent
     networks:
-      - vahalla
+      - valhallaai
     profiles:
       - optional
     restart: "no"
@@ -71,7 +71,7 @@ services:
   # agents above.
   vault-relay:
     image: alpine:latest
-    container_name: vahalla-relay
+    container_name: valhallaai-relay
     volumes:
       - ./vault:/vault
       - ./scripts/vault_relay.sh:/vault_relay.sh:ro
@@ -80,15 +80,15 @@ services:
     environment:
       - VAULT_REPO=${VAULT_REPO:-}
       - VAULT_DIR=/vault
-      - GIT_AUTHOR_NAME=Vahalla
-      - GIT_AUTHOR_EMAIL=vahalla@local
+      - GIT_AUTHOR_NAME=ValhallaAI
+      - GIT_AUTHOR_EMAIL=valhallaai@local
     entrypoint: ["/bin/sh", "/vault_relay.sh"]
     networks:
-      - vahalla
+      - valhallaai
     profiles:
       - optional
     restart: unless-stopped
 
 networks:
-  vahalla:
+  valhallaai:
     driver: bridge

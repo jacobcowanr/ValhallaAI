@@ -1,4 +1,4 @@
-# Contributing to Vahalla
+# Contributing to ValhallaAI
 
 Right now this is a solo, local-only project (see [Why local-first](#why-local-first)). This document is the guideline set for right now — a future public version of this file will add PR process, code of conduct, etc. once the project actually has outside contributors.
 
@@ -23,7 +23,7 @@ Until then: no public repo, no "please star this," no premature audience.
 ## Project structure
 
 ```
-Vahalla/
+ValhallaAI/
 ├─ ARCHITECTURE.md      — system design, diagrams (read this first)
 ├─ POSITIONING.md        — how this differs from everything else
 ├─ CONTRIBUTING.md       — this file
@@ -91,7 +91,7 @@ Tracked here until there's a formal issue tracker.
 - ~~`docker-compose.local.yml`'s Windows-path comment contained a literal `~` character~~ — harmless in effect (not inside an actual path), but made an earlier "no tilde in this file" claim literally false. Reworded.
 - ~~Version drift~~ — `package.json` and `Settings.svelte` said `0.0.1`, `tauri.conf.json`/`Cargo.toml` said `0.1.0`. Aligned to `0.1.0` everywhere.
 - ~~`.gitignore` excluded `package-lock.json` while the file existed locally~~ — a fresh clone got no lockfile, non-reproducible installs against README's own `npm install` instruction. Now tracked.
-- ~~`tauri.conf.json`'s placeholder `com.tauri.dev` identifier~~ — set to `com.jacobcowan.vahalla`.
+- ~~`tauri.conf.json`'s placeholder `com.tauri.dev` identifier~~ — set to `com.jacobcowan.valhallaai`.
 - Earlier fixes (temperature-0 bug, Replicate polling, Google system-role mapping, stale-default-provider fallback, Ollama endpoint `bind:value`, `rel=noopener`, the 9-provider `callOpenAICompatible()` extraction) from a prior review pass — see git history for that entry; still holding.
 
 **Still open:**

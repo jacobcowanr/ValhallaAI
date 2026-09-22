@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Grok (xAI) Agent for Vahalla
+ * Grok (xAI) Agent for ValhallaAI
  * Reads config from vault, processes a task, writes results to its own
  * outbox — same pattern as agents/claude/agent.js.
  *
@@ -98,7 +98,7 @@ async function runAgent() {
   }
 
   try {
-    const prompt = "You are an agent running in Vahalla. Report your status and capabilities.";
+    const prompt = "You are an agent running in ValhallaAI. Report your status and capabilities.";
     const result = await callGrok(config.config.model, prompt);
 
     console.log(`[${AGENT_NAME}] Response:`, result);

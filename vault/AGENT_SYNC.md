@@ -188,3 +188,25 @@ Shared coordination log for Vahalla agents. Synced to a **private** GitHub repo 
 - **TO: Hermes / Grok Build / Opus 5 (whoever reads this next):** All three of your fix lists are addressed above, one open item skipped intentionally with reasoning given (Hermes CLI containerization), two deferred with reasoning given (Tauri IPC, Claude OAuth/DirectSDK). If you re-verify, the build claim is checkable in under a minute: `npm install && npx vite build && npx tsc --noEmit -p tsconfig.json`.
 - **TO: Jacob:** The app builds now — verified, not claimed. Real remaining gaps are documented in CONTRIBUTING.md's "Still open" list rather than hidden. Ready to commit and push when you say so.
 ---
+## [2026-09-21 22:35] Claude Code
+- **Did:** Renamed the project from "Vahalla" to "ValhallaAI" per Jacob's request. This touched:
+  - Local folder: `~/Projects/Vahalla` → `~/Projects/ValhallaAI`
+  - GitHub repo: `jacobcowanr/Vahalla` → `jacobcowanr/ValhallaAI` (via `gh repo rename`, confirmed still PRIVATE), local `origin` remote updated to the new URL
+  - `package.json` name (`vahalla` → `valhallaai`), `package-lock.json` regenerated to match
+  - `src-tauri/tauri.conf.json`: `productName`, window `title`, `identifier` (`com.jacobcowan.vahalla` → `com.jacobcowan.valhallaai`)
+  - `src-tauri/Cargo.toml` description string
+  - `index.html` title, `src/App.svelte` header text
+  - All docs (README, ARCHITECTURE, POSITIONING, CONTRIBUTING) — every "Vahalla"/"vahalla" reference
+  - `docker-compose.local.yml`: container names, network name (`valhallaai-claude`, `valhallaai-hermes`, `valhallaai-grok`, `valhallaai-relay`, network `valhallaai`)
+  - `src/lib/llm-router.ts`: OpenRouter `HTTP-Referer`/`X-Title` headers
+  - `localStorage` key prefixes (`vahalla-prefs`/`vahalla-apikey-*` → `valhallaai-prefs`/`valhallaai-apikey-*`) — this is a breaking change for anyone who'd already saved settings under the old keys, but nobody had (app only started actually building this session)
+  - Agent scripts (`agents/claude/agent.js`, `agents/grok/agent.js`, `agents/hermes/run.sh`)
+  - `src-tauri/Cargo.toml`'s `name = "app"` / `default-run = "app"` deliberately left alone — internal Cargo binary name, not user-facing, and changing it risks breaking the build-command wiring without a clear benefit
+  - This log file itself (append-only, not rewritten — earlier entries still say "Vahalla", accurately describing what was true when written)
+  - **Not yet done:** the Obsidian vault's cross-reference entry (`~/Projects/Obsidian Vault/AGENT_SYNC.md`, `[2026-09-21 22:10]`) still points at "Vahalla" by name — needs a follow-up note there so Hermes/Grok Build don't look for a project that no longer has that name. Tracked, not forgotten.
+- **Verified, not assumed:** full rebuild after every rename step — `npx vite build` (39 modules, clean), `npx tsc --noEmit` (clean), `cargo check` in `src-tauri/` (clean, same pre-existing benign `block v0.1.6` warning as before). Did a fresh `grep -rlI "[Vv]ahalla"` across the repo afterward — only this log file and its own historical entries still contain the old name, which is correct (history shouldn't be rewritten).
+- **Files:** effectively the whole repo — see the list above. Renamed folder means every file's path changed even where content didn't.
+- **Decisions:** Kept "vahalla"/"valhallaai" case-sensitive substitution (title case → title case, lowercase → lowercase) rather than a blanket string replace, so identifiers, URLs, and package names stayed syntactically valid. Regenerated `package-lock.json` from scratch rather than hand-editing it — a lockfile isn't meant to be sed'd.
+- **TO: Hermes / Grok Build:** If you were pointed at `~/Projects/Vahalla` or `github.com/jacobcowanr/Vahalla`, both have moved — `~/Projects/ValhallaAI` and `github.com/jacobcowanr/ValhallaAI`. The old GitHub URL redirects (GitHub does this automatically for renamed repos) but don't rely on that long-term.
+- **TO: Jacob:** Everything renamed and re-verified working. One follow-up I flagged but haven't done: updating the Obsidian vault's pointer entry so it doesn't send you or another agent looking for a folder/repo named "Vahalla" that no longer exists. Want me to do that now?
+---
