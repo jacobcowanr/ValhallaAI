@@ -218,7 +218,11 @@
             <p class="last-run">
               Last run: {agent.lastRun}
               {#if agent.lastResult}
-                <span class="result {agent.lastResult === 'OK' ? 'ok' : 'bad'}">{agent.lastResult}</span>
+                <!-- startsWith, not ===: run_agent.sh records the billing path
+                     in this field ("OK (subscription)" / "OK (paid-key)"), so an
+                     exact match against "OK" rendered every successful
+                     subscription run in the error colour. -->
+                <span class="result {agent.lastResult.startsWith('OK') ? 'ok' : 'bad'}">{agent.lastResult}</span>
               {/if}
             </p>
           {:else}
@@ -451,4 +455,93 @@
     cursor: not-allowed;
   }
 
+  /* The "Add an agent" form.
+
+     These classes existed in the markup but had no CSS at all, so every
+     field fell through to the browser's default control styling: white boxes
+     with the app's light font around them, sitting on a dark page. Measured
+     before this fix -- the input was rgb(0,0,0) on rgb(255,255,255) while
+     every label was #f2f2f2 on #0d0d0d. The values below are copied from
+     Settings.svelte so this form matches the rest of the app rather than
+     inventing a second look. */
+  .add-agent {
+    margin-top: 2rem;
+    padding: 1.25rem;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+  }
+
+  .add-agent h3 {
+    margin: 0 0 0.5rem 0;
+    color: var(--text-primary);
+  }
+
+  .add-description {
+    margin: 0 0 1rem 0;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+  }
+
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+  }
+
+  .field label {
+    font-weight: 600;
+    font-size: 0.9rem;
+    color: var(--text-primary);
+  }
+
+  .field input,
+  .field select {
+    padding: 0.75rem;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    font-size: 0.9rem;
+    font-family: inherit;
+    background: var(--bg-surface-raised);
+    color: var(--text-primary);
+  }
+
+  .field input:hover,
+  .field select:hover {
+    border-color: var(--text-muted);
+  }
+
+  .field input:focus,
+  .field select:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  /* Placeholders default to a light-background grey, which is close to
+     invisible on a dark field. Stated explicitly so a future theme cannot
+     quietly reintroduce that. */
+  .field input::placeholder {
+    color: var(--text-muted);
+  }
+
+  .add-btn {
+    flex: none;
+    padding: 0.6rem 1.1rem;
+    background: var(--accent);
+    color: var(--accent-text);
+    border-radius: 4px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .add-btn:hover {
+    background: var(--accent-hover);
+  }
+
+  .ca-error {
+    margin: 0 0 0.75rem 0;
+    font-size: 0.85rem;
+    color: var(--danger-text, #ff8a80);
+  }
 </style>
