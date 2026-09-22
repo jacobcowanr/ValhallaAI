@@ -734,6 +734,96 @@ fn provider_keys() -> Result<std::collections::HashMap<String, String>, String> 
 
 /// What is in vault/ and whether git sees changes there. No path argument,
 /// so the screen cannot point git at another directory. Does not pull or push.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AgentInfo {
+    name: String,
+    enabled: bool,
+    /// Timestamp from the most recent outbox entry, or empty if never run.
+    last_run: String,
+    /// "OK" or "ERROR" from that same entry.
+    last_status: String,
+}
+
+/// Real per-agent state, so the UI stops asserting things it has not checked.
+///
+/// The cards previously hardcoded "Never run" and a blurb claiming grok-agent
+/// was disabled. Both were wrong: all three agents had run, and grok had since
+/// been enabled in agents-config.json. Enabled state is read from that file and
+/// last-run is recovered from each outbox, which is the durable record --
+/// component state resets every launch, the outbox does not.
+#[tauri::command]
+fn agent_status() -> Result<Vec<AgentInfo>, String> {
+    let vault = project_root().join("vault");
+
+    let enabled_map: std::collections::HashMap<String, bool> =
+        match fs::read_to_string(vault.join("agents-config.json")) {
+            Ok(text) => serde_json::from_str::<serde_json::Value>(&text)
+                .ok()
+                .and_then(|v| v.get("agents").and_then(|a| a.as_array().cloned()))
+                .map(|agents| {
+                    agents
+                        .iter()
+                        .filter_map(|a| {
+                            let name = a.get("name")?.as_str()?.to_string();
+                            let on = a.get("enabled").and_then(|e| e.as_bool()).unwrap_or(false);
+                            Some((name, on))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
+            // A missing or malformed config is not fatal here: the cards still
+            // render, they just cannot claim anything about enabled state.
+            Err(_) => std::collections::HashMap::new(),
+        };
+
+    let mut out = Vec::new();
+    for name in ["claude-agent", "hermes-agent", "grok-agent"] {
+        let (last_run, last_status) = read_last_outbox_entry(&vault, name);
+        out.push(AgentInfo {
+            name: name.to_string(),
+            enabled: enabled_map.get(name).copied().unwrap_or(true),
+            last_run,
+            last_status,
+        });
+    }
+    Ok(out)
+}
+
+/// Pull the timestamp and status out of the LAST entry in an agent's outbox.
+///
+/// Entries are appended, so the file is scanned from the end and stops at the
+/// first `## [timestamp] name` header. File mtime would be easier but wrong --
+/// the relay rewrites these files when it folds them, which would report a
+/// relay run as an agent run.
+fn read_last_outbox_entry(vault: &std::path::Path, agent: &str) -> (String, String) {
+    let path = vault.join(format!("AGENT_OUTBOX_{agent}.md"));
+    let Ok(text) = fs::read_to_string(&path) else {
+        return (String::new(), String::new());
+    };
+
+    let lines: Vec<&str> = text.lines().collect();
+    for (i, line) in lines.iter().enumerate().rev() {
+        let trimmed = line.trim();
+        if !trimmed.starts_with("## [") {
+            continue;
+        }
+        let Some(stamp) = trimmed.strip_prefix("## [").and_then(|r| r.split(']').next()) else {
+            continue;
+        };
+        // Status sits a line or two below its own header.
+        let status = lines
+            .iter()
+            .skip(i + 1)
+            .take(3)
+            .find_map(|l| l.trim().strip_prefix("- Status:"))
+            .map(|v| v.trim().to_string())
+            .unwrap_or_default();
+        return (stamp.to_string(), status);
+    }
+    (String::new(), String::new())
+}
+
 /// Resolve an untrusted relative path against the vault directory, or refuse.
 ///
 /// Extracted from `vault_file` so the guard itself is unit-testable -- a path
@@ -859,12 +949,79 @@ fn main() {
             provider_keys,
             vault_status,
             vault_file,
+            agent_status,
             anthropic_messages,
             google_sign_in,
             claude_subscription
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod outbox_tests {
+    use super::read_last_outbox_entry;
+    use std::fs;
+
+    fn write_outbox(agent: &str, body: &str) -> std::path::PathBuf {
+        let base = std::env::temp_dir().join(format!(
+            "valhallaai-outboxtest-{}-{}",
+            agent,
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        fs::create_dir_all(&base).unwrap();
+        fs::write(base.join(format!("AGENT_OUTBOX_{agent}.md")), body).unwrap();
+        base
+    }
+
+    /// The real claude outbox holds three appended entries; the card must show
+    /// the LAST one, not the first. Getting this backwards would report a
+    /// stale ERROR next to a run that actually succeeded.
+    #[test]
+    fn takes_the_most_recent_entry_not_the_first() {
+        let body = "## [2026-09-22T05:23:42.484Z] claude-agent\n- Status: ERROR\n- Error: boom\n\n\
+## [2026-09-22T05:34:05.992Z] claude-agent\n- Status: OK\n- Response: hi\n\n\
+## [2026-09-22T05:34:56.783Z] claude-agent\n- Status: OK\n- Response: hi again\n";
+        let base = write_outbox("claude-agent", body);
+        let (stamp, status) = read_last_outbox_entry(&base, "claude-agent");
+        assert_eq!(stamp, "2026-09-22T05:34:56.783Z");
+        assert_eq!(status, "OK");
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn reads_an_error_status() {
+        let body = "## [2026-09-22T05:24:07.516Z] grok-agent\n- Status: ERROR\n- Error: no key\n";
+        let base = write_outbox("grok-agent", body);
+        let (stamp, status) = read_last_outbox_entry(&base, "grok-agent");
+        assert_eq!(stamp, "2026-09-22T05:24:07.516Z");
+        assert_eq!(status, "ERROR");
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    /// Never run: no outbox file at all. Must be empty, not a panic.
+    #[test]
+    fn missing_outbox_is_empty_not_an_error() {
+        let base = std::env::temp_dir().join("valhallaai-outboxtest-absent");
+        let _ = fs::create_dir_all(&base);
+        let (stamp, status) = read_last_outbox_entry(&base, "nobody-agent");
+        assert_eq!(stamp, "");
+        assert_eq!(status, "");
+    }
+
+    /// An outbox the relay has folded and cleared is empty, which is also
+    /// "nothing to report" rather than a parse failure.
+    #[test]
+    fn cleared_outbox_is_empty() {
+        let base = write_outbox("hermes-agent", "");
+        let (stamp, status) = read_last_outbox_entry(&base, "hermes-agent");
+        assert_eq!(stamp, "");
+        assert_eq!(status, "");
+        let _ = fs::remove_dir_all(&base);
+    }
 }
 
 #[cfg(test)]
