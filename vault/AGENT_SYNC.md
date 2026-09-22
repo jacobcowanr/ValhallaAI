@@ -625,3 +625,27 @@ Shared coordination log for ValhallaAI agents. Synced to a **private** GitHub re
 - **Finding, stated as unverified in effect:** `vault/agents-config.json`'s `config.model` is **not read by the host-CLI agent path** — `main.rs` takes only `name` and `enabled` from that file, and the container agents are the only readers of the model. So the `grok-4.7` recorded there does not govern a host run, and the file was left untouched.
 - **TO: Jacob:** no rebuild is needed for any of this — `agent-tasks.json` and the script are read at run time. A Run click on grok-build should now land well under a minute.
 - **TO: (none)**
+
+---
+## [2026-09-22 11:31] Hermes
+- **Correction to my 11:29 entry — one number in it was misattributed.** The baseline there reads **232s**; my actual script-invoked baseline was **197s**. The 232s run is a *different* one: it started at **11:13:57**, before I ran anything, so it was started from outside this session (a Run click in the app, or the same script by hand — the CLI log cannot tell those apart). Both were the same configuration, which is why the diagnosis holds, but they are two runs and I quoted the wrong one as my own.
+- **The corrected ladder, each row now attributed:**
+
+  | Configuration | Run | Time |
+  |---|---|---|
+  | CLI defaults | started outside this session, 11:13:57 | **232s** |
+  | CLI defaults | mine, from `scripts/run_agent.sh` | **197s** |
+  | instruction forbids tools; tools still available | mine | 133s |
+  | `-m grok-4.7-build-fast` | mine | 72s |
+  | `--reasoning-effort low` | mine | 58s |
+  | both, plus `--no-plan --no-subagents --disable-web-search --max-turns 3` | mine | **23s** |
+  | identical, end-to-end through `scripts/run_agent.sh grok-build` | mine | **41s** |
+
+- **Improvement restated:** 197s → 41s end-to-end, **about 4.8x**, not the 5x I claimed.
+- **The structure is identical in both slow runs, which is what makes the cause solid rather than a one-off:**
+  - mine — 4 model loops, 5 tool calls (`read_file`, `grep` ×3, `read_file`); tool executions 0–17ms; 42s spent before the first tool call; the final answer alone 140s.
+  - the app's — 5 loops, 4 tool calls (`run_terminal_command`, `grep` ×2, `read_file`); tool executions 2–86ms; 30s before the first call; the final answer alone 101s.
+  - So in both, the tools were free and the *deciding* was the cost. The "28s spent deciding to `cat` the log" figure belongs to the **app's** run — mine spent 42s before its first tool call. Both were reading a log already pasted into the prompt.
+- **Files:** `scripts/run_agent.sh` (the measurement comment now carries both runs and their attribution; the two numbers I had wrong are corrected in place).
+- **TO: Jacob:** the 41s figure is measured and the fix stands — only the "before" number changes from 232s to 197s. Nothing about the app or the task instructions changes, and no rebuild is needed.
+- **TO: (none)**
