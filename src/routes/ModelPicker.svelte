@@ -1,9 +1,7 @@
 <script>
   import { onMount } from "svelte";
   import { callLLM } from "../lib/llm-router";
-
-  const FALLBACK_PROVIDER = "nous";
-  const FALLBACK_MODEL = "x-ai/grok-4.7";
+  import { PROVIDERS, FALLBACK_PROVIDER, FALLBACK_MODEL } from "../lib/providers";
 
   let selectedProvider = FALLBACK_PROVIDER;
   let selectedModel = FALLBACK_MODEL;
@@ -11,6 +9,14 @@
   let userMessage = "";
   let responses = [];
   let loading = false;
+
+  function apiKeyStorageKey(providerId) {
+    return `vahalla-apikey-${providerId}`;
+  }
+
+  function loadApiKeyFor(providerId) {
+    apiKey = localStorage.getItem(apiKeyStorageKey(providerId)) || "";
+  }
 
   onMount(() => {
     // Load user's saved preferences
@@ -21,92 +27,23 @@
       // GitHub Copilot removal). Falling back here instead of trusting the
       // stored value keeps the model dropdown from silently rendering empty
       // and callLLM() from failing with "Unknown provider" on every send.
-      if (defaultProvider && providers[defaultProvider]) {
+      if (defaultProvider && PROVIDERS[defaultProvider]) {
         selectedProvider = defaultProvider;
-        selectedModel = providers[defaultProvider].models.includes(defaultModel)
+        selectedModel = PROVIDERS[defaultProvider].models.includes(defaultModel)
           ? defaultModel
-          : providers[defaultProvider].models[0];
+          : PROVIDERS[defaultProvider].models[0];
       } else {
         selectedProvider = FALLBACK_PROVIDER;
         selectedModel = FALLBACK_MODEL;
       }
     }
+    loadApiKeyFor(selectedProvider);
   });
 
-  const providers = {
-    anthropic: {
-      name: "Anthropic API Key",
-      models: ["claude-opus-5", "claude-3.5-sonnet", "claude-haiku-4.5-20251001"],
-    },
-    anthropic_oauth: {
-      name: "Anthropic OAuth (Usage Credits)",
-      models: ["claude-opus-5", "claude-3.5-sonnet", "claude-haiku-4.5-20251001"],
-    },
-    chatgpt: {
-      name: "ChatGPT or Codex Subscription",
-      models: ["gpt-4-turbo", "gpt-4o", "gpt-3.5-turbo"],
-    },
-    claude_directsdk: {
-      name: "Claude Subscription DirectSDK",
-      models: ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4.5-20251001"],
-    },
-    fireworks: {
-      name: "Fireworks AI",
-      models: ["llama-v3p1-405b", "mixtral-8x22b"],
-    },
-    google: {
-      name: "Google (Gemini)",
-      models: ["gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash"],
-    },
-    groq: {
-      name: "Groq (Fast Inference)",
-      models: ["mixtral-8x7b-32768", "llama2-70b-4096", "gemma-7b-it"],
-    },
-    huggingface: {
-      name: "Hugging Face Inference API",
-      models: ["meta-llama/Llama-2-70b-chat-hf", "mistralai/Mistral-7B-Instruct-v0.1"],
-    },
-    minimax: {
-      name: "MiniMax",
-      models: ["minimax-text-01", "minimax-abab6.5s-chat"],
-    },
-    nous: {
-      name: "Nous Portal",
-      models: ["x-ai/grok-4.7", "meta-llama/llama-3.1-405b", "deepseek/deepseek-v4.1-flash"],
-    },
-    ollama: {
-      name: "Ollama (Local)",
-      models: ["neural-chat", "zephyr", "mistral", "llama2:13b", "llama2", "orca-mini", "dolphin-mixtral"],
-    },
-    openclaw: {
-      name: "OpenClaw",
-      models: ["openclaw-default"],
-    },
-    openrouter: {
-      name: "OpenRouter",
-      models: ["openai/gpt-4o", "anthropic/claude-3.5-sonnet", "x-ai/grok-3", "deepseek/deepseek-chat"],
-    },
-    perplexity: {
-      name: "Perplexity (Search + LLM)",
-      models: ["pplx-7b-online", "pplx-70b-online"],
-    },
-    qwen: {
-      name: "Qwen Code",
-      models: ["qwen-coder-32b", "qwen-turbo"],
-    },
-    replicate: {
-      name: "Replicate",
-      models: ["meta/llama-2-70b-chat", "mistralai/mistral-7b-instruct-v0.1"],
-    },
-    together: {
-      name: "Together AI",
-      models: ["meta-llama/Llama-2-70b-chat-hf", "mistralai/Mistral-7B-Instruct-v0.1"],
-    },
-    xai_grok: {
-      name: "xAI Grok",
-      models: ["grok-3", "grok-vision"],
-    },
-  };
+  // Re-load the saved key whenever the provider changes, so switching
+  // providers doesn't leave the previous provider's key sitting in the
+  // field (or silently send it to the wrong API).
+  $: loadApiKeyFor(selectedProvider);
 
   async function sendMessage() {
     if (!userMessage.trim()) return;
@@ -137,32 +74,49 @@
     userMessage = "";
     loading = false;
   }
+
+  function saveApiKey() {
+    if (apiKey) {
+      localStorage.setItem(apiKeyStorageKey(selectedProvider), apiKey);
+    } else {
+      localStorage.removeItem(apiKeyStorageKey(selectedProvider));
+    }
+  }
 </script>
 
 <div class="container">
   <div class="config">
     <div class="field">
-      <label>Provider:</label>
-      <select bind:value={selectedProvider}>
-        {#each Object.entries(providers) as [key, { name }]}
+      <label for="model-picker-provider">Provider:</label>
+      <select id="model-picker-provider" bind:value={selectedProvider}>
+        {#each Object.entries(PROVIDERS) as [key, { name }]}
           <option value={key}>{name}</option>
         {/each}
       </select>
     </div>
 
     <div class="field">
-      <label>Model:</label>
-      <select bind:value={selectedModel}>
-        {#each providers[selectedProvider]?.models || [] as model}
+      <label for="model-picker-model">Model:</label>
+      <select id="model-picker-model" bind:value={selectedModel}>
+        {#each PROVIDERS[selectedProvider]?.models || [] as model}
           <option value={model}>{model}</option>
         {/each}
       </select>
     </div>
 
-    <div class="field">
-      <label>API Key:</label>
-      <input type="password" bind:value={apiKey} placeholder="Enter API key (optional if env var set)" />
-    </div>
+    {#if selectedProvider !== "ollama"}
+      <div class="field">
+        <label for="model-picker-apikey">API Key:</label>
+        <input
+          id="model-picker-apikey"
+          type="password"
+          bind:value={apiKey}
+          placeholder="Enter API key"
+          on:blur={saveApiKey}
+        />
+        <small>Saved in Settings too — same key either place.</small>
+      </div>
+    {/if}
   </div>
 
   <div class="chat">
@@ -226,6 +180,11 @@
     border: 1px solid #ddd;
     border-radius: 4px;
     font-size: 0.9rem;
+  }
+
+  small {
+    font-size: 0.75rem;
+    color: #999;
   }
 
   .chat {

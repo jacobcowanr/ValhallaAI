@@ -1,4 +1,10 @@
 <script>
+  // MOCK — toggleAgent() below only flips local component state. It does
+  // NOT start or stop a Docker container. main.rs registers no Tauri
+  // commands, so there is currently no IPC path from this UI to Docker or
+  // git at all. Flagged by a 2026-09-21 verification pass; real wiring
+  // (a Tauri command that shells out to `docker-compose up/down <service>`)
+  // is tracked as open work in CONTRIBUTING.md, not implemented here yet.
   let agents = [
     { name: "claude-agent", status: "stopped", lastRun: null },
     { name: "hermes-agent", status: "stopped", lastRun: null },
@@ -17,6 +23,10 @@
 
 <div class="container">
   <h2>Agent Control</h2>
+  <p class="mock-notice">
+    ⚠ Not wired up yet — these buttons only change what's shown here. Run agents manually with
+    <code>docker-compose -f docker-compose.local.yml up &lt;service&gt;</code> for now.
+  </p>
 
   <div class="agents-grid">
     {#each agents as agent}
@@ -54,6 +64,24 @@
 
   h2 {
     margin-top: 0;
+  }
+
+  .mock-notice {
+    background: #fff4e6;
+    border: 1px solid #ffd8a8;
+    border-radius: 6px;
+    padding: 0.75rem 1rem;
+    font-size: 0.85rem;
+    color: #8a5a00;
+    margin: 0 0 1.5rem 0;
+  }
+
+  .mock-notice code {
+    background: white;
+    padding: 2px 4px;
+    border-radius: 2px;
+    font-family: monospace;
+    font-size: 0.8rem;
   }
 
   .agents-grid {

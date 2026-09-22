@@ -8,12 +8,15 @@ OUTBOX_FILE="$VAULT_PATH/AGENT_OUTBOX_${AGENT_NAME}.md"
 
 echo "[${AGENT_NAME}] Starting..."
 
-# Check if Hermes is available
+# Check if Hermes is available. It won't be, today — this image doesn't
+# install it (see the Dockerfile comment). This check + clean exit exists
+# so that gap fails loudly in the outbox instead of the container silently
+# doing nothing.
 if ! command -v hermes &> /dev/null; then
-    echo "[${AGENT_NAME}] Hermes CLI not found in PATH"
+    echo "[${AGENT_NAME}] Hermes CLI not installed in this container"
     echo "## [$(date -u +%Y-%m-%dT%H:%M:%SZ)] ${AGENT_NAME}" >> "$OUTBOX_FILE"
     echo "- Status: ERROR" >> "$OUTBOX_FILE"
-    echo "- Error: Hermes CLI not available" >> "$OUTBOX_FILE"
+    echo "- Error: Hermes CLI not installed in this container (known gap, see Dockerfile)" >> "$OUTBOX_FILE"
     exit 1
 fi
 

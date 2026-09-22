@@ -16,7 +16,11 @@ services:
       - AGENT_NAME=claude-agent
     networks:
       - vahalla
-    restart: unless-stopped
+    # One-shot: the agent exits 0 after a single run (see agent.js). A
+    # restart policy here would put it in a loop, re-billing the Anthropic
+    # API every cycle — this was `unless-stopped` until a 2026-09-21
+    # verification pass flagged it as a real money-cost bug.
+    restart: "no"
 
   # Agent Runtime for Hermes
   hermes-agent:
@@ -26,8 +30,9 @@ services:
     container_name: vahalla-hermes
     volumes:
       - ./vault:/vault
-      # ~ is not reliably expanded by Docker Compose (and not at all on
-      # Windows) — set HOST_HERMES_DIR in .env instead. See env.example.
+      # Tilde home-dir shortcuts are not reliably expanded by Docker
+      # Compose, and not supported on Windows at all — set HOST_HERMES_DIR
+      # in .env to an absolute path instead. See env.example.
       - ${HOST_HERMES_DIR}:/root/.hermes
     environment:
       - HERMES_HOME=/root/.hermes
@@ -35,9 +40,13 @@ services:
       - AGENT_NAME=hermes-agent
     networks:
       - vahalla
-    restart: unless-stopped
+    # One-shot — see the claude-agent comment above. Also: this Dockerfile
+    # doesn't install the hermes CLI yet (see agents/hermes/Dockerfile), so
+    # today this container's run.sh takes its "not found" exit-1 path. A
+    # restart policy would have looped that failure forever too.
+    restart: "no"
 
-  # Agent Runtime for Grok (optional)
+  # Agent Runtime for Grok (optional, disabled by default in agents-config.json)
   grok-agent:
     build:
       context: ./agents/grok
@@ -53,21 +62,27 @@ services:
       - vahalla
     profiles:
       - optional
-    restart: unless-stopped
+    restart: "no"
 
-  # Vault sync relay (optional — runs git pull/push on schedule)
+  # Vault sync relay (optional). Unlike the agents above, this one is
+  # SUPPOSED to run continuously — scripts/vault_relay.sh loops itself, so
+  # `unless-stopped` here means "keep the loop alive across host reboots,"
+  # not "restart on exit," which is the distinction that matters for the
+  # agents above.
   vault-relay:
     image: alpine:latest
     container_name: vahalla-relay
     volumes:
       - ./vault:/vault
+      - ./scripts/vault_relay.sh:/vault_relay.sh:ro
       # Same tilde caveat as above — set HOST_SSH_DIR in .env.
       - ${HOST_SSH_DIR}:/root/.ssh
     environment:
       - VAULT_REPO=${VAULT_REPO:-}
+      - VAULT_DIR=/vault
       - GIT_AUTHOR_NAME=Vahalla
       - GIT_AUTHOR_EMAIL=vahalla@local
-    entrypoint: /bin/sh -c "cd /vault && while true; do git pull && sleep 300; done"
+    entrypoint: ["/bin/sh", "/vault_relay.sh"]
     networks:
       - vahalla
     profiles:

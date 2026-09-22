@@ -1,9 +1,17 @@
 /**
  * LLM Router
  * Abstraction layer for multiple LLM providers.
+ *
+ * All credentials come from `config.apiKey` (user-supplied via the Settings
+ * UI / localStorage) — never from `process.env`. This file runs in the
+ * browser (Vite-bundled, inside the Tauri webview), where `process` does
+ * not exist unless polyfilled; referencing `process.env.X` here was a real
+ * bug (not just a style choice) — it throws at call time for every provider
+ * that used it, independent of whether the user had already supplied their
+ * own key. Fixed 2026-09-21 after a verification pass caught it.
  */
 
-export type LLMProvider = "anthropic" | "anthropic_oauth" | "chatgpt" | "claude_directsdk" | "fireworks" | "google" | "groq" | "huggingface" | "minimax" | "nous" | "ollama" | "openclaw" | "openrouter" | "perplexity" | "qwen" | "replicate" | "together" | "xai_grok" | "local";
+export type LLMProvider = "anthropic" | "anthropic_oauth" | "chatgpt" | "claude_directsdk" | "fireworks" | "google" | "groq" | "huggingface" | "minimax" | "nous" | "ollama" | "openclaw" | "openrouter" | "perplexity" | "qwen" | "replicate" | "together" | "xai_grok";
 
 export interface LLMConfig {
   provider: LLMProvider;
@@ -73,8 +81,6 @@ export async function callLLM(
         return await callTogether(config, messages);
       case "xai_grok":
         return await callGrok(config, messages);
-      case "local":
-        return await callLocal(config, messages);
       default:
         return {
           success: false,
@@ -89,13 +95,22 @@ export async function callLLM(
   }
 }
 
+function requireApiKey(config: LLMConfig): LLMResponse | null {
+  if (!config.apiKey) {
+    return {
+      success: false,
+      error: `No API key set for ${config.provider}. Add one in Settings.`,
+    };
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // Shared helper for OpenAI-compatible providers
 // ---------------------------------------------------------------------------
 
 interface OpenAICompatibleOptions {
   endpoint: string;
-  apiKey?: string;
   authHeader: (apiKey: string) => Record<string, string>;
   extraHeaders?: Record<string, string>;
 }
@@ -115,13 +130,14 @@ async function callOpenAICompatible(
   messages: LLMMessage[],
   opts: OpenAICompatibleOptions
 ): Promise<LLMResponse> {
-  const apiKey = config.apiKey || opts.apiKey || "";
+  const missingKey = requireApiKey(config);
+  if (missingKey) return missingKey;
 
   const response = await fetch(opts.endpoint, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      ...opts.authHeader(apiKey),
+      ...opts.authHeader(config.apiKey as string),
       ...opts.extraHeaders,
     },
     body: JSON.stringify({
@@ -130,7 +146,7 @@ async function callOpenAICompatible(
       // `?? 0.7` (not `|| 0.7`) so an explicit temperature of 0
       // (deterministic output) isn't silently replaced with the default.
       temperature: config.temperature ?? 0.7,
-      max_tokens: config.maxTokens || 2048,
+      max_tokens: config.maxTokens ?? 2048,
     }),
   });
 
@@ -174,7 +190,6 @@ async function callOpenRouter(
 ): Promise<LLMResponse> {
   return callOpenAICompatible(config, messages, {
     endpoint: "https://openrouter.ai/api/v1/chat/completions",
-    apiKey: process.env.OPENROUTER_API_KEY,
     authHeader: bearer,
     extraHeaders: {
       "HTTP-Referer": "https://vahalla.local",
@@ -192,7 +207,6 @@ async function callOpenAI(
 ): Promise<LLMResponse> {
   return callOpenAICompatible(config, messages, {
     endpoint: "https://api.openai.com/v1/chat/completions",
-    apiKey: process.env.OPENAI_API_KEY,
     authHeader: bearer,
   });
 }
@@ -205,16 +219,19 @@ async function callAnthropic(
   config: LLMConfig,
   messages: LLMMessage[]
 ): Promise<LLMResponse> {
+  const missingKey = requireApiKey(config);
+  if (missingKey) return missingKey;
+
   const response = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
-      "x-api-key": config.apiKey || process.env.ANTHROPIC_API_KEY || "",
+      "x-api-key": config.apiKey as string,
       "anthropic-version": "2023-06-01",
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
       model: config.model,
-      max_tokens: config.maxTokens || 2048,
+      max_tokens: config.maxTokens ?? 2048,
       temperature: config.temperature ?? 0.7,
       messages: messages,
     }),
@@ -240,14 +257,22 @@ async function callAnthropic(
 }
 
 /**
- * Claude Subscription DirectSDK (via Claude CLI / Hermes plugin)
+ * Claude Subscription DirectSDK.
+ *
+ * NOT YET IMPLEMENTED as a distinct path — this currently aliases straight
+ * to callAnthropic() with a plain x-api-key, same as `anthropic` and
+ * `anthropic_oauth`. All three provider ids are listed separately because
+ * they're distinct *products* (a plain API key vs. Claude.ai OAuth vs.
+ * the Hermes DirectSDK plugin that spawns the local `claude` CLI against a
+ * Pro/Max subscription — see the Obsidian vault's Hermes — Local Setup.md
+ * for how that actually works today in Hermes itself), but Vahalla doesn't
+ * yet implement the OAuth or CLI-spawn flows — only the API-key path is
+ * real. Flagged honestly rather than left to look implemented.
  */
 async function callClaudeDirectSDK(
   config: LLMConfig,
   messages: LLMMessage[]
 ): Promise<LLMResponse> {
-  // This delegates to the Hermes DirectSDK plugin or local Claude CLI.
-  // For now, use the Anthropic API as a fallback.
   return await callAnthropic(config, messages);
 }
 
@@ -260,7 +285,6 @@ async function callGrok(
 ): Promise<LLMResponse> {
   return callOpenAICompatible(config, messages, {
     endpoint: "https://api.x.ai/v1/chat/completions",
-    apiKey: process.env.XAI_API_KEY,
     authHeader: bearer,
   });
 }
@@ -274,7 +298,6 @@ async function callNous(
 ): Promise<LLMResponse> {
   return callOpenAICompatible(config, messages, {
     endpoint: "https://inference-api.nousresearch.com/v1/chat/completions",
-    apiKey: process.env.NOUS_API_KEY,
     authHeader: bearer,
   });
 }
@@ -288,7 +311,6 @@ async function callFireworks(
 ): Promise<LLMResponse> {
   return callOpenAICompatible(config, messages, {
     endpoint: "https://api.fireworks.ai/inference/v1/chat/completions",
-    apiKey: process.env.FIREWORKS_API_KEY,
     authHeader: bearer,
   });
 }
@@ -302,7 +324,6 @@ async function callGroq(
 ): Promise<LLMResponse> {
   return callOpenAICompatible(config, messages, {
     endpoint: "https://api.groq.com/openai/v1/chat/completions",
-    apiKey: process.env.GROQ_API_KEY,
     authHeader: bearer,
   });
 }
@@ -316,7 +337,6 @@ async function callOpenClaw(
 ): Promise<LLMResponse> {
   return callOpenAICompatible(config, messages, {
     endpoint: "https://api.openclaw.ai/v1/chat/completions",
-    apiKey: process.env.OPENCLAW_API_KEY,
     authHeader: bearer,
   });
 }
@@ -330,7 +350,6 @@ async function callPerplexity(
 ): Promise<LLMResponse> {
   return callOpenAICompatible(config, messages, {
     endpoint: "https://api.perplexity.ai/chat/completions",
-    apiKey: process.env.PERPLEXITY_API_KEY,
     authHeader: bearer,
   });
 }
@@ -344,7 +363,6 @@ async function callTogether(
 ): Promise<LLMResponse> {
   return callOpenAICompatible(config, messages, {
     endpoint: "https://api.together.xyz/v1/chat/completions",
-    apiKey: process.env.TOGETHER_API_KEY,
     authHeader: bearer,
   });
 }
@@ -357,17 +375,20 @@ async function callMiniMax(
   config: LLMConfig,
   messages: LLMMessage[]
 ): Promise<LLMResponse> {
+  const missingKey = requireApiKey(config);
+  if (missingKey) return missingKey;
+
   const response = await fetch("https://api.minimax.chat/v1/text/chatcompletion", {
     method: "POST",
     headers: {
-      "Authorization": `Bearer ${config.apiKey || process.env.MINIMAX_API_KEY}`,
+      "Authorization": `Bearer ${config.apiKey}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
       model: config.model,
       messages: messages,
       temperature: config.temperature ?? 0.7,
-      tokens_to_generate: config.maxTokens || 2048,
+      tokens_to_generate: config.maxTokens ?? 2048,
     }),
   });
 
@@ -392,10 +413,13 @@ async function callQwen(
   config: LLMConfig,
   messages: LLMMessage[]
 ): Promise<LLMResponse> {
+  const missingKey = requireApiKey(config);
+  if (missingKey) return missingKey;
+
   const response = await fetch("https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation", {
     method: "POST",
     headers: {
-      "Authorization": `Bearer ${config.apiKey || process.env.QWEN_API_KEY}`,
+      "Authorization": `Bearer ${config.apiKey}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
@@ -405,7 +429,7 @@ async function callQwen(
       },
       parameters: {
         temperature: config.temperature ?? 0.7,
-        max_tokens: config.maxTokens || 2048,
+        max_tokens: config.maxTokens ?? 2048,
       },
     }),
   });
@@ -431,17 +455,20 @@ async function callHuggingFace(
   config: LLMConfig,
   messages: LLMMessage[]
 ): Promise<LLMResponse> {
+  const missingKey = requireApiKey(config);
+  if (missingKey) return missingKey;
+
   const response = await fetch("https://api-inference.huggingface.co/models/" + config.model, {
     method: "POST",
     headers: {
-      "Authorization": `Bearer ${config.apiKey || process.env.HUGGINGFACE_API_KEY}`,
+      "Authorization": `Bearer ${config.apiKey}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
       inputs: messages.map((m) => m.content).join(" "),
       parameters: {
         temperature: config.temperature ?? 0.7,
-        max_new_tokens: config.maxTokens || 2048,
+        max_new_tokens: config.maxTokens ?? 2048,
       },
     }),
   });
@@ -471,7 +498,8 @@ async function callGoogle(
   config: LLMConfig,
   messages: LLMMessage[]
 ): Promise<LLMResponse> {
-  const apiKey = config.apiKey || process.env.GOOGLE_API_KEY;
+  const missingKey = requireApiKey(config);
+  if (missingKey) return missingKey;
 
   const systemText = messages
     .filter((m) => m.role === "system")
@@ -486,7 +514,7 @@ async function callGoogle(
     })),
     generationConfig: {
       temperature: config.temperature ?? 0.7,
-      maxOutputTokens: config.maxTokens || 2048,
+      maxOutputTokens: config.maxTokens ?? 2048,
     },
   };
 
@@ -495,7 +523,7 @@ async function callGoogle(
   }
 
   const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${config.model}:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${config.model}:generateContent?key=${config.apiKey}`,
     {
       method: "POST",
       headers: {
@@ -529,9 +557,11 @@ async function callReplicate(
   config: LLMConfig,
   messages: LLMMessage[]
 ): Promise<LLMResponse> {
-  const apiKey = config.apiKey || process.env.REPLICATE_API_KEY;
+  const missingKey = requireApiKey(config);
+  if (missingKey) return missingKey;
+
   const authHeaders = {
-    "Authorization": `Token ${apiKey}`,
+    "Authorization": `Token ${config.apiKey}`,
     "Content-Type": "application/json",
   };
 
@@ -569,7 +599,7 @@ async function callReplicate(
     }
 
     const pollResponse = await fetch(statusURL, {
-      headers: { "Authorization": `Token ${apiKey}` },
+      headers: { "Authorization": `Token ${config.apiKey}` },
     });
     if (!pollResponse.ok) {
       return {
@@ -603,7 +633,9 @@ async function callReplicate(
 }
 
 /**
- * Ollama: local LLM runtime
+ * Ollama: local LLM runtime. No API key required — falls back through
+ * config.baseURL, then the endpoint saved in Settings (localStorage), then
+ * the Ollama default.
  */
 async function callOllama(
   config: LLMConfig,
@@ -653,48 +685,13 @@ async function callOllama(
 }
 
 /**
- * Local: generic Ollama-compatible fallback for the "local" provider type.
- */
-async function callLocal(
-  config: LLMConfig,
-  messages: LLMMessage[]
-): Promise<LLMResponse> {
-  const baseURL = config.baseURL || "http://localhost:11434";
-  const response = await fetch(`${baseURL}/api/chat`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: config.model,
-      messages: messages,
-      temperature: config.temperature ?? 0.7,
-      num_predict: config.maxTokens || 2048,
-    }),
-  });
-
-  if (!response.ok) {
-    return {
-      success: false,
-      error: `HTTP ${response.status}`,
-    };
-  }
-
-  const data = await response.json();
-  return {
-    success: true,
-    content: data.message?.content,
-  };
-}
-
-/**
  * Get available models from OpenRouter
  */
-export async function getOpenRouterModels(apiKey?: string): Promise<string[]> {
+export async function getOpenRouterModels(apiKey: string): Promise<string[]> {
   try {
     const response = await fetch("https://openrouter.ai/api/v1/models", {
       headers: {
-        "Authorization": `Bearer ${apiKey || process.env.OPENROUTER_API_KEY}`,
+        "Authorization": `Bearer ${apiKey}`,
       },
     });
 

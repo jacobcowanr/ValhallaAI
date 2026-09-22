@@ -6,9 +6,9 @@
 
 Vahalla is a **desktop-first, multi-provider AI orchestration platform**. One app, three jobs:
 
-1. **Talk to any model** — 17 providers behind one router, one chat UI
-2. **Run agents** — Docker-based agent runtimes (Claude, Hermes, Grok, custom) that do work autonomously
-3. **Coordinate them** — a git-synced markdown vault is the shared memory/log, not a database
+1. **Talk to any model** — 18 providers behind one router, one chat UI. This one is real and verified (`npx vite build` succeeds, `npx tsc --noEmit` is clean).
+2. **Run agents** — Docker-based agent runtimes (Claude, Hermes, Grok, custom) that do work autonomously. The containers themselves work via `docker-compose up` directly; the **desktop UI's Agent Control panel does not yet trigger them** — see §4.4.
+3. **Coordinate them** — a git-synced markdown vault is the shared memory/log, not a database. The relay mechanism (`scripts/vault_relay.sh`) is implemented and folds outboxes into `AGENT_SYNC.md`, but **no agent has produced real outbox content in anger yet** — this is designed and buildable, not yet demonstrated at scale. See [CONTRIBUTING.md's gate criteria](./CONTRIBUTING.md#why-local-first).
 
 It is built to be **self-hosted and user-owned**: you run it on your Mac today, and later deploy the same stack to your own cloud account. Nobody else's server ever holds your keys or your coordination log by default.
 
@@ -25,7 +25,7 @@ graph TB
         Router[LLM Router<br/>llm-router.ts]
     end
 
-    subgraph Providers["17 LLM Providers"]
+    subgraph Providers["18 LLM Providers"]
         direction LR
         P1[Anthropic]
         P2[OpenAI / ChatGPT]
@@ -116,19 +116,19 @@ Both tracked in [CONTRIBUTING.md](./CONTRIBUTING.md#known-open-issues) until act
 ## 4. Component responsibilities
 
 ### 4.1 LLM Router (`src/lib/llm-router.ts`)
-Single abstraction (`callLLM(config, messages)`) that fans out to 17 provider-specific functions. Adding a provider means adding one function and one switch case — nothing else in the app should need to change.
+Single abstraction (`callLLM(config, messages)`) that fans out to 18 provider-specific functions. The provider *catalog* (names, display names, model lists) lives separately in `src/lib/providers.ts` — the single source of truth `Settings.svelte` and `ModelPicker.svelte` both import from, so the count can't drift between files the way it did before that extraction (see [CONTRIBUTING.md](./CONTRIBUTING.md#known-open-issues)). Adding a provider means adding one function + one switch case in `llm-router.ts`, and one entry in `providers.ts` — nothing else in the app should need to change.
 
 ### 4.2 Settings (`src/routes/Settings.svelte`)
-User picks a **default provider + model**, saved to `localStorage`. Nothing is hardcoded as "the" default — every user configures their own, mirroring how Hermes's own provider/account settings work.
+User picks a **default provider + model**, saved to `localStorage`. Nothing is hardcoded as "the" default — every user configures their own, mirroring how Hermes's own provider/account settings work. Also holds per-provider API keys (`localStorage`, same keys `ModelPicker.svelte` reads).
 
 ### 4.3 Model Picker (`src/routes/ModelPicker.svelte`)
 Loads the saved default on mount, lets the user override per-conversation, sends through the router, renders responses with token usage.
 
-### 4.4 Agent Control (`src/routes/AgentControl.svelte`)
-Start/stop Docker-based agent containers, see last-run status. Each agent is a small, disposable process — not a long-lived service the UI depends on.
+### 4.4 Agent Control (`src/routes/AgentControl.svelte`) — UI mock, not wired up
+Intended to start/stop Docker-based agent containers and show last-run status. **As built, `toggleAgent()` only flips local component state — it does not invoke Docker.** `src-tauri/src/main.rs` registers zero Tauri commands, so there is currently no IPC path from this UI to Docker at all. The component now shows a visible "not wired up yet" notice rather than looking functional. Real wiring needs a Tauri command (`.invoke_handler()`) that shells out to `docker-compose`; tracked as open work in [CONTRIBUTING.md](./CONTRIBUTING.md#known-open-issues), not implemented.
 
-### 4.5 Vault Browser (`src/routes/VaultBrowser.svelte`)
-Read-only-for-now view into the coordination vault: sync status, last pull, recent entries.
+### 4.5 Vault Browser (`src/routes/VaultBrowser.svelte`) — UI mock, not wired up
+Intended to show vault sync status, last pull, recent entries. **As built, `syncVault()` is a `setTimeout` stub — it does not run git.** Same underlying gap as §4.4: no Tauri command exists to shell out to git. Shows the same visible notice.
 
 ### 4.6 Agent Runtime (`agents/*`)
 Each agent is a Docker container that:
@@ -179,6 +179,8 @@ sequenceDiagram
 
 **Why outbox-per-agent instead of concurrent writes to one file:** git merge conflicts on a single shared log are the failure mode we design out from day one. Each agent only ever appends to its *own* file; a single relay step folds everything into the shared log sequentially. This is the same pattern already proven with Hermes's `AGENT_SYNC.md` bridge (`HERMES_OUTBOX.md` → relay → shared log).
 
+**Current reality vs. this diagram:** the relay half (`V->>V` through `G-->>V`) is real — `scripts/vault_relay.sh` implements exactly this fold/commit/push cycle. The trigger half (`AC->>D: docker-compose up <agent>`) is not — Agent Control is a UI mock (§4.4), so today a human runs `docker-compose up <agent>` by hand, not the UI. The diagram shows the intended full loop; only the vault-relay side of it is built.
+
 ## 7. What the vault is — and isn't
 
 **Is:**
@@ -193,7 +195,7 @@ sequenceDiagram
 
 ## 8. Provider catalog
 
-17 providers today, alphabetical, router-abstracted so the list can grow without touching the UI logic:
+18 providers today (`Object.keys(PROVIDERS).length` in `src/lib/providers.ts` — check there directly rather than trusting this number by hand), alphabetical, router-abstracted so the list can grow without touching the UI logic:
 
 Anthropic (API key) · Anthropic (OAuth) · ChatGPT/Codex · Claude Subscription DirectSDK · Fireworks AI · Google Gemini · Groq · Hugging Face Inference API · MiniMax · Nous Portal · **Ollama** (sole local runtime — broadest local model catalog) · OpenClaw · OpenRouter (aggregator) · Perplexity · Qwen Code · Replicate (non-LLM models: image/audio/video) · Together AI · xAI Grok
 
