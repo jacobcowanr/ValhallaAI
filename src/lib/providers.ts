@@ -102,8 +102,37 @@ export const PROVIDERS: Record<LLMProvider, ProviderEntry> = {
     models: ["openclaw-default"],
   },
   openrouter: {
+    // Same situation as Nous above: OpenRouter aggregates hundreds of
+    // models. Curated a similarly-sized subset rather than the full
+    // catalog. Confidence differs by entry, worth being explicit about:
+    // the well-established models (gpt-4o, claude-3.5-sonnet, the Llama/
+    // Mistral/DeepSeek entries, gemini-pro-1.5) use OpenRouter's real,
+    // long-documented slug format. The newer entries (claude-opus-5,
+    // grok-4.7, glm-4.6, kimi-k2, qwen3-235b) are past this project's
+    // knowledge cutoff and built to match OpenRouter's known naming
+    // pattern, same as Nous's list — not individually verified live.
     name: "OpenRouter",
-    models: ["openai/gpt-4o", "anthropic/claude-3.5-sonnet", "x-ai/grok-3", "deepseek/deepseek-chat"],
+    models: [
+      "anthropic/claude-opus-5",
+      "anthropic/claude-3.5-sonnet",
+      "anthropic/claude-haiku-4.5",
+      "openai/gpt-4o",
+      "openai/gpt-4o-mini",
+      "openai/gpt-4.1",
+      "openai/o3",
+      "google/gemini-pro-1.5",
+      "google/gemini-2.5-flash",
+      "x-ai/grok-4.7",
+      "x-ai/grok-3",
+      "meta-llama/llama-4-maverick",
+      "meta-llama/llama-3.1-405b-instruct",
+      "mistralai/mistral-large",
+      "deepseek/deepseek-r1",
+      "deepseek/deepseek-chat",
+      "qwen/qwen3-235b-a22b",
+      "moonshotai/kimi-k2",
+      "z-ai/glm-4.6",
+    ],
   },
   perplexity: {
     name: "Perplexity (Search + LLM)",
