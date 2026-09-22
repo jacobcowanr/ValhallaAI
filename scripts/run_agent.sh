@@ -11,6 +11,32 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 VAULT="$ROOT/vault"
 AGENT="${1:-}"
 
+# The desktop app does not inherit a login shell's PATH.
+#
+# Tauri launches this script via `bash script arg`, which is not a login shell,
+# so it gets the GUI's minimal PATH (/usr/bin:/bin:/usr/sbin:/sbin). Every CLI
+# this runner depends on lives outside that: grok in ~/.grok/bin, docker in
+# /usr/local/bin or /opt/homebrew/bin, hermes and claude in ~/.local/bin. A
+# terminal run finds them because the shell already sourced them; a Run click
+# does not.
+#
+# The consequence is worse than a missing command. grok_subscription_available
+# uses `command -v grok`, so a missing grok reads as "no subscription" and the
+# runner falls through to the paid Docker path -- which then fails too, with
+# "docker: command not found". A subscription that exists looks like a billing
+# failure. Seen 2026-09-22: a terminal run wrote OK (subscription), and the
+# same script from the app wrote ERROR (paid-key) / docker: command not found.
+#
+# Two sources, because neither is complete on its own:
+#   path_helper  -- system paths (/usr/local/bin, Homebrew). This is what a
+#                   login shell runs, but it does not know about user bins.
+#   the prepend  -- the user-level install locations the CLIs actually use.
+# Prepending means a user install wins over a stale system one.
+if [ -x /usr/libexec/path_helper ]; then
+  eval "$(/usr/libexec/path_helper -s)"
+fi
+export PATH="$HOME/.grok/bin:$HOME/.local/bin:$HOME/.hermes/bin:$HOME/.orbstack/bin:$PATH"
+
 redact() {
   sed -E \
     -e '/python-dotenv could not parse/d' \
