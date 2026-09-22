@@ -26,7 +26,9 @@ services:
     container_name: vahalla-hermes
     volumes:
       - ./vault:/vault
-      - ~/.hermes:/root/.hermes
+      # ~ is not reliably expanded by Docker Compose (and not at all on
+      # Windows) — set HOST_HERMES_DIR in .env instead. See env.example.
+      - ${HOST_HERMES_DIR}:/root/.hermes
     environment:
       - HERMES_HOME=/root/.hermes
       - VAULT_PATH=/vault
@@ -59,7 +61,8 @@ services:
     container_name: vahalla-relay
     volumes:
       - ./vault:/vault
-      - ~/.ssh:/root/.ssh
+      # Same tilde caveat as above — set HOST_SSH_DIR in .env.
+      - ${HOST_SSH_DIR}:/root/.ssh
     environment:
       - VAULT_REPO=${VAULT_REPO:-}
       - GIT_AUTHOR_NAME=Vahalla
