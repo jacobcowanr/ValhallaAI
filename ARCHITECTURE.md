@@ -6,7 +6,7 @@
 
 ValhallaAI is a **desktop-first, multi-provider AI orchestration platform**. One app, three jobs:
 
-1. **Talk to any model** — 15 providers behind one router, one chat UI. In the desktop app, Anthropic, OpenAI, OpenRouter, Google, and xAI keys are read from the project `.env`. Nous Portal goes through the local Hermes proxy and does not take a pasted key.
+1. **Talk to any model** — 13 providers behind one router, one chat UI. In the desktop app, Anthropic, OpenAI, OpenRouter, Google, and xAI keys are read from the project `.env`. Nous Portal goes through the local Hermes proxy and does not take a pasted key.
 2. **Run agents** — Agent Control calls `scripts/run_agent.sh`. Hermes is the host CLI. Claude and Grok are one-shot Docker containers. See §4.4 and §4.6.
 3. **Coordinate them** — a git-synced markdown vault is the shared memory/log, not a database. Agents append gitignored outboxes. `scripts/vault_relay.sh` can fold those into `AGENT_SYNC.md` and commit; that path was run on a throwaway repo. It has not pushed this repo. Vault Browser lists files and git status. It does not pull or push. See [CONTRIBUTING.md's gate criteria](./CONTRIBUTING.md#why-local-first).
 
@@ -310,9 +310,9 @@ sequenceDiagram
 
 ## 8. Provider catalog
 
-15 providers today (`Object.keys(PROVIDERS).length` in `src/lib/providers.ts` — check there directly rather than trusting this number by hand), alphabetical, router-abstracted so the list can grow without touching the UI logic:
+13 providers today (`Object.keys(PROVIDERS).length` in `src/lib/providers.ts` — check there directly rather than trusting this number by hand), alphabetical, router-abstracted so the list can grow without touching the UI logic:
 
-Anthropic (API key) · ChatGPT/Codex · Claude Subscription DirectSDK · Fireworks AI · Google Gemini · Groq · Hugging Face Inference API · MiniMax · Nous Portal · **Ollama** (sole local runtime — broadest local model catalog) · OpenRouter (aggregator) · Perplexity · Qwen Code · Replicate (non-LLM models: image/audio/video) · xAI Grok
+Anthropic (API key) · ChatGPT/Codex · Claude Subscription DirectSDK · Fireworks AI · Google Gemini · Groq · MiniMax · Nous Portal · **Ollama** (sole local runtime — broadest local model catalog) · OpenRouter (aggregator) · Perplexity · Qwen Code · xAI Grok
 
 Users can add a provider that is not in this list without editing the source — see §4.2d.
 

@@ -28,7 +28,7 @@ import { inTauri } from "./provider-keys";
  *  It is deliberately NOT the type of a provider id in flight: a
  *  user-defined provider's id is created at runtime, so LLMConfig.provider
  *  and the UI state are plain strings that this set is a subset of. */
-export type LLMProvider = "anthropic" | "chatgpt" | "claude_directsdk" | "fireworks" | "google" | "groq" | "huggingface" | "minimax" | "nous" | "ollama" | "openrouter" | "perplexity" | "qwen" | "replicate" | "xai_grok";
+export type LLMProvider = "anthropic" | "chatgpt" | "claude_directsdk" | "fireworks" | "google" | "groq" | "minimax" | "nous" | "ollama" | "openrouter" | "perplexity" | "qwen" | "xai_grok";
 
 export interface LLMConfig {
   /** A built-in id or a `custom:<slug>` id registered at runtime. */
@@ -49,14 +49,28 @@ export interface LLMMessage {
 }
 
 /**
- * Providers that speak the OpenAI-compatible dialect (callOpenAICompatible
- * below) accept the standard multimodal content-array format, so images
- * are wired in there once. The other 9 providers (Anthropic, Google,
- * MiniMax, Qwen, Hugging Face, Ollama, Replicate, Claude DirectSDK) each
- * have their own request shape and don't get image support in this pass —
- * that's real per-provider work, not something to fake. The UI checks this
- * before allowing an attachment to be sent, rather than silently dropping
- * the image for an unsupported provider.
+ * Providers that can receive images, and the shape each one takes:
+ *
+ * - OpenAI-compatible dialect (callOpenAICompatible, plus MiniMax and Qwen,
+ *   which accept the same content array): the standard image_url block.
+ * - Google: `inlineData` parts, built in callGoogle. Verified live.
+ * - Anthropic: content blocks with a base64 `source`, built by
+ *   toAnthropicContent. The webview path sends these straight to the API, and
+ *   `anthropic_messages` in Rust forwards the blocks untouched.
+ * - Ollama: a raw-base64 `images` array alongside the text.
+ *
+ * Deliberately NOT capable:
+ * - Claude DirectSDK (the `claude` CLI on the Pro/Max subscription). That
+ *   path builds a single text prompt and pipes it to the CLI, so there is no
+ *   field an image can travel in — Rust's AnthropicTurn::text() takes the
+ *   text and nothing else. Attaching an image here would silently drop it
+ *   while the UI implied otherwise, so the provider is left out and the app
+ *   says so. Making it work means writing images to files and letting the CLI
+ *   read them, which changes what tools the CLI is permitted to use — a
+ *   separate decision, not a payload tweak.
+ * - Replicate and Hugging Face were removed from the app entirely, so there is
+ *   no provider left whose request body has no field for an image except the
+ *   CLI path above.
  */
 const IMAGE_CAPABLE_PROVIDERS: ReadonlySet<LLMProvider> = new Set([
   "openrouter",
@@ -66,6 +80,11 @@ const IMAGE_CAPABLE_PROVIDERS: ReadonlySet<LLMProvider> = new Set([
   "fireworks",
   "groq",
   "perplexity",
+  "google",
+  "anthropic",
+  "minimax",
+  "qwen",
+  "ollama",
 ]);
 
 /**
@@ -137,8 +156,6 @@ export async function callLLM(
         return await callGoogle(config, messages);
       case "groq":
         return await callGroq(config, messages);
-      case "huggingface":
-        return await callHuggingFace(config, messages);
       case "minimax":
         return await callMiniMax(config, messages);
       case "nous":
@@ -151,8 +168,6 @@ export async function callLLM(
         return await callPerplexity(config, messages);
       case "qwen":
         return await callQwen(config, messages);
-      case "replicate":
-        return await callReplicate(config, messages);
       case "xai_grok":
         return await callGrok(config, messages);
       default: {
@@ -190,6 +205,34 @@ function requireApiKey(config: LLMConfig): LLMResponse | null {
   return null;
 }
 
+/**
+ * Turn a failed Response into something a person can act on.
+ *
+ * Returning `HTTP 503` on its own is what made a transient Google capacity
+ * spike look like a broken API key — Google's body said "this model is
+ * currently experiencing high demand", and the app threw that away. Most
+ * providers explain themselves in the body; the status code alone discards
+ * the only part that says what to do next.
+ */
+async function describeHttpError(response: Response): Promise<string> {
+  const status = `HTTP ${response.status}`;
+  try {
+    const text = await response.text();
+    if (!text) return status;
+    const parsed = JSON.parse(text) as { error?: { message?: string } };
+    const message = parsed?.error?.message;
+    if (typeof message === "string" && message) {
+      return `${status}: ${message}`;
+    }
+    // A non-JSON error body (an HTML gateway page, say) is still worth a
+    // short slice — better than nothing at all.
+    return `${status}: ${text.slice(0, 200).trim()}`;
+  } catch {
+    // Body already consumed or not readable. The status is all we have.
+    return status;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Shared helper for OpenAI-compatible providers
 // ---------------------------------------------------------------------------
@@ -211,6 +254,23 @@ interface OpenAICompatibleOptions {
  * N near-identical functions.
  */
 /**
+ * Split a data URL into its media type and base64 payload.
+ *
+ * Images arrive as `data:image/png;base64,....` and every provider wants
+ * those two halves apart — but each wants them in a different field name and
+ * a different nesting. One parser, several emitters, so the splitting is not
+ * reimplemented (and re-bugged) per provider.
+ *
+ * Returns null for anything that is not a base64 data URL, so a malformed
+ * attachment is skipped rather than sent as a string the provider will reject.
+ */
+function parseDataUrl(dataUrl: string): { mimeType: string; base64: string } | null {
+  const match = /^data:([^;,]+);base64,(.*)$/.exec(dataUrl);
+  if (!match) return null;
+  return { mimeType: match[1], base64: match[2] };
+}
+
+/**
  * OpenAI's multimodal content-array format: content is either a plain
  * string (text-only, the common case) or an array mixing text and
  * image_url blocks. Messages with no images stay as plain strings —
@@ -227,6 +287,25 @@ function toOpenAICompatibleMessage(msg: LLMMessage): Record<string, unknown> {
       ...msg.images.map((url) => ({ type: "image_url", image_url: { url } })),
     ],
   };
+}
+
+/**
+ * Anthropic's content blocks. Same idea as the OpenAI array, different
+ * field names: `source` carries the media type and the base64 separately,
+ * and the data URL wrapper must NOT be included — Anthropic rejects it.
+ */
+function toAnthropicContent(msg: LLMMessage): string | Record<string, unknown>[] {
+  if (!msg.images || msg.images.length === 0) return msg.content;
+  const blocks: Record<string, unknown>[] = [{ type: "text", text: msg.content }];
+  for (const url of msg.images) {
+    const parsed = parseDataUrl(url);
+    if (!parsed) continue;
+    blocks.push({
+      type: "image",
+      source: { type: "base64", media_type: parsed.mimeType, data: parsed.base64 },
+    });
+  }
+  return blocks;
 }
 
 async function callOpenAICompatible(
@@ -334,13 +413,16 @@ async function callOpenAI(
  * empty turn. The chat history stores those anyway when a previous reply
  * had no text.
  */
-function toAnthropicMessages(messages: LLMMessage[]): { role: "user" | "assistant"; content: string }[] {
+function toAnthropicMessages(messages: LLMMessage[]): { role: "user" | "assistant"; content: string | Record<string, unknown>[] }[] {
   return messages
     .filter((message) => message.role === "user" || message.role === "assistant")
-    .filter((message) => message.content.trim().length > 0)
+    // Keep a turn that has an image even when its text is empty — a screenshot
+    // dropped with no caption is still a real message, and dropping it here
+    // would silently lose the image.
+    .filter((message) => message.content.trim().length > 0 || (message.images?.length ?? 0) > 0)
     .map((message) => ({
       role: message.role as "user" | "assistant",
-      content: message.content,
+      content: toAnthropicContent(message),
     }));
 }
 
@@ -566,7 +648,7 @@ async function callMiniMax(
     },
     body: JSON.stringify({
       model: config.model,
-      messages: messages,
+      messages: messages.map(toOpenAICompatibleMessage),
       temperature: config.temperature ?? 0.7,
       tokens_to_generate: config.maxTokens ?? 2048,
     }),
@@ -575,7 +657,7 @@ async function callMiniMax(
   if (!response.ok) {
     return {
       success: false,
-      error: `HTTP ${response.status}`,
+      error: await describeHttpError(response),
     };
   }
 
@@ -605,7 +687,7 @@ async function callQwen(
     body: JSON.stringify({
       model: config.model,
       input: {
-        messages: messages,
+        messages: messages.map(toOpenAICompatibleMessage),
       },
       parameters: {
         temperature: config.temperature ?? 0.7,
@@ -617,7 +699,7 @@ async function callQwen(
   if (!response.ok) {
     return {
       success: false,
-      error: `HTTP ${response.status}`,
+      error: await describeHttpError(response),
     };
   }
 
@@ -625,45 +707,6 @@ async function callQwen(
   return {
     success: true,
     content: data.output?.text,
-  };
-}
-
-/**
- * Hugging Face Inference API: different shape, stays standalone.
- */
-async function callHuggingFace(
-  config: LLMConfig,
-  messages: LLMMessage[]
-): Promise<LLMResponse> {
-  const missingKey = requireApiKey(config);
-  if (missingKey) return missingKey;
-
-  const response = await fetch("https://api-inference.huggingface.co/models/" + config.model, {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${config.apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      inputs: messages.map((m) => m.content).join(" "),
-      parameters: {
-        temperature: config.temperature ?? 0.7,
-        max_new_tokens: config.maxTokens ?? 2048,
-      },
-    }),
-  });
-
-  if (!response.ok) {
-    return {
-      success: false,
-      error: `HTTP ${response.status}`,
-    };
-  }
-
-  const data = await response.json();
-  return {
-    success: true,
-    content: data[0]?.generated_text || data.text,
   };
 }
 
@@ -688,10 +731,22 @@ async function callGoogle(
   const turnMessages = messages.filter((m) => m.role !== "system");
 
   const body: Record<string, unknown> = {
-    contents: turnMessages.map((m) => ({
-      role: m.role === "assistant" ? "model" : "user",
-      parts: [{ text: m.content }],
-    })),
+    contents: turnMessages.map((m) => {
+      // Gemini's parts array. Text is one part; each image is an `inlineData`
+      // part with the media type and raw base64 split apart (camelCase — the
+      // snake_case form is rejected). Shape verified against the live API:
+      // a request with an inlineData part was answered correctly.
+      const parts: Record<string, unknown>[] = [{ text: m.content }];
+      for (const url of m.images ?? []) {
+        const parsed = parseDataUrl(url);
+        if (!parsed) continue;
+        parts.push({ inlineData: { mimeType: parsed.mimeType, data: parsed.base64 } });
+      }
+      return {
+        role: m.role === "assistant" ? "model" : "user",
+        parts,
+      };
+    }),
     generationConfig: {
       temperature: config.temperature ?? 0.7,
       maxOutputTokens: config.maxTokens ?? 2048,
@@ -716,7 +771,7 @@ async function callGoogle(
   if (!response.ok) {
     return {
       success: false,
-      error: `HTTP ${response.status}`,
+      error: await describeHttpError(response),
     };
   }
 
@@ -724,91 +779,6 @@ async function callGoogle(
   return {
     success: true,
     content: data.candidates?.[0]?.content?.parts?.[0]?.text,
-  };
-}
-
-/**
- * Replicate: model hosting. Predictions are created asynchronously —
- * the initial POST returns a "starting"/"processing" prediction, not the
- * final output, so this polls the prediction's status URL until it reaches
- * a terminal state (succeeded/failed/canceled) or times out.
- */
-async function callReplicate(
-  config: LLMConfig,
-  messages: LLMMessage[]
-): Promise<LLMResponse> {
-  const missingKey = requireApiKey(config);
-  if (missingKey) return missingKey;
-
-  const authHeaders = {
-    "Authorization": `Token ${config.apiKey}`,
-    "Content-Type": "application/json",
-  };
-
-  const createResponse = await fetch("https://api.replicate.com/v1/predictions", {
-    method: "POST",
-    headers: authHeaders,
-    body: JSON.stringify({
-      version: config.model,
-      input: {
-        prompt: messages[messages.length - 1]?.content || "",
-      },
-    }),
-  });
-
-  if (!createResponse.ok) {
-    return {
-      success: false,
-      error: `HTTP ${createResponse.status}`,
-    };
-  }
-
-  let prediction = await createResponse.json();
-
-  const POLL_INTERVAL_MS = 1000;
-  const MAX_POLLS = 60; // ~60s timeout — Replicate predictions can run long
-  const terminalStates = new Set(["succeeded", "failed", "canceled"]);
-  let polls = 0;
-
-  while (!terminalStates.has(prediction.status) && polls < MAX_POLLS) {
-    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
-
-    const statusURL = prediction.urls?.get;
-    if (!statusURL) {
-      return { success: false, error: "Replicate response missing status URL" };
-    }
-
-    const pollResponse = await fetch(statusURL, {
-      headers: { "Authorization": `Token ${config.apiKey}` },
-    });
-    if (!pollResponse.ok) {
-      return {
-        success: false,
-        error: `Replicate polling failed: HTTP ${pollResponse.status}`,
-      };
-    }
-
-    prediction = await pollResponse.json();
-    polls++;
-  }
-
-  if (prediction.status === "succeeded") {
-    const output = Array.isArray(prediction.output)
-      ? prediction.output.join("")
-      : prediction.output;
-    return { success: true, content: output };
-  }
-
-  if (prediction.status === "failed" || prediction.status === "canceled") {
-    return {
-      success: false,
-      error: prediction.error || `Replicate prediction ${prediction.status}`,
-    };
-  }
-
-  return {
-    success: false,
-    error: `Replicate prediction did not complete within ${MAX_POLLS}s (still ${prediction.status})`,
   };
 }
 
@@ -834,7 +804,15 @@ async function callOllama(
       },
       body: JSON.stringify({
         model: config.model,
-        messages: messages,
+        // Ollama's own image field: an array of raw base64 strings alongside
+        // the text, NOT the OpenAI content array. A vision model (llava and
+        // similar) reads `images`; a text-only model ignores it, which is why
+        // this is safe to always include.
+        messages: messages.map((m) => ({
+          role: m.role,
+          content: m.content,
+          images: m.images?.map((url) => parseDataUrl(url)?.base64).filter(Boolean),
+        })),
         temperature: config.temperature ?? 0.7,
         stream: false,
       }),
@@ -843,7 +821,10 @@ async function callOllama(
     if (!response.ok) {
       return {
         success: false,
-        error: `Ollama error: HTTP ${response.status}. Make sure Ollama is running at ${baseURL}`,
+        // Ollama's own body explains most failures (a missing model names
+        // itself), so keep it AND the hint -- the hint alone is no help when
+        // Ollama is up but the model was never pulled.
+        error: `Ollama error at ${baseURL}: ${await describeHttpError(response)}`,
       };
     }
 

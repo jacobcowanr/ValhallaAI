@@ -1,6 +1,6 @@
 # ValhallaAI
 
-**Multi-provider AI orchestration, self-hosted.** One app to talk to 15 LLM providers, run agents against them, and coordinate those agents through a git-synced markdown vault instead of a database.
+**Multi-provider AI orchestration, self-hosted.** One app to talk to 13 LLM providers, run agents against them, and coordinate those agents through a git-synced markdown vault instead of a database.
 
 **Status:** Local development. Not public yet — see [CONTRIBUTING.md](./CONTRIBUTING.md#why-local-first) for why.
 
@@ -76,8 +76,8 @@ ValhallaAI/
 └─ docker-compose.local.yml
 ```
 
-## Providers (16, alphabetical)
+## Providers (13, alphabetical)
 
-Anthropic (API key) · ChatGPT/Codex · Claude Subscription DirectSDK · Fireworks AI · Google Gemini · Groq · Hugging Face · MiniMax · Nous Portal · **Ollama** (local) · OpenRouter · Perplexity · Qwen Code · Replicate · Together AI · xAI Grok
+Anthropic (API key) · ChatGPT/Codex · Claude Subscription DirectSDK · Fireworks AI · Google Gemini · Groq · MiniMax · Nous Portal · **Ollama** (local) · OpenRouter · Perplexity · Qwen Code · xAI Grok
 
 Full rationale for this list in [POSITIONING.md §2](./POSITIONING.md#2-comparison).

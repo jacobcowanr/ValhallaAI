@@ -281,14 +281,16 @@ send.
 | `openrouter` | `GET openrouter.ai/api/v1/models` (public, no key) | 4/19 dead, replaced |
 | `anthropic` | `GET api.anthropic.com/v1/models` + `x-api-key` | 1/5 dead, removed |
 | `nous` | `GET 127.0.0.1:8645/v1/models` (Hermes proxy) | 19/19 live |
-| `huggingface` | `GET huggingface.co/api/models/<id>` (public) | 2/2 live |
 | `claude_directsdk` | `claude -p --model <id>` | 4/4 valid |
 
 **Not verifiable on this machine**, and stated rather than assumed:
 `chatgpt` and `xai_grok` (keys blank in `.env`); `fireworks`, `groq`,
-`perplexity`, `minimax`, `qwen`, `replicate` (no key
+`perplexity`, `minimax`, `qwen` (no key
 at all, and none expose a public list); `ollama` (**not installed here** —
 the catalog offers 7 local models against a runtime that is absent).
+
+`huggingface` and `replicate` were removed from the catalog entirely on
+2026-09-22 — see the entry below.
 
 Distinguish a dead id from a quota error. `claude-fable-5-1` returns "You're
 out of usage credits" through the CLI — the id is valid, the subscription is
@@ -354,12 +356,22 @@ Tracked here until there's a formal issue tracker.
 
 **Fixed 2026-09-22 (Nous Portal).** Direct calls to `inference-api.nousresearch.com` 401 when the only login on the machine is `hermes portal` OAuth, because that flow never produces a key you can paste. `callNous()` now posts to the local Hermes subscription proxy at `http://127.0.0.1:8645/v1`, which is Nous's documented path for third-party apps. Checked against a running proxy: `GET /v1/models` returned 400 ids, 18 of the 19 curated slugs matched, and `qwen/qwen3-coder-480b-a35b` was replaced with the live id `qwen/qwen3-coder` (display name "Qwen3 Coder 480B A35B"). Settings and the chat empty-state no longer ask for a Nous API key. **Verified end to end on 2026-09-22:** `hermes portal info` reports `Auth: ✓ logged in`, the proxy answers on `127.0.0.1:8645`, and a real `POST /v1/chat/completions` on `x-ai/grok-4.7` returned a reply with a usage payload.
 
-**Added 2026-09-22: image attachments in Models & Chat, real for 7/15 providers.** `LLMMessage` gained an optional `images?: string[]` field (data URLs). `callOpenAICompatible()` builds the standard OpenAI multimodal content array (`[{type:"text"}, {type:"image_url"}, ...]`) when a message carries images — wired in once at the shared helper, so it covers all 7 providers that use it (OpenRouter, ChatGPT, xAI Grok, Nous, Fireworks, Groq, Perplexity) for free. `providerSupportsImages()` is exported so the UI can gate on it.
+**Added 2026-09-22: image attachments in Models & Chat — drag & drop, paste, and file picker, real for 12 of the 13 providers.** `LLMMessage` gained an optional `images?: string[]` field (data URLs). Each provider family encodes them in its own shape, because there is no single format:
+
+- **OpenAI-compatible dialect** (`callOpenAICompatible`, which also covers MiniMax and Qwen — they accept the same content array): `[{type:"text"},{type:"image_url",image_url:{url}}]`. The data URL goes in `url` whole.
+- **Google Gemini**: `{inlineData: {mimeType, data}}` parts, camelCase, data-URL prefix stripped. **Verified live** — a dropped screenshot was correctly described by the model.
+- **Anthropic**: `{type:"image", source:{type:"base64", media_type, data}}` content blocks. `AnthropicTurn.content` in `main.rs` is now a `serde_json::Value` so `anthropic_messages` forwards those blocks untouched instead of rejecting the array (a `String` field would fail serde before the request left the app).
+- **Ollama**: a raw-base64 `images` array alongside the text — its own field, NOT the OpenAI content array.
+
+`providerSupportsImages()` is exported so the UI gates on it. Three entry points (picker, drop, paste) all funnel through one `ingestImageFiles()`; `toAnthropicMessages()` no longer filters out empty-text turns that carry an image.
+
+**Removed 2026-09-22: `huggingface` and `replicate`.** Both were dropped from `providers.ts`, the `LLMProvider` union, the `callLLM` switch, and their `callHuggingFace`/`callReplicate` implementations — the catalog went from 15 providers to 13. The three places that must agree were re-counted to confirm it (13 catalog keys, 13 switch cases, 13 union members). Neither had been verifiable on this machine (no key, no public model list), and both were the last providers whose request bodies had no field an image could travel in. No Rust change was needed: `envfile.rs`'s `PROVIDER_ENV` never listed either one, so no key mapping was orphaned.
 
 **Still open:**
+- **Claude Subscription DirectSDK cannot take images, and it is the default provider.** That path builds a single text prompt for the `claude` CLI, so no field can carry an image; `AnthropicTurn::text()` drops any image blocks. It is deliberately excluded from `IMAGE_CAPABLE_PROVIDERS` so the UI warns instead of silently discarding the attachment. Making it work requires writing images to temp files and letting the CLI read them, which means permitting the `Read` tool on a path currently told "Do not use tools" — a widening of what that CLI may touch, not a payload tweak.
 - **Sessions (`src/lib/sessions.ts`) persist to `localStorage`, with no size cap or eviction policy.** Fine for normal use, but there's no limit on how many sessions or how much message history accumulates — a very long-running install could eventually hit `localStorage`'s per-origin quota (typically 5-10MB depending on platform). the internal `persist()` function's `try/catch` means a quota failure degrades to "this session's latest messages don't persist" rather than crashing, but there's no user-facing warning when that happens, and no pruning/archiving of old sessions. A real fix would be IndexedDB (much higher quota) or an explicit "delete old sessions" affordance — neither attempted here.
 - **`src/assets/fonts/Norse.otf` and `Norse-Bold.otf` are licensed, not public-domain or npm-distributed.** Joël Carrouché Free Font License: free to use and embed in apps/web pages, but explicitly prohibits redistributing or sharing the font files "for download" without written permission. Fine while this repo is private — becomes a real question the moment `CONTRIBUTING.md`'s open-source gate is met, since a public GitHub repo lets anyone clone it and extract the raw `.otf` files. Revisit before going public: either get permission, find a differently-licensed alternative, or strip the font files from the public history/release while keeping the private repo as-is.
-- **The other 8 providers (Anthropic, Google, MiniMax, Qwen, Hugging Face, Ollama, Replicate, Claude DirectSDK) don't support image attachments.** Each has its own request shape and its own multimodal format (Anthropic's `image` content blocks, Google's `inline_data`, etc.) — implementing all of them is real per-provider work, not something to fake. The UI (`ModelPicker.svelte`) checks `providerSupportsImages()` before allowing a send: attaching an image while on an unsupported provider shows a live warning and disables Send, rather than silently dropping the image or sending it somewhere it'll be ignored.
+- ~~**The other 8 providers (Anthropic, Google, MiniMax, Qwen, Hugging Face, Ollama, Replicate, Claude DirectSDK) don't support image attachments.**~~ — resolved 2026-09-22 for Anthropic, Google, MiniMax, Qwen, and Ollama, each in its own shape (see the image-attachments entry above). Claude Subscription DirectSDK remains the one exception, for the reason stated there.
 - **Only images, not arbitrary files.** The attach menu offers "Upload image" only — no PDF/document upload or text-extraction pipeline. That's a materially different feature (needs its own ingestion/chunking story) and wasn't implied by what was asked.
 - ~~**`anthropic_oauth` aliases to `callAnthropic()` with the paid API key** and `claude_directsdk` is rejected with `missing field apiKey`~~ — both resolved 2026-09-22. `claude_subscription` now takes its own `ClaudeSubscriptionRequest { model, messages }` instead of `AnthropicRequest`, whose required `api_key` was failing serde before the CLI ever spawned; DirectSDK answers normally. `anthropic_oauth` was removed rather than fixed: Anthropic has no third-party OAuth API flow to implement, and the subscription login that does exist is the `claude` CLI one that DirectSDK already uses, so the entry was a duplicate that misreported its own billing.
 - **`VaultBrowser` lists files and git status. It does not pull or push.** `vault_status` is read-only. `VAULT_REPO` can be empty. A push from the app is still not implemented.

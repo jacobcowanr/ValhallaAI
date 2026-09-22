@@ -97,6 +97,12 @@
   const MAX_FILE_BYTES = 256 * 1024;
   const MAX_TOTAL_BYTES = 1024 * 1024;
   const MAX_FILES = 40;
+  // Images go to the provider inline, so the ceiling is the provider's, not
+  // ours. Retina screenshots land around 1-3 MB; 12 MB leaves room for a
+  // full-screen capture on a large display while still catching a file that
+  // was never going to be accepted — with a message that says so, rather
+  // than a failure after the send.
+  const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 
   let attachedFiles: AttachedFile[] = [];
   let folderInput: HTMLInputElement;
@@ -325,12 +331,16 @@
 
   // Live warning as soon as a provider switch makes existing attachments
   // unsendable — don't wait until the user hits Send to tell them.
+  //
+  // Derived rather than assigned into attachError: attachError also carries
+  // ingest problems (an oversized image, a non-image file), and this block
+  // re-runs and clears whatever it finds. Two sources, two variables; the
+  // template shows whichever applies.
   $: imagesSupported = providerSupportsImages(selectedProvider);
-  $: if (attachedImages.length > 0 && !imagesSupported) {
-    attachError = `${providerName(selectedProvider)} doesn't support image attachments. Remove the image(s) or switch providers.`;
-  } else {
-    attachError = "";
-  }
+  $: providerImageWarning =
+    attachedImages.length > 0 && !imagesSupported
+      ? `${providerName(selectedProvider)} doesn't support image attachments. Remove the image(s) or switch providers.`
+      : "";
 
   function toggleAttachMenu(): void {
     attachMenuOpen = !attachMenuOpen;
@@ -359,13 +369,104 @@
     const files = input.files;
     if (!files || files.length === 0) return;
 
-    for (const file of Array.from(files)) {
-      if (!file.type.startsWith("image/")) continue; // matches accept="image/*", but File inputs can still surface other types on some platforms
-      const dataUrl = await readFileAsDataUrl(file);
-      attachedImages = [...attachedImages, { name: file.name, dataUrl }];
+    await ingestImageFiles(Array.from(files), "Image");
+    input.value = ""; // allow re-selecting the same file
+  }
+
+  /**
+   * One ingest path for every way an image arrives: the picker, a drop, and a
+   * paste. Three near-identical loops is how the picker version and the drop
+   * version drift apart, and the drag-and-drop path is the one that gets
+   * forgotten when a limit changes.
+   *
+   * `fallbackName` covers images that arrive with no filename — a clipboard
+   * paste has none.
+   */
+  async function ingestImageFiles(files: File[], fallbackName: string): Promise<void> {
+    const images = files.filter((f) => f.type.startsWith("image/"));
+    const rejected = files.length - images.length;
+
+    if (images.length === 0) {
+      // A dropped PDF or .py lands here. Saying which path DOES handle it is
+      // more useful than "unsupported file".
+      attachError =
+        rejected > 0
+          ? "That is not an image — use Upload file instead, which inlines text files for the model."
+          : "";
+      return;
     }
 
-    input.value = ""; // allow re-selecting the same file
+    const added: AttachedImage[] = [];
+    const problems: string[] = [];
+
+    for (const file of images) {
+      if (file.size > MAX_IMAGE_BYTES) {
+        const mb = (file.size / 1024 / 1024).toFixed(1);
+        problems.push(
+          `${file.name || fallbackName} is ${mb} MB, over the ${MAX_IMAGE_BYTES / 1024 / 1024} MB image limit`
+        );
+        continue;
+      }
+      added.push({ name: file.name || fallbackName, dataUrl: await readFileAsDataUrl(file) });
+    }
+
+    if (added.length > 0) attachedImages = [...attachedImages, ...added];
+    if (rejected > 0) {
+      problems.push(`${rejected} non-image file${rejected > 1 ? "s" : ""} ignored`);
+    }
+    attachError = problems.length > 0 ? `${problems.join("; ")}.` : "";
+  }
+
+  // --- drag and drop --------------------------------------------------------
+  // A depth counter, not a boolean: dragenter/dragleave fire for every child
+  // element the pointer crosses, so a boolean flickers the overlay off while
+  // the pointer is still inside the drop zone.
+  let dragDepth = 0;
+  let dragging = false;
+
+  function handleDragEnter(e: DragEvent): void {
+    if (!e.dataTransfer?.types.includes("Files")) return;
+    dragDepth += 1;
+    dragging = true;
+  }
+
+  function handleDragOver(e: DragEvent): void {
+    if (!e.dataTransfer?.types.includes("Files")) return;
+    // preventDefault is required or the browser refuses the drop and may
+    // navigate to the file instead, which loses the session.
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+  }
+
+  function handleDragLeave(): void {
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (dragDepth === 0) dragging = false;
+  }
+
+  async function handleDrop(e: DragEvent): Promise<void> {
+    e.preventDefault();
+    dragDepth = 0;
+    dragging = false;
+    const files = Array.from(e.dataTransfer?.files ?? []);
+    if (files.length === 0) return;
+    await ingestImageFiles(files, "Dropped image");
+  }
+
+  /**
+   * Paste a screenshot with Cmd/Ctrl+V. macOS puts a copied screenshot on the
+   * clipboard as image data rather than a file, so for the screenshots this is
+   * mostly used for, this is the fastest path there is. Text pastes are left
+   * alone for the textarea to handle.
+   */
+  async function handlePaste(e: ClipboardEvent): Promise<void> {
+    const items = Array.from(e.clipboardData?.items ?? []);
+    const files = items
+      .filter((it) => it.kind === "file" && it.type.startsWith("image/"))
+      .map((it) => it.getAsFile())
+      .filter((f): f is File => f !== null);
+    if (files.length === 0) return;
+    e.preventDefault();
+    await ingestImageFiles(files, "Pasted image");
   }
 
   function removeAttachment(index: number): void {
@@ -447,7 +548,32 @@
   }
 </script>
 
-<div class="screen">
+<div
+  class="screen"
+  class:dragging
+  role="region"
+  aria-label="Chat — drop or paste screenshots to attach"
+  on:dragenter={handleDragEnter}
+  on:dragover={handleDragOver}
+  on:dragleave={handleDragLeave}
+  on:drop={handleDrop}
+>
+  {#if dragging}
+    <div class="drop-overlay">
+      <div class="drop-card">
+        <p class="drop-title">Drop screenshots to attach</p>
+        <p class="drop-hint">
+          {#if imagesSupported}
+            {providerName(selectedProvider)} reads images — they go with your next message.
+          {:else}
+            {providerName(selectedProvider)} can't read images. Switch provider, or drop a
+            text file and use Upload file instead.
+          {/if}
+        </p>
+      </div>
+    </div>
+  {/if}
+
   <div class="messages">
     <div class="messages-inner">
       {#if responses.length === 0}
@@ -530,8 +656,8 @@
         </div>
       {/if}
 
-      {#if attachError}
-        <p class="attach-error">⚠ {attachError}</p>
+      {#if providerImageWarning || attachError}
+        <p class="attach-error">⚠ {providerImageWarning || attachError}</p>
       {/if}
 
       <div class="input-area">
@@ -598,8 +724,9 @@
           rows="1"
           use:autosize={userMessage}
           bind:value={userMessage}
-          placeholder="Send a message..."
+          placeholder="Send a message... (drop or ⌘V a screenshot)"
           on:keydown={(e) => e.key === "Enter" && !e.shiftKey && sendMessage()}
+          on:paste={handlePaste}
         />
         <!-- Icon-only, so it carries an aria-label and a title: the arrow
              alone says nothing to a screen reader, and the previous "Send"
@@ -660,6 +787,54 @@
        out to the very edges so the model bar can span the full width. */
     margin: -2rem;
     padding: 2rem 2rem 0 2rem;
+    /* Containing block for .drop-overlay, which is absolutely positioned so
+       it never shifts the conversation while it is up. */
+    position: relative;
+  }
+
+  /* Drag-and-drop feedback. pointer-events: none matters — the overlay appears
+     under the pointer mid-drag, and if it took pointer events it would steal
+     the dragover/drop events the drop zone needs, and the drop would land on
+     the overlay instead of being handled. */
+  .drop-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    background: rgba(0, 0, 0, 0.62);
+  }
+
+  .drop-card {
+    pointer-events: none;
+    border: 2px dashed var(--accent);
+    border-radius: 12px;
+    padding: 1.5rem 2.5rem;
+    text-align: center;
+    background: rgba(13, 13, 13, 0.9);
+  }
+
+  .drop-title {
+    margin: 0 0 0.4rem 0;
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: var(--accent);
+  }
+
+  .drop-hint {
+    margin: 0;
+    font-size: 0.82rem;
+    max-width: 34ch;
+    color: var(--text-muted);
+  }
+
+  /* Dashed edge around the whole drop zone, so the target is unambiguous
+     rather than only implied by the card. */
+  .screen.dragging {
+    outline: 2px dashed var(--accent-soft-border);
+    outline-offset: -8px;
   }
 
   /* Narrow, centered chat column — the background stays full-bleed dark,
