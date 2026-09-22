@@ -24,23 +24,28 @@ Until then: no public repo, no "please star this," no premature audience.
 
 ```
 ValhallaAI/
-├─ ARCHITECTURE.md      — system design, diagrams (read this first)
-├─ POSITIONING.md        — how this differs from everything else
-├─ CONTRIBUTING.md       — this file
-├─ README.md             — quick start
-├─ index.html            — Vite entry point
-├─ vite.config.js        — Vite + Svelte plugin config
-├─ svelte.config.js      — Svelte preprocessor config
-├─ src/                  — Svelte frontend
-│  ├─ main.js            — mounts App.svelte into index.html's #app
-│  ├─ App.svelte         — tab navigation shell
-│  ├─ routes/            — page-level components (Settings, ModelPicker, VaultBrowser, AgentControl)
+├─ ARCHITECTURE.md         — system design, diagrams (read this first)
+├─ POSITIONING.md          — how this differs from everything else
+├─ CONTRIBUTING.md         — this file
+├─ README.md               — quick start
+├─ env.example             — .env template. Copy to .env. Never commit .env
+├─ index.html              — Vite entry point
+├─ vite.config.js          — Vite + Svelte plugin config
+├─ svelte.config.js        — Svelte preprocessor config
+├─ src/
+│  ├─ main.js              — mounts App.svelte into index.html's #app
+│  ├─ App.svelte           — sidebar shell (Models & Chat, Sessions, Vault, Agents, Settings)
+│  ├─ routes/              — those screens
 │  └─ lib/
-│     ├─ llm-router.ts   — the ONLY place that talks to provider APIs
-│     └─ providers.ts    — the ONLY place the provider catalog is defined (Settings.svelte and ModelPicker.svelte both import it)
-├─ agents/                — one folder per agent runtime (Docker)
-├─ scripts/vault_relay.sh — folds agent outboxes into AGENT_SYNC.md, commits, pushes
-├─ vault/                 — coordination log template
+│     ├─ llm-router.ts     — the ONLY place that talks to provider APIs
+│     ├─ providers.ts      — the ONLY provider catalog
+│     ├─ provider-keys.ts  — loads the allowlisted .env keys through Tauri
+│     └─ sessions.ts       — chat sessions in localStorage
+├─ src-tauri/src/main.rs   — run_agent, provider_keys, vault_status
+├─ agents/                 — Claude and Grok images. Hermes runs on the host
+├─ scripts/run_agent.sh    — one-shot runner shared by the UI and the terminal
+├─ scripts/vault_relay.sh  — folds outboxes into AGENT_SYNC.md, commits, can push
+├─ vault/                  — AGENT_SYNC.md and agents-config.json
 └─ docker-compose.local.yml
 ```
 
@@ -53,8 +58,9 @@ ValhallaAI/
 4. Provider *counts* in docs (README, ARCHITECTURE §8, POSITIONING) should be written as "N providers" where N is `Object.keys(PROVIDERS).length` — check it against `providers.ts` directly rather than incrementing a remembered number by hand. A hand-maintained count is exactly how the catalog drifted to 19 router cases / 18 catalog entries / "17" in prose before the providers.ts extraction.
 
 ### Agent runtimes
-- Each agent is a **one-shot container**, not a daemon — `restart: "no"` in `docker-compose.local.yml`, not `unless-stopped`. This was gotten wrong once already: `unless-stopped` on a container that calls a paid API and exits 0 is an unbounded billing loop, not a doc mismatch. Caught by a 2026-09-21 verification pass before anyone actually ran it.
-- Every agent reads its config from `vault/agents-config.json` and writes results to its *own* outbox file (`AGENT_OUTBOX_<name>.md`) — never write directly to `AGENT_SYNC.md`. See [ARCHITECTURE.md §6](./ARCHITECTURE.md#6-data-flow-agent-run--vault-coordination) for why.
+- Each agent run is **one-shot**, not a daemon — `restart: "no"` in `docker-compose.local.yml`, not `unless-stopped`. This was gotten wrong once already: `unless-stopped` on a container that calls a paid API and exits 0 is an unbounded billing loop. Caught by a 2026-09-21 verification pass before anyone actually ran it.
+- Claude and Grok are containers. Hermes is not: `scripts/run_agent.sh hermes-agent` calls the host CLI. The Hermes image still has no `hermes` binary.
+- Claude and Grok read `vault/agents-config.json`. All three runners append `vault/AGENT_OUTBOX_<name>.md` (gitignored). They do not write `AGENT_SYNC.md` directly. The relay does that. See [ARCHITECTURE.md §6](./ARCHITECTURE.md#6-data-flow-agent-run--vault-coordination).
 - Before wiring up a new agent's Dockerfile, actually run `docker-compose build <service>` — `agents/grok/agent.js` didn't exist for a full day while its Dockerfile's `COPY agent.js ./` referenced it, because nobody had tried building it.
 
 ### Vault
@@ -86,6 +92,14 @@ Standing constraint on every change — see [ARCHITECTURE.md §3.1](./ARCHITECTU
 
 Tracked here until there's a formal issue tracker.
 
+**Current as of 2026-09-22.** The changelog under this section is history. This paragraph is the state to trust:
+
+- Desktop app: `npm run tauri-dev`. Chat keys for Anthropic, OpenAI, OpenRouter, Google, and xAI come from `.env` when that file has them. Other providers still use a key saved in Settings. Nous Portal uses the Hermes proxy at `http://127.0.0.1:8645` and does not read `NOUS_API_KEY`.
+- `.env` must be `NAME=value` lines and `#` comments. A label on its own line makes Docker Compose reject the whole file.
+- Agents: `scripts/run_agent.sh <claude-agent|hermes-agent|grok-agent>`, or the Run button. Hermes is the host CLI. Claude needs `ANTHROPIC_API_KEY`. Grok needs `XAI_API_KEY` and `"enabled": true`. Do not use `docker compose up` to "start the agents."
+- Vault Browser lists `vault/` and `git status`. It does not pull or push. The relay can fold and commit; push is still untested.
+- `anthropic`, `anthropic_oauth`, and `claude_directsdk` still share `callAnthropic()` and the Anthropic key.
+
 **Fixed 2026-09-21** (found by two independent verification passes cross-checking docs against actual code, one of them mislabeled "Hermes" in the vault log despite running as Opus 5 in Claude Desktop's cowork — worth knowing for the record):
 - ~~`src/App.svelte` had an opening `<script>` and no closing `</script>`~~ — hard Svelte compile error, broken in the committed version, not just a working-tree typo. **The app has never actually built until this fix.**
 - ~~No Vite/Svelte scaffolding existed at all~~ — `vite.config.js`, `svelte.config.js`, `index.html`, `src/main.js`, `tsconfig.json` were all missing, so even with `App.svelte` fixed there was no entry point for anything to mount to. Added all five, plus `tsconfig.node.json` and `src/vite-env.d.ts` for the `.svelte`-import type declarations TypeScript needs. **Verified with a real `npx vite build` (succeeds, 39 modules) and `npx tsc --noEmit` (clean) — not just file existence.**
@@ -94,7 +108,7 @@ Tracked here until there's a formal issue tracker.
 - ~~`Settings.svelte` and `ModelPicker.svelte` each held their own copy of the provider catalog~~ — extracted to `src/lib/providers.ts`, both files import from it now. This also fixed the count mismatch at its root (removed the dead `local`/`callLocal` case, which duplicated `ollama`'s `localhost:11434` target under a second name) — router, Settings, and ModelPicker now all agree: **18 providers**, not 19/18/18/"17".
 - ~~`agents/grok/Dockerfile` `COPY`'d a nonexistent `agent.js`~~ — build target failed outright (mitigated by `grok-agent` being `enabled: false` by default, but still broken). Added a real implementation.
 - ~~`vault-relay` only ran `git pull`, never committed or pushed~~ — contradicted ARCHITECTURE §6's diagram outright. `scripts/vault_relay.sh` now folds each agent's outbox into `AGENT_SYNC.md`, commits, and pushes.
-- ~~`AgentControl`/`VaultBrowser` looked functional but were mocks~~ — `main.rs` registers zero Tauri commands, so there was never an IPC path from either component to Docker or git. Both now show a visible "not wired up yet" notice and the code is commented accordingly, instead of silently pretending.
+- ~~`AgentControl`/`VaultBrowser` looked functional but were mocks~~ — on 2026-09-21 `main.rs` registered no commands, and the fix that day was an honest "not wired" notice. **Superseded later on 2026-09-22:** Agent Control runs `scripts/run_agent.sh`, and Vault Browser lists files and git status. Neither pulls nor pushes.
 - ~~CONTRIBUTING's gate checkmarks read as "met"~~ — see above, now unchecked boxes.
 - ~~`docker-compose.local.yml`'s Windows-path comment contained a literal `~` character~~ — harmless in effect (not inside an actual path), but made an earlier "no tilde in this file" claim literally false. Reworded.
 - ~~Version drift~~ — `package.json` and `Settings.svelte` said `0.0.1`, `tauri.conf.json`/`Cargo.toml` said `0.1.0`. Aligned to `0.1.0` everywhere.

@@ -8,6 +8,7 @@ Shared coordination log for ValhallaAI agents. Synced to a **private** GitHub re
 
 - **Append-only:** never delete, only append
 - **Dated entries:** `[YYYY-MM-DD HH:MM] <Agent Name>`
+- **Dated entries are history.** README, ARCHITECTURE, POSITIONING, and CONTRIBUTING describe the app as it is now. An older entry that calls a screen a mock was true when it was written.
 - **Format:** Did / Files / Decisions / TO (next agent)
 - **No secrets:** never commit API keys, credentials, or IPs
 - **Local first:** this is Jacob's private coordination log
@@ -309,4 +310,10 @@ Shared coordination log for ValhallaAI agents. Synced to a **private** GitHub re
 - **Files:** `src-tauri/src/envfile.rs` (new), `src-tauri/src/main.rs`, `src/lib/provider-keys.ts` (new), `src/lib/llm-router.ts`, `src/routes/Settings.svelte`, `src/routes/ModelPicker.svelte`, `src/routes/VaultBrowser.svelte`, `ARCHITECTURE.md`, `CONTRIBUTING.md`, this log.
 - **Decisions:** Did not add DeepSeek or NVIDIA as chat providers even though those keys are in `.env`. Did not enable the Grok container. Did not commit `.env`. Did not push.
 - **TO: Jacob:** Open the app with `npm run tauri-dev`. Settings should say the Anthropic, OpenRouter, and Google keys are loaded from `.env`. A plain browser tab cannot read the file. Vault shows the file list and does not sync to GitHub.
+---
+## [2026-09-22 01:34] Grok Build
+- **Did:** Brought the living docs in line with the app. README no longer tells you to `docker compose up` the agents. ARCHITECTURE §1, §4.4, §5, and §6 no longer call Agent Control or the vault screen mocks. POSITIONING's comparison table matches the wired Run button, the read-only vault list, and `.env` key loading. CONTRIBUTING has a "current as of 2026-09-22" paragraph above the changelog, and the 2026-09-21 mock bullet is marked superseded. `env.example` now matches the `.env` format Compose accepts and names which keys the desktop app actually reads. This log's dated entries were not rewritten. The preamble now says those entries are history.
+- **Files:** `README.md`, `ARCHITECTURE.md`, `POSITIONING.md`, `CONTRIBUTING.md`, `env.example`, this log.
+- **Decisions:** Left `vault/AGENT_OUTBOX_*.md` alone. Those are run records, not docs. Did not commit `vault/agents-config.json` (Grok `enabled` is still a local edit). Did not push.
+- **TO: Jacob:** The four docs and `env.example` are the ones to trust. The log underneath them describes older states on purpose.
 ---
