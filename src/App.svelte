@@ -7,7 +7,7 @@
   import Settings from "./routes/Settings.svelte";
   import Profile from "./routes/Profile.svelte";
   import Onboarding from "./routes/Onboarding.svelte";
-  import logoWordmark from "./assets/ValhallaAI_Logo.png";
+  import logoWordmark from "./assets/ValhallaAI_Header.png";
   import norseFontUrl from "./assets/fonts/Norse.otf";
   import norseBoldFontUrl from "./assets/fonts/Norse-Bold.otf";
   // createSession() import (not loadSessions — that now runs automatically
@@ -203,8 +203,8 @@
   /*
    * Theme tokens — defined once here, referenced by every component's
    * <style> block via var(--token-name) instead of each one hardcoding
-   * its own copy of the same colors. #a90303 is sampled directly from
-   * src/assets/ValhallaAI_Logo.png (dominant pixel color), not guessed.
+   * its own copy of the same colors. The accent is bone-white, taken
+   * from the valknut icon, not guessed.
    */
   :global(:root) {
     /* "Norse" is registered via the FontFace API in onMount above, not
@@ -224,11 +224,14 @@
     --text-secondary: #a3a3a3;
     --text-muted: #737373;
 
-    --accent: #a90303;
-    --accent-hover: #c40404;
-    --accent-text: #ffffff;
-    --accent-soft-bg: #2a0e0e;
-    --accent-soft-border: #4a1616;
+    /* Bone-white accent, taken from the valknut icon (white on black)
+       rather than the old red wordmark. The red (#a90303) was sampled
+       from ValhallaAI_Logo.png; that file is no longer the header. */
+    --accent: #e8e4dc;
+    --accent-hover: #ffffff;
+    --accent-text: #0d0d0d;
+    --accent-soft-bg: #26241f;
+    --accent-soft-border: #4a463c;
 
     --danger: #dc3545;
     --danger-hover: #c82333;
