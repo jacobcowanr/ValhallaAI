@@ -519,6 +519,8 @@ Perplexity's Sonar Chat Completions endpoint is supported **only until 2026-09-2
 ### 7.5 Billing preference, where a subscription exists
 Claude Subscription DirectSDK and Nous Portal run on a flat-rate login and never touch a per-token key. Anthropic (API key) and xAI Grok have no subscription path and bill per token. The chat defaults to Claude Subscription DirectSDK on Haiku for exactly this reason: the out-of-the-box path costs nothing per message. §8.4 lists the cost, honestly, of choosing it.
 
+**One implementation note that is really a whole class of bug.** This path shells out to the `claude` CLI, and the app is GUI-launched — so its `PATH` is `/usr/bin:/bin:/usr/sbin:/sbin`, which does not contain the native installer's `~/.local/bin`. A bare `Command::new("claude")` therefore failed with ENOENT on a machine where the CLI was installed and working in Terminal, and the app reported "not installed" and advised an `npm install` that would have created a second, unmanaged copy. The fix resolves the binary from a list of known absolute locations and prepends those directories to the child's `PATH`; the search order is unit-tested, and the same trap is documented as a rule in [CONTRIBUTING.md](./CONTRIBUTING.md#the-gui-path-trap-resolve-host-tools-by-absolute-path-never-trust-path), because `scripts/run_agent.sh` had already hit it once for agent runs.
+
 ## 8. Agent run performance
 
 This section exists because a Run click took **197 seconds** to answer a question whose answer was already inside the prompt, and that is a bug worth documenting rather than quietly fixing.
@@ -829,7 +831,8 @@ Kept as a table rather than scattered caveats, because this document's failure m
 | Windows / Linux builds | ❌ not built | macOS only so far (§4.1) |
 | `callNous` against the live proxy | ⚠️ unverified | The proxy itself answered; this client path has not been exercised since |
 | Sign-in (Google and GitHub) | ✅ proven | Both providers round-trip end to end against live consent screens; GitHub confirmed by a real sign-in on 2026-09-22 |
-| Rust unit tests | ✅ proven | `cargo test` → 14 passed, 0 failed |
+| DirectSDK CLI resolution | ✅ proven | Reproduced the ENOENT under the GUI `PATH`, then confirmed the resolved path runs `claude auth status` and reports `loggedIn: true`; 8 `cargo test` cases cover the search order, the executable-bit check, and the override |
+| Rust unit tests | ✅ proven | `cargo test` → 22 passed, 0 failed |
 
 ## 13. Related documents
 

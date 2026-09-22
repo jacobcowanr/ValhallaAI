@@ -248,12 +248,122 @@ fn subscription_env() -> std::collections::HashMap<String, String> {
     ] {
         env.remove(key);
     }
+    // Resolving the binary is not enough on its own: the CLI spawns subprocesses
+    // of its own, and they inherit this environment. Handing the child a PATH
+    // that contains the directories a login shell would have used is what makes
+    // that work — and it is the same prepend `scripts/run_agent.sh` performs.
+    let inherited_path = env.get("PATH").cloned();
+    env.insert("PATH".into(), augmented_path(inherited_path.as_deref()));
     env.insert("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC".into(), "1".into());
     env
 }
 
+/// Where a `claude` CLI is actually installed on a developer machine, in the
+/// order worth trying. Mirrors the prepend list in `scripts/run_agent.sh`,
+/// which solved this identical problem for agent runs, so the two cannot drift
+/// apart. The native installer (`~/.local/bin`) is first because that is what
+/// Claude Code's own installer uses now; the npm-global and Homebrew paths
+/// cover an install someone did the older way.
+fn claude_search_dirs(home: &std::path::Path) -> Vec<std::path::PathBuf> {
+    vec![
+        home.join(".local/bin"),
+        home.join(".claude/local"),
+        home.join(".npm-global/bin"),
+        home.join(".hermes/bin"),
+        std::path::PathBuf::from("/opt/homebrew/bin"),
+        std::path::PathBuf::from("/usr/local/bin"),
+    ]
+}
+
+fn home_dir() -> Option<std::path::PathBuf> {
+    std::env::var_os("HOME").map(std::path::PathBuf::from)
+}
+
+/// A candidate counts only if it is a regular file the user can execute — a
+/// directory named `claude`, or a stub without the executable bit, must not
+/// be reported as a working CLI.
+fn is_executable(path: &std::path::Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        match std::fs::metadata(path) {
+            Ok(meta) => meta.is_file() && (meta.permissions().mode() & 0o111 != 0),
+            Err(_) => false,
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        path.is_file()
+    }
+}
+
+/// The paths actually tried, for an error message that names them instead of
+/// guessing at the cause.
+fn claude_candidate_summary() -> String {
+    match home_dir() {
+        Some(home) => claude_search_dirs(&home)
+            .iter()
+            .map(|dir| dir.join("claude").to_string_lossy().into_owned())
+            .collect::<Vec<_>>()
+            .join(", "),
+        None => "(no HOME set)".to_string(),
+    }
+}
+
+/// Resolve `claude` to an absolute path where possible. Pure, so the search
+/// order and the override can be tested without mutating the environment.
+///
+/// A bare `"claude"` is NOT good enough, and the failure it produced was
+/// actively misleading. This app is launched by the GUI, launchd's PATH is
+/// unset, so the child inherits only `/usr/bin:/bin:/usr/sbin:/sbin` — and a
+/// native install at `~/.local/bin/claude` is on none of them. The app then
+/// reported "Claude CLI is not installed" for a CLI that was installed and
+/// working in the user's terminal, and advised an npm install that would have
+/// created a second copy. Two spawn sites use this (`auth status` and the
+/// completion itself), so the resolution lives here, once.
+fn resolve_claude(
+    home: Option<&std::path::Path>,
+    explicit: Option<&str>,
+) -> String {
+    if let Some(override_path) = explicit {
+        if !override_path.trim().is_empty() {
+            return override_path.to_string();
+        }
+    }
+    if let Some(home) = home {
+        for dir in claude_search_dirs(home) {
+            let candidate = dir.join("claude");
+            if is_executable(&candidate) {
+                return candidate.to_string_lossy().into_owned();
+            }
+        }
+    }
+    // Last resort: whatever the inherited PATH turns up. Correct for an npm
+    // install on a machine whose GUI PATH happens to include the prefix.
+    "claude".to_string()
+}
+
 fn claude_bin() -> String {
-    std::env::var("CLAUDE_SUBSCRIPTION_DIRECTSDK_COMMAND").unwrap_or_else(|_| "claude".to_string())
+    let explicit = std::env::var("CLAUDE_SUBSCRIPTION_DIRECTSDK_COMMAND").ok();
+    resolve_claude(home_dir().as_deref(), explicit.as_deref())
+}
+
+/// The inherited PATH, with the CLI directories prepended.
+fn augmented_path(inherited: Option<&str>) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    if let Some(home) = home_dir() {
+        parts.extend(
+            claude_search_dirs(&home)
+                .into_iter()
+                .map(|dir| dir.to_string_lossy().into_owned()),
+        );
+    }
+    if let Some(existing) = inherited {
+        if !existing.is_empty() {
+            parts.push(existing.to_string());
+        }
+    }
+    parts.join(":")
 }
 
 /// The DirectSDK request shape. Deliberately **not** `AnthropicRequest`.
@@ -292,7 +402,15 @@ fn claude_subscription(request: ClaudeSubscriptionRequest) -> ChatReply {
                 success: false,
                 content: None,
                 error: Some(format!(
-                    "Claude CLI is not installed ({err}). Install it with npm install -g @anthropic-ai/claude-code, then run claude auth login."
+                    "No `claude` CLI could be run ({err}).\n\
+                     Looked for an executable at: {}\n\
+                     …and then on PATH — which for a GUI-launched app is only \
+                     /usr/bin:/bin:/usr/sbin:/sbin. A login shell's PATH is not inherited, \
+                     so a CLI that works in Terminal can still be invisible here.\n\
+                     Install Claude Code (native installer, or `npm install -g @anthropic-ai/claude-code`), \
+                     or set CLAUDE_SUBSCRIPTION_DIRECTSDK_COMMAND to the binary's absolute path in .env. \
+                     Then run `claude auth login`.",
+                    claude_candidate_summary()
                 )),
                 usage: None,
             };
@@ -1609,5 +1727,124 @@ mod vault_path_tests {
         let err = resolve_vault_path(&base.join("vault"), "sub").unwrap_err();
         assert!(err.contains("not a file"), "unexpected error: {err}");
         let _ = fs::remove_dir_all(&base);
+    }
+}
+
+#[cfg(test)]
+mod claude_bin_tests {
+    use super::{claude_search_dirs, is_executable, resolve_claude, unique_test_dir_suffix};
+    use std::fs;
+
+    /// A fake home containing a `claude` file in the native-installer
+    /// directory, executable or not. Nothing on the real machine is touched.
+    fn fake_home(executable: bool) -> std::path::PathBuf {
+        let home = std::env::temp_dir().join(format!(
+            "valhallaai-claudetest-{}",
+            unique_test_dir_suffix()
+        ));
+        let bin = home.join(".local/bin");
+        fs::create_dir_all(&bin).unwrap();
+        let cli = bin.join("claude");
+        fs::write(&cli, "#!/bin/sh\nexit 0\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = if executable { 0o755 } else { 0o644 };
+            fs::set_permissions(&cli, fs::Permissions::from_mode(mode)).unwrap();
+        }
+        home
+    }
+
+    /// The bug this module exists for. `~/.local/bin` is where Claude Code's
+    /// native installer puts the CLI, and it is the first place searched —
+    /// because a GUI-launched app's PATH (`/usr/bin:/bin:/usr/sbin:/sbin`)
+    /// does not contain it, which is what made the app claim the CLI was not
+    /// installed.
+    #[test]
+    fn the_native_installer_location_is_searched_first() {
+        let home = std::path::PathBuf::from("/Users/example");
+        let dirs = claude_search_dirs(&home);
+        assert_eq!(dirs.first().unwrap(), &home.join(".local/bin"));
+    }
+
+    #[test]
+    fn an_executable_in_the_native_location_resolves_to_an_absolute_path() {
+        let home = fake_home(true);
+        let resolved = resolve_claude(Some(&home), None);
+        assert_eq!(
+            resolved,
+            home.join(".local/bin/claude").to_string_lossy().to_string(),
+            "should resolve the actual binary, not fall back to a PATH lookup"
+        );
+        assert!(resolved.starts_with('/'), "must be absolute");
+        let _ = fs::remove_dir_all(&home);
+    }
+
+    /// The control for the test above: identical tree, only the executable bit
+    /// differs, and the resolver must refuse it rather than hand back something
+    /// that cannot be run.
+    #[cfg(unix)]
+    #[test]
+    fn a_non_executable_candidate_is_rejected() {
+        let home = fake_home(false);
+        assert!(!is_executable(&home.join(".local/bin/claude")));
+        assert_eq!(resolve_claude(Some(&home), None), "claude");
+        let _ = fs::remove_dir_all(&home);
+    }
+
+    /// A directory named `claude` is not a CLI.
+    #[test]
+    fn a_directory_named_claude_is_not_a_cli() {
+        let home = std::env::temp_dir().join(format!(
+            "valhallaai-claudetest-dir-{}",
+            unique_test_dir_suffix()
+        ));
+        fs::create_dir_all(home.join(".local/bin/claude")).unwrap();
+        assert!(!is_executable(&home.join(".local/bin/claude")));
+        let _ = fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn the_override_wins_over_every_candidate() {
+        let home = fake_home(true);
+        assert_eq!(
+            resolve_claude(Some(&home), Some("/opt/custom/claude")),
+            "/opt/custom/claude"
+        );
+        let _ = fs::remove_dir_all(&home);
+    }
+
+    /// A blank env var must not be treated as a configured override — that
+    /// would turn `CLAUDE_SUBSCRIPTION_DIRECTSDK_COMMAND=` (present but empty,
+    /// which is the normal state of a key in `.env`) into a broken command.
+    #[test]
+    fn a_blank_override_is_ignored() {
+        let home = fake_home(true);
+        assert_eq!(
+            resolve_claude(Some(&home), Some("   ")),
+            home.join(".local/bin/claude").to_string_lossy().to_string()
+        );
+        let _ = fs::remove_dir_all(&home);
+    }
+
+    /// No home and no override: the previous behaviour (a PATH lookup) is still
+    /// the last resort, not an error.
+    #[test]
+    fn falls_back_to_a_path_lookup() {
+        assert_eq!(resolve_claude(None, None), "claude");
+    }
+
+    /// The augmented PATH must put the CLI directories ahead of the inherited
+    /// one, and must not discard what was inherited.
+    #[test]
+    fn augmented_path_prepends_and_preserves() {
+        let path = super::augmented_path(Some("/usr/bin:/bin"));
+        assert!(path.ends_with("/usr/bin:/bin"), "inherited PATH dropped: {path}");
+        if let Some(home) = super::home_dir() {
+            assert!(
+                path.starts_with(&home.join(".local/bin").to_string_lossy().to_string()),
+                "CLI dirs must come first: {path}"
+            );
+        }
     }
 }
