@@ -32,7 +32,18 @@ write_outbox() {
 
 run_hermes() {
   local out="$VAULT/AGENT_OUTBOX_hermes-agent.md"
-  local prompt="You are the ValhallaAI hermes-agent. Reply with exactly two lines and then stop. Line 1: Status: OK. Line 2: one sentence naming which model provider answered. Do not use tools. Do not read or write files."
+  # Task comes from vault/agent-tasks.json, built through the same module the
+  # container agents use -- so the vault-path guard lives in one place rather
+  # than being reimplemented in bash. This runner is on the HOST, where a
+  # "../.env" in a context list would read a real secret, so that guard matters
+  # more here than it does inside a container with only /vault mounted.
+  local prompt
+  prompt="$(node "$ROOT/agents/_shared/task.cjs" "$VAULT" hermes-agent 2>/dev/null)"
+  if [ -z "$prompt" ]; then
+    # No task defined: fall back to the status ping so this stays usable as a
+    # plain connectivity check.
+    prompt="You are the ValhallaAI hermes-agent. Reply with exactly two lines and then stop. Line 1: Status: OK. Line 2: one sentence naming which model provider answered. Do not use tools. Do not read or write files."
+  fi
   local raw status
   raw="$(
     cd /tmp && python3 - "$prompt" << 'PY'

@@ -132,6 +132,30 @@ Refresh calls the Tauri command `vault_status`. It lists the files under `vault/
 
 Clicking a file calls `vault_file`, which returns its text. **This command does take a path from the frontend**, so it is untrusted input to a filesystem read. `resolve_vault_path()` canonicalizes the candidate — which resolves `..` *and* symlinks — and refuses anything landing outside `vault/`, anything that is not a file, and anything over 2 MB. The guard is a separate function specifically so it can be unit-tested; four tests cover it, including a symlink pointing out of the vault.
 
+### 4.5b Agent tasks (`vault/agent-tasks.json`)
+What each agent *does*, kept separate from `agents-config.json`, which says how
+it *runs* (model, provider, enabled). The two change on different schedules.
+
+An entry has an `instruction`, a `context` list of vault-relative files to
+include, and `maxContextChars`. Editing it changes an agent's work on the next
+run with no rebuild. With no entry, agents fall back to a self-description ping,
+so Agent Control stays usable as a plain connectivity check.
+
+`agents/_shared/task.cjs` builds the prompt and is shared by all three agents —
+copied into the two container images (their build context is `./agents` for
+this reason) and invoked as a CLI by the host-side hermes runner. Context paths
+are resolved and refused if they leave `vault/`, via `realpath`, so both `..`
+and a symlink pointing out are blocked. That guard matters most for
+hermes-agent, which runs on the host where `../.env` would be a real secret;
+the containers only mount `/vault`. It is `.cjs` because the root
+`package.json` sets `"type": "module"`, which would otherwise make `require`
+throw on the host.
+
+**Agent output is evidence, not fact.** The first real run correctly read the
+config and log, and also asserted that `grok-4.7` on provider `nous` was a
+mismatch — it is not; Nous Portal is an aggregator and serves `x-ai/grok-4.7`.
+Treat outbox entries as a lead to verify, the same as any other model output.
+
 ### 4.6 Agent Runtime (`agents/*`, `scripts/run_agent.sh`)
 Each agent is one-shot:
 1. Reads its config from `vault/agents-config.json` (Claude and Grok; Hermes uses the CLI's own login)

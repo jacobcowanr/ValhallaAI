@@ -5,7 +5,10 @@ WORKDIR /app
 # No npm dependencies — agent.js uses Node's built-in https module.
 
 # Copy agent code
-COPY agent.js ./
+# Build context is ./agents (see docker-compose.local.yml), so paths are
+# relative to that -- this is what lets both agents share task.js.
+COPY grok/agent.js ./
+COPY _shared/task.cjs ./task.cjs
 
 # Create config directory
 RUN mkdir -p /app/config

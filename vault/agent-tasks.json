@@ -1,0 +1,20 @@
+{
+  "_note": "What each agent should DO. agents-config.json says how it runs (model, provider, enabled); this says what work it performs. Edit the instruction and the agent does something different on its next run -- no rebuild. context lists vault-relative files to include; paths are resolved and refused if they leave vault/. maxContextChars keeps a long log from blowing the prompt (and, for claude-agent, the bill); the TAIL of each file is kept, since these are append-only.",
+  "tasks": {
+    "claude-agent": {
+      "instruction": "You are reviewing the ValhallaAI coordination log. Read the most recent entries and reply with exactly three sections, no preamble: (1) DONE -- the last three things that were actually completed, one line each. (2) OPEN -- anything explicitly flagged as unfinished, unverified, or needing a follow-up pass, one line each. (3) RISK -- the single item most likely to break next, and why, in one sentence. Do not invent items that are not in the log.",
+      "context": ["AGENT_SYNC.md"],
+      "maxContextChars": 14000
+    },
+    "hermes-agent": {
+      "instruction": "You are auditing the ValhallaAI agent configuration. Compare the configured agents against the coordination log and reply with exactly two sections, no preamble: (1) CONFIG -- each agent, whether it is enabled, and the model it is set to use. (2) CONCERNS -- any agent whose configured model or credential looks stale or missing based on the log, one line each, or the single word NONE. Be brief.",
+      "context": ["agents-config.json", "AGENT_SYNC.md"],
+      "maxContextChars": 8000
+    },
+    "grok-agent": {
+      "instruction": "You are checking the ValhallaAI vault for drift. Read the coordination log and reply with exactly two sections, no preamble: (1) CLAIMS -- up to three statements the log makes about the current state of the project that a reader could verify against the code. (2) STALE -- any claim that a later entry appears to contradict, one line each, or the single word NONE.",
+      "context": ["AGENT_SYNC.md"],
+      "maxContextChars": 10000
+    }
+  }
+}

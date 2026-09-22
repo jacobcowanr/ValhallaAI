@@ -4,8 +4,8 @@ services:
   # Agent Runtime for Claude SDK
   claude-agent:
     build:
-      context: ./agents/claude
-      dockerfile: Dockerfile
+      context: ./agents
+      dockerfile: claude/Dockerfile
     container_name: valhallaai-claude
     volumes:
       - ./vault:/vault
@@ -49,8 +49,8 @@ services:
   # Agent Runtime for Grok (optional, disabled by default in agents-config.json)
   grok-agent:
     build:
-      context: ./agents/grok
-      dockerfile: Dockerfile
+      context: ./agents
+      dockerfile: grok/Dockerfile
     container_name: valhallaai-grok
     volumes:
       - ./vault:/vault
