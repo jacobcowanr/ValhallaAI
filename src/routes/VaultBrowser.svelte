@@ -1,4 +1,8 @@
 <script>
+  // MOCK — syncVault() below is a setTimeout stub, not a real git
+  // operation. main.rs registers no Tauri commands, so there is no IPC
+  // path from this UI to git at all yet. Same gap as AgentControl.svelte.
+  // Use `git pull` / `git push` in vault/ directly for now.
   let vaultPath = "/vault";
   let syncStatus = "idle";
   let lastSync = null;
@@ -15,6 +19,10 @@
 
 <div class="container">
   <h2>Vault Browser</h2>
+  <p class="mock-notice">
+    ⚠ Not wired up yet — "Sync Vault" doesn't actually run git. Use
+    <code>git -C vault pull</code> / <code>git -C vault push</code> directly for now.
+  </p>
 
   <div class="controls">
     <input type="text" bind:value={vaultPath} placeholder="Vault path" />
@@ -44,6 +52,24 @@
 
   h2 {
     margin-top: 0;
+  }
+
+  .mock-notice {
+    background: #fff4e6;
+    border: 1px solid #ffd8a8;
+    border-radius: 6px;
+    padding: 0.75rem 1rem;
+    font-size: 0.85rem;
+    color: #8a5a00;
+    margin: 0 0 1rem 0;
+  }
+
+  .mock-notice code {
+    background: white;
+    padding: 2px 4px;
+    border-radius: 2px;
+    font-family: monospace;
+    font-size: 0.8rem;
   }
 
   .controls {

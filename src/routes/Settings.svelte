@@ -1,8 +1,6 @@
 <script>
   import { onMount } from "svelte";
-
-  const FALLBACK_PROVIDER = "nous";
-  const FALLBACK_MODEL = "x-ai/grok-4.7";
+  import { PROVIDERS, FALLBACK_PROVIDER, FALLBACK_MODEL } from "../lib/providers";
 
   let defaultProvider = FALLBACK_PROVIDER;
   let defaultModel = FALLBACK_MODEL;
@@ -10,80 +8,9 @@
   let saved = false;
   let ollamaEndpoint = "";
 
-  const providers = {
-    anthropic: {
-      name: "Anthropic API Key",
-      models: ["claude-opus-5", "claude-3.5-sonnet", "claude-haiku-4.5-20251001"],
-    },
-    anthropic_oauth: {
-      name: "Anthropic OAuth (Usage Credits)",
-      models: ["claude-opus-5", "claude-3.5-sonnet", "claude-haiku-4.5-20251001"],
-    },
-    chatgpt: {
-      name: "ChatGPT or Codex Subscription",
-      models: ["gpt-4-turbo", "gpt-4o", "gpt-3.5-turbo"],
-    },
-    claude_directsdk: {
-      name: "Claude Subscription DirectSDK",
-      models: ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4.5-20251001"],
-    },
-    fireworks: {
-      name: "Fireworks AI",
-      models: ["llama-v3p1-405b", "mixtral-8x22b"],
-    },
-    google: {
-      name: "Google (Gemini)",
-      models: ["gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash"],
-    },
-    groq: {
-      name: "Groq (Fast Inference)",
-      models: ["mixtral-8x7b-32768", "llama2-70b-4096", "gemma-7b-it"],
-    },
-    huggingface: {
-      name: "Hugging Face Inference API",
-      models: ["meta-llama/Llama-2-70b-chat-hf", "mistralai/Mistral-7B-Instruct-v0.1"],
-    },
-    minimax: {
-      name: "MiniMax",
-      models: ["minimax-text-01", "minimax-abab6.5s-chat"],
-    },
-    nous: {
-      name: "Nous Portal",
-      models: ["x-ai/grok-4.7", "meta-llama/llama-3.1-405b", "deepseek/deepseek-v4.1-flash"],
-    },
-    ollama: {
-      name: "Ollama (Local)",
-      models: ["neural-chat", "zephyr", "mistral", "llama2:13b", "llama2", "orca-mini", "dolphin-mixtral"],
-    },
-    openclaw: {
-      name: "OpenClaw",
-      models: ["openclaw-default"],
-    },
-    openrouter: {
-      name: "OpenRouter",
-      models: ["openai/gpt-4o", "anthropic/claude-3.5-sonnet", "x-ai/grok-3", "deepseek/deepseek-chat"],
-    },
-    perplexity: {
-      name: "Perplexity (Search + LLM)",
-      models: ["pplx-7b-online", "pplx-70b-online"],
-    },
-    qwen: {
-      name: "Qwen Code",
-      models: ["qwen-coder-32b", "qwen-turbo"],
-    },
-    replicate: {
-      name: "Replicate",
-      models: ["meta/llama-2-70b-chat", "mistralai/mistral-7b-instruct-v0.1"],
-    },
-    together: {
-      name: "Together AI",
-      models: ["meta-llama/Llama-2-70b-chat-hf", "mistralai/Mistral-7B-Instruct-v0.1"],
-    },
-    xai_grok: {
-      name: "xAI Grok",
-      models: ["grok-3", "grok-vision"],
-    },
-  };
+  function apiKeyStorageKey(providerId) {
+    return `vahalla-apikey-${providerId}`;
+  }
 
   onMount(() => {
     // Load saved preferences
@@ -93,11 +20,11 @@
       // A previously-saved provider can disappear from the catalog (e.g. the
       // GitHub Copilot removal). Falling back here instead of trusting the
       // stored value keeps the model dropdown from silently rendering empty.
-      if (prefs.defaultProvider && providers[prefs.defaultProvider]) {
+      if (prefs.defaultProvider && PROVIDERS[prefs.defaultProvider]) {
         defaultProvider = prefs.defaultProvider;
-        defaultModel = providers[prefs.defaultProvider].models.includes(prefs.defaultModel)
+        defaultModel = PROVIDERS[prefs.defaultProvider].models.includes(prefs.defaultModel)
           ? prefs.defaultModel
-          : providers[prefs.defaultProvider].models[0];
+          : PROVIDERS[prefs.defaultProvider].models[0];
       } else {
         defaultProvider = FALLBACK_PROVIDER;
         defaultModel = FALLBACK_MODEL;
@@ -107,13 +34,12 @@
     // Load the saved Ollama endpoint so the field reflects what's actually stored.
     ollamaEndpoint = localStorage.getItem("ollama-endpoint") || "";
 
-    // Load API keys (only from env or user input, not from storage for security)
-    const providers_to_check = ["NOUS_API_KEY", "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY", "XAI_API_KEY"];
-    providers_to_check.forEach((key) => {
-      if (typeof window !== "undefined" && window.location.hash.includes("dev")) {
-        apiKeys[key] = localStorage.getItem(`api-key-${key}`) || "";
-      }
-    });
+    // Load any previously-saved per-provider API keys. Ollama needs none
+    // (local, no auth) so it's excluded from this list.
+    for (const providerId of Object.keys(PROVIDERS)) {
+      if (providerId === "ollama") continue;
+      apiKeys[providerId] = localStorage.getItem(apiKeyStorageKey(providerId)) || "";
+    }
   });
 
   function savePreferences() {
@@ -128,15 +54,20 @@
     }, 2000);
   }
 
-  function saveApiKey(key) {
-    if (apiKeys[key]) {
-      localStorage.setItem(`api-key-${key}`, apiKeys[key]);
+  function saveApiKey(providerId) {
+    // Uses the SAME localStorage key ModelPicker reads from
+    // (vahalla-apikey-<providerId>), so a key saved here actually shows up
+    // there. Previously these were two disconnected storage schemes.
+    if (apiKeys[providerId]) {
+      localStorage.setItem(apiKeyStorageKey(providerId), apiKeys[providerId]);
+    } else {
+      localStorage.removeItem(apiKeyStorageKey(providerId));
     }
   }
 
   $: if (defaultProvider) {
     // Auto-select first model of the new provider
-    const models = providers[defaultProvider]?.models || [];
+    const models = PROVIDERS[defaultProvider]?.models || [];
     if (models.length > 0) {
       defaultModel = models[0];
     }
@@ -152,18 +83,18 @@
       <p class="section-description">Choose your default LLM provider and model</p>
 
       <div class="field">
-        <label>Provider:</label>
-        <select bind:value={defaultProvider}>
-          {#each Object.entries(providers) as [key, { name }]}
+        <label for="default-provider">Provider:</label>
+        <select id="default-provider" bind:value={defaultProvider}>
+          {#each Object.entries(PROVIDERS) as [key, { name }]}
             <option value={key}>{name}</option>
           {/each}
         </select>
       </div>
 
       <div class="field">
-        <label>Model:</label>
-        <select bind:value={defaultModel}>
-          {#each providers[defaultProvider]?.models || [] as model}
+        <label for="default-model">Model:</label>
+        <select id="default-model" bind:value={defaultModel}>
+          {#each PROVIDERS[defaultProvider]?.models || [] as model}
             <option value={model}>{model}</option>
           {/each}
         </select>
@@ -179,7 +110,7 @@
       <p class="section-description">Configure your local Ollama instance</p>
 
       <div class="field">
-        <label>Ollama Endpoint:</label>
+        <label for="ollama-endpoint">Ollama Endpoint:</label>
         <input
           type="text"
           id="ollama-endpoint"
@@ -203,19 +134,26 @@
 
     <section class="section">
       <h3>API Keys</h3>
-      <p class="section-description">Store API keys locally (never shared or uploaded)</p>
+      <p class="section-description">
+        Stored locally only (browser localStorage inside the Tauri webview) — never sent anywhere but the
+        provider's own API. Ollama needs no key. Leave a field blank to use that provider's manual
+        per-message key entry in Models &amp; Chat instead.
+      </p>
 
       <div class="api-keys">
-        {#each Object.keys(apiKeys) as key}
-          <div class="field">
-            <label>{key}</label>
-            <input
-              type="password"
-              bind:value={apiKeys[key]}
-              placeholder="Enter API key"
-              on:blur={() => saveApiKey(key)}
-            />
-          </div>
+        {#each Object.entries(PROVIDERS) as [providerId, { name }]}
+          {#if providerId !== "ollama"}
+            <div class="field">
+              <label for={`apikey-${providerId}`}>{name}</label>
+              <input
+                id={`apikey-${providerId}`}
+                type="password"
+                bind:value={apiKeys[providerId]}
+                placeholder="Enter API key"
+                on:blur={() => saveApiKey(providerId)}
+              />
+            </div>
+          {/if}
         {/each}
       </div>
     </section>
@@ -223,7 +161,7 @@
     <section class="section">
       <h3>About Vahalla</h3>
       <p class="section-description">Multi-agent orchestration • Model switching • Vault coordination</p>
-      <p>Version: 0.0.1 (local development)</p>
+      <p>Version: 0.1.0 (local development)</p>
       <p>Status: Not ready for public use</p>
     </section>
   </div>

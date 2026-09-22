@@ -5,7 +5,7 @@
   import Settings from "./routes/Settings.svelte";
 
   let activeTab = "models";
-
+</script>
 
 <main>
   <header>

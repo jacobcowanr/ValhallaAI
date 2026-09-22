@@ -10,8 +10,11 @@ build/
 target/
 src-tauri/target/
 .tauri/
+# package-lock.json is tracked deliberately — a fresh `npm install` from a
+# clone needs it for reproducible installs. pnpm-lock.yaml stays ignored
+# since this project uses npm, not pnpm; if that ever changes, track the
+# one lockfile that matches the package manager actually in use, not both.
 pnpm-lock.yaml
-package-lock.json
 *.log
 vault/.git
 .vault-cache/

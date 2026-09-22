@@ -2,8 +2,7 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Install dependencies
-RUN npm install axios
+# No npm dependencies — agent.js uses Node's built-in https module.
 
 # Copy agent code
 COPY agent.js ./

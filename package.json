@@ -1,6 +1,6 @@
 {
   "name": "vahalla",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Multi-agent orchestration platform with model switching",
   "type": "module",
   "scripts": {
