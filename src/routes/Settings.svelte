@@ -2,7 +2,126 @@
   import { onMount } from "svelte";
   import type { LLMProvider } from "../lib/llm-router";
   import { PROVIDERS, PROVIDER_ENTRIES, FALLBACK_PROVIDER, FALLBACK_MODEL } from "../lib/providers";
-  import { envKeyFor, loadEnvProviderKeys, resolveApiKey } from "../lib/provider-keys";
+  import { invoke } from "@tauri-apps/api/tauri";
+  import { envKeyFor, loadEnvProviderKeys, resolveApiKey, inTauri } from "../lib/provider-keys";
+  import {
+    scopedKey,
+    profiles,
+    activeProfileId,
+    createProfile,
+    updateProfile,
+    deleteProfile,
+    switchProfile,
+    isSignedIn,
+  } from "../lib/profiles";
+
+  // --- Profiles -----------------------------------------------------
+  $: activeProfile = $profiles.find((p) => p.id === $activeProfileId) ?? null;
+
+  // Public by design: a Desktop-app client id ships inside the binary, and
+  // PKCE -- not a secret -- is what protects the exchange. Read from .env
+  // only so a different machine can use a different client without a code
+  // change. There is no client secret anywhere in this app.
+  const googleClientId: string = import.meta.env.VITE_GOOGLE_CLIENT_ID ?? "";
+
+  let signingIn = false;
+  let signInError = "";
+
+  // Names the app assigned, not ones the user chose. Signing in overwrites
+  // these with the Google display name; a profile the user deliberately
+  // renamed keeps its name.
+  const AUTO_PROFILE_NAMES = new Set(["Local", "New profile"]);
+
+  async function signInWithGoogle(): Promise<void> {
+    if (!activeProfile || signingIn) return;
+    signingIn = true;
+    signInError = "";
+    try {
+      const identity = await invoke<{ email: string; name: string; avatarUrl: string }>(
+        "google_sign_in",
+        { clientId: googleClientId }
+      );
+      const patch: Record<string, unknown> = {
+        email: identity.email,
+        avatarUrl: identity.avatarUrl,
+        authProvider: "google",
+      };
+      if (identity.name && AUTO_PROFILE_NAMES.has(activeProfile.name)) {
+        patch.name = identity.name;
+      }
+      updateProfile(activeProfile.id, patch);
+    } catch (err) {
+      signInError = typeof err === "string" ? err : err instanceof Error ? err.message : "Sign-in failed.";
+    } finally {
+      signingIn = false;
+    }
+  }
+
+  function signOut(): void {
+    if (!activeProfile) return;
+    // Clears the identity, not the profile: sessions, keys, and prefs are
+    // this machine's data and have nothing to do with the Google account.
+    updateProfile(activeProfile.id, {
+      email: undefined,
+      avatarUrl: undefined,
+      authProvider: undefined,
+    });
+    signInError = "";
+  }
+
+  let newProfileName = "";
+  let renameValue = "";
+  let renaming = false;
+  let profileNotice = "";
+
+  function beginRename(): void {
+    renameValue = activeProfile?.name ?? "";
+    renaming = true;
+  }
+
+  function commitRename(): void {
+    const name = renameValue.trim();
+    if (name && activeProfile) updateProfile(activeProfile.id, { name });
+    renaming = false;
+  }
+
+  function addProfile(): void {
+    const name = newProfileName.trim();
+    if (!name) return;
+    const id = createProfile(name);
+    newProfileName = "";
+    // Switch immediately: creating a profile you are not put into reads as
+    // a no-op. switchProfile reloads, so nothing below this runs.
+    switchProfile(id);
+  }
+
+  function removeActiveProfile(): void {
+    if (!activeProfile) return;
+    const target = activeProfile;
+    const ok = confirm(
+      `Delete the profile "${target.name}"?\n\n` +
+        "Its chat sessions, saved API keys, and default model are erased from " +
+        "this machine. Keys in .env are not touched. This cannot be undone."
+    );
+    if (!ok) return;
+    if (!deleteProfile(target.id)) {
+      // Guarded in profiles.ts: deleting the only profile would leave the
+      // next load to mint a fresh empty one, which reads as data loss.
+      profileNotice = "This is the only profile, so it can't be deleted. Create another one first.";
+      return;
+    }
+    location.reload();
+  }
+
+  function toggleIgnoreEnv(e: Event): void {
+    if (!activeProfile) return;
+    const on = (e.currentTarget as HTMLInputElement).checked;
+    updateProfile(activeProfile.id, { ignoreEnvKeys: on });
+    // envKeyFor() consults the profile, so the "from .env" badges and the
+    // key each provider would actually use both change with this. Reload
+    // so every already-read value is re-resolved rather than half-stale.
+    location.reload();
+  }
 
   let defaultProvider: LLMProvider = FALLBACK_PROVIDER;
   let defaultModel: string = FALLBACK_MODEL;
@@ -69,13 +188,13 @@
   }
 
   function apiKeyStorageKey(providerId: LLMProvider): string {
-    return `valhallaai-apikey-${providerId}`;
+    return scopedKey(`valhallaai-apikey-${providerId}`);
   }
 
   onMount(async () => {
     await loadEnvProviderKeys();
     // Load saved preferences
-    const savedPrefs = localStorage.getItem("valhallaai-prefs");
+    const savedPrefs = localStorage.getItem(scopedKey("valhallaai-prefs"));
     if (savedPrefs) {
       const prefs = JSON.parse(savedPrefs) as {
         defaultProvider?: LLMProvider;
@@ -120,7 +239,7 @@
       defaultProvider,
       defaultModel,
     };
-    localStorage.setItem("valhallaai-prefs", JSON.stringify(prefs));
+    localStorage.setItem(scopedKey("valhallaai-prefs"), JSON.stringify(prefs));
     saved = true;
     setTimeout(() => {
       saved = false;
@@ -152,6 +271,119 @@
   <h2>Settings</h2>
 
   <div class="settings-panel">
+    <section class="section">
+      <h3>Profile</h3>
+      <p class="section-hint">
+        A profile keeps its own chat sessions, default model, and saved API keys.
+        Everything stays on this machine — there is no account and nothing syncs.
+      </p>
+
+      <div class="profile-row">
+        {#if activeProfile?.avatarUrl}
+          <img class="avatar" src={activeProfile.avatarUrl} alt="" />
+        {:else}
+          <span class="avatar avatar-initial">
+            {(activeProfile?.name ?? "L").trim().charAt(0).toUpperCase()}
+          </span>
+        {/if}
+        <div class="profile-id">
+          {#if renaming}
+            <input
+              class="rename-input"
+              bind:value={renameValue}
+              on:keydown={(e) => e.key === "Enter" && commitRename()}
+              placeholder="Profile name"
+            />
+            <button class="link-btn" on:click={commitRename}>Save</button>
+            <button class="link-btn" on:click={() => (renaming = false)}>Cancel</button>
+          {:else}
+            <strong>{activeProfile?.name ?? "Local"}</strong>
+            <button class="link-btn" on:click={beginRename}>Rename</button>
+          {/if}
+          <div class="profile-email">{activeProfile?.email ?? "Not signed in"}</div>
+        </div>
+      </div>
+
+      <div class="signin-block">
+        {#if isSignedIn(activeProfile)}
+          <button class="signin-btn" on:click={signOut}>Sign out of Google</button>
+          <p class="section-hint">
+            Signed in as {activeProfile?.email}. Signing out clears the name, email,
+            and avatar only — this profile's chats, keys, and settings stay put.
+          </p>
+        {:else}
+          <button
+            class="signin-btn"
+            on:click={signInWithGoogle}
+            disabled={!googleClientId || !inTauri() || signingIn}
+            title={!inTauri()
+              ? "Only works in the desktop app"
+              : !googleClientId
+                ? "Set VITE_GOOGLE_CLIENT_ID in .env"
+                : "Sign in with Google"}
+          >
+            <span class="g-mark">G</span>
+            {signingIn ? "Waiting for your browser…" : "Sign in with Google"}
+          </button>
+          <p class="section-hint">
+            {#if !inTauri()}
+              Sign-in only runs in the desktop app — it needs a local port the
+              browser can't open.
+            {:else if !googleClientId}
+              Set <code>VITE_GOOGLE_CLIENT_ID</code> in <code>.env</code> (see
+              <code>env.example</code>), then restart the dev server.
+            {:else}
+              Attaches a name, email, and avatar to this profile. Nothing syncs —
+              there is no server. No access or refresh token is kept, because
+              nothing here calls a Google API.
+            {/if}
+          </p>
+        {/if}
+        {#if signInError}
+          <p class="signin-error">{signInError}</p>
+        {/if}
+      </div>
+
+      <div class="field">
+        <label class="checkbox-row" for="ignore-env">
+          <input
+            id="ignore-env"
+            type="checkbox"
+            checked={activeProfile?.ignoreEnvKeys ?? false}
+            on:change={toggleIgnoreEnv}
+          />
+          <span>Ignore <code>.env</code> keys for this profile</span>
+        </label>
+        <small>
+          Off: a key in <code>.env</code> wins over one saved here, so rotating the
+          file changes what the next chat uses. On: this profile uses only its own
+          saved keys. <code>.env</code> stays shared either way — the agent scripts
+          and docker-compose read that same file with no idea which profile is active.
+        </small>
+      </div>
+
+      <div class="field">
+        <label for="new-profile">Add a profile:</label>
+        <div class="inline-row">
+          <input
+            id="new-profile"
+            bind:value={newProfileName}
+            placeholder="e.g. Work"
+            on:keydown={(e) => e.key === "Enter" && addProfile()}
+          />
+          <button on:click={addProfile} disabled={!newProfileName.trim()}>Create</button>
+        </div>
+      </div>
+
+      {#if profileNotice}
+        <p class="profile-notice">{profileNotice}</p>
+      {/if}
+
+      <button class="danger-btn" on:click={removeActiveProfile}>
+        Delete this profile
+      </button>
+    </section>
+
     <section class="section">
       <h3>Default Provider & Model</h3>
       <p class="section-description">Choose your default LLM provider and model</p>
@@ -279,6 +511,143 @@
 </div>
 
 <style>
+  .section-hint {
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    margin: 0 0 1rem;
+    line-height: 1.5;
+  }
+
+  .profile-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+  }
+
+  .avatar {
+    flex-shrink: 0;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    object-fit: cover;
+  }
+
+  .avatar-initial {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--accent);
+    color: var(--accent-text);
+    font-weight: 600;
+  }
+
+  .profile-id {
+    min-width: 0;
+  }
+
+  .profile-email {
+    font-size: 0.8rem;
+    opacity: 0.7;
+  }
+
+  .link-btn {
+    padding: 0 0.35rem;
+    margin-left: 0.4rem;
+    font-family: inherit;
+    font-size: 0.78rem;
+    color: var(--accent);
+    background: none;
+    border: none;
+    cursor: pointer;
+    text-decoration: underline;
+  }
+
+  .rename-input {
+    font-family: inherit;
+    font-size: 0.9rem;
+    padding: 0.25rem 0.4rem;
+  }
+
+  .signin-block {
+    margin-bottom: 1rem;
+  }
+
+  .signin-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.9rem;
+    font-family: inherit;
+    font-size: 0.9rem;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    cursor: pointer;
+  }
+
+  .signin-btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  .g-mark {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: var(--accent-text);
+    font-weight: 700;
+    font-size: 0.72rem;
+  }
+
+  .signin-error {
+    margin: 0.5rem 0 0;
+    font-size: 0.82rem;
+    line-height: 1.5;
+    color: #ff8a80;
+  }
+
+  .checkbox-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-weight: 400;
+  }
+
+  .inline-row {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .inline-row input {
+    flex: 1;
+  }
+
+  .profile-notice {
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+  }
+
+  .danger-btn {
+    font-family: inherit;
+    font-size: 0.85rem;
+    padding: 0.4rem 0.8rem;
+    color: #b42318;
+    background: transparent;
+    border: 1px solid #b42318;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+
+  .danger-btn:hover {
+    background: rgba(180, 35, 24, 0.08);
+  }
+
   .container {
     max-width: 600px;
     margin: 0 auto;
