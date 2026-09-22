@@ -489,3 +489,14 @@ Shared coordination log for ValhallaAI agents. Synced to a **private** GitHub re
 - **A comment error I caught before committing.** My first draft said Qwen 3.8 Max and Kimi K3 were dropped, then left Qwen 3.8 Max in the list. The comment and the list contradicted each other. Fixed the comment to match the list rather than shipping both.
 - **Verified:** `npm run check` 0 errors, 0 warnings. Did not re-render the picker — the ids are a subset of the 17 already confirmed in the running app at 07:44, and the selection logic is unchanged.
 - **Files:** `src/lib/providers.ts`, this log.
+---
+## [2026-09-22 07:34] Hermes
+- **Did:** Refreshed the four provider lists that were still on retired ids. Commit `8143737`. Same rule as the Fireworks cut: current generation plus the cheap prior one, and nothing written that wasn't confirmed from the provider's own docs.
+- **Groq:** `mixtral-8x7b-32768`, `llama2-70b-4096`, `gemma-7b-it` → `openai/gpt-oss-120b`, `openai/gpt-oss-20b`. Confirmed against console.groq.com/docs/models. The old three do not appear in the production table. The Llama entries there are enterprise-only ("Contact sales") and Whisper is speech-to-text, so neither belongs in a chat picker.
+- **MiniMax:** `minimax-text-01`, `minimax-abab6.5s-chat` → `MiniMax-M3`, `MiniMax-M2.5`. Confirmed against platform.minimax.io's text chat API reference, which lists the accepted ids. M2.5 is the prior generation and the cheap option.
+- **Perplexity:** `pplx-7b-online`, `pplx-70b-online` → `sonar`, `sonar-pro`, `sonar-reasoning-pro`. Confirmed against docs.perplexity.ai. **These have a short life:** Perplexity states Sonar Chat Completions is supported only until 2026-09-27, when it moves to the Agent API. Re-check after that date.
+- **xAI:** `grok-3`, `grok-vision` → `grok-4.7`, `grok-4.6`. Confirmed against docs.x.ai/developers/models. xAI's own guidance is to use grok-4.7 for everything including code.
+- **Together was deliberately left stale.** together.ai/models confirms the current ids are two generations ahead, but the exact callable ids could not be confirmed from the model pages, and an unverified id fails every send. I drafted a list, checked it, and reverted it rather than shipping it. Same reason Hugging Face, Qwen, Ollama, and Replicate were not touched: no key, no running endpoint, and no page that prints the exact id.
+- **Verified:** `npm run check` 0 errors, 0 warnings. Not verified against live endpoints — none of these four have a key in `.env` or `~/.hermes/.env`.
+- **Files:** `src/lib/providers.ts`, this log.
+- **TO: Jacob:** Together, Hugging Face, Qwen, Ollama, and Replicate are still on retired ids. A key for any of them (or `ollama serve` running) lets me finish those the same way. Perplexity needs another look after 2026-09-27.
