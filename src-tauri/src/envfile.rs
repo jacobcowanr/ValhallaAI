@@ -13,7 +13,9 @@ const PROVIDER_ENV: &[(&str, &str)] = &[
     ("XAI_API_KEY", "xai_grok"),
 ];
 
-pub fn provider_keys_from_str(text: &str) -> HashMap<String, String> {
+/// Parse a .env file into raw NAME -> value pairs. Shared by the provider-key
+/// filter below and by single-value lookups like the Google client secret.
+pub fn parse(text: &str) -> HashMap<String, String> {
     let mut raw: HashMap<String, String> = HashMap::new();
     for line in text.lines() {
         let line = line.trim();
@@ -37,6 +39,19 @@ pub fn provider_keys_from_str(text: &str) -> HashMap<String, String> {
             raw.insert(key.to_string(), value.to_string());
         }
     }
+    raw
+}
+
+/// Read one named value out of a .env file. Returns None when the file or the
+/// key is absent. Used for secrets that must NOT reach the frontend bundle --
+/// anything read here stays in the Rust process.
+pub fn value(path: &Path, key: &str) -> Option<String> {
+    let text = fs::read_to_string(path).ok()?;
+    parse(&text).remove(key)
+}
+
+pub fn provider_keys_from_str(text: &str) -> HashMap<String, String> {
+    let raw = parse(text);
 
     let mut out = HashMap::new();
     for (env_name, provider_id) in PROVIDER_ENV {

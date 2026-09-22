@@ -19,6 +19,12 @@ serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 tauri = { version = "1.8.1", features = [] }
 ureq = { version = "2.12", features = ["json"] }
+# Google sign-in (PKCE). sha2+base64 build the S256 code challenge and decode
+# the id_token payload; getrandom supplies the verifier and state bytes --
+# these are security tokens, so they need OS entropy, not a time-based seed.
+sha2 = "0.10"
+base64 = "0.22"
+getrandom = "0.2"
 
 [features]
 # this feature is used for production builds or when `devPath` points to the filesystem and the built-in dev server is disabled.
