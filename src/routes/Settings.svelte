@@ -9,6 +9,13 @@
   let saved = false;
   let ollamaEndpoint = "";
 
+  // Which provider's key the dropdown below is currently showing/editing.
+  // Was previously every non-Ollama provider's key field shown at once —
+  // a wall of 17 inputs. One at a time, picked via dropdown, like the
+  // Default Provider & Model section above it.
+  let apiKeyProvider: LLMProvider = FALLBACK_PROVIDER;
+  const KEY_EDITABLE_PROVIDERS = PROVIDER_ENTRIES.filter(([id]) => id !== "ollama");
+
   function apiKeyStorageKey(providerId: LLMProvider): string {
     return `valhallaai-apikey-${providerId}`;
   }
@@ -35,6 +42,12 @@
         defaultModel = FALLBACK_MODEL;
       }
     }
+
+    // Default the key-editor dropdown to whatever the user's actual default
+    // provider is, so the first thing they see is the key they most likely
+    // need to check or set — falling back if that happens to be Ollama
+    // (which is excluded from key editing entirely, it needs none).
+    apiKeyProvider = defaultProvider !== "ollama" ? defaultProvider : FALLBACK_PROVIDER;
 
     // Load the saved Ollama endpoint so the field reflects what's actually stored.
     ollamaEndpoint = localStorage.getItem("ollama-endpoint") || "";
@@ -145,21 +158,27 @@
         per-message key entry in Models &amp; Chat instead.
       </p>
 
-      <div class="api-keys">
-        {#each PROVIDER_ENTRIES as [providerId, { name }]}
-          {#if providerId !== "ollama"}
-            <div class="field">
-              <label for={`apikey-${providerId}`}>{name}</label>
-              <input
-                id={`apikey-${providerId}`}
-                type="password"
-                bind:value={apiKeys[providerId]}
-                placeholder="Enter API key"
-                on:blur={() => saveApiKey(providerId)}
-              />
-            </div>
-          {/if}
-        {/each}
+      <div class="field">
+        <label for="apikey-provider">Provider:</label>
+        <select id="apikey-provider" bind:value={apiKeyProvider}>
+          {#each KEY_EDITABLE_PROVIDERS as [providerId, { name }]}
+            <option value={providerId}>{name}{apiKeys[providerId] ? " ✓" : ""}</option>
+          {/each}
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="apikey-value">{PROVIDERS[apiKeyProvider]?.name} API Key:</label>
+        {#key apiKeyProvider}
+          <input
+            id="apikey-value"
+            type="password"
+            bind:value={apiKeys[apiKeyProvider]}
+            placeholder="Enter API key"
+            on:blur={() => saveApiKey(apiKeyProvider)}
+          />
+        {/key}
+        <small>✓ next to a provider above means a key is already saved for it.</small>
       </div>
     </section>
 
@@ -261,12 +280,6 @@
 
   .save-btn:hover {
     background: var(--accent-hover);
-  }
-
-  .api-keys {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
   }
 
   p {

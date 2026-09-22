@@ -1,4 +1,5 @@
 <script>
+  import { onMount } from "svelte";
   import "@fontsource/pirata-one";
   import ModelPicker from "./routes/ModelPicker.svelte";
   import VaultBrowser from "./routes/VaultBrowser.svelte";
@@ -14,29 +15,46 @@
   ];
 
   let activeTab = "models";
+
+  // Sidebar can be hidden entirely — persisted so it stays hidden/shown
+  // across restarts rather than resetting to open every launch.
+  let sidebarOpen = true;
+
+  onMount(() => {
+    const saved = localStorage.getItem("valhallaai-sidebar-open");
+    if (saved !== null) sidebarOpen = saved === "true";
+  });
+
+  function toggleSidebar() {
+    sidebarOpen = !sidebarOpen;
+    localStorage.setItem("valhallaai-sidebar-open", String(sidebarOpen));
+  }
 </script>
 
 <div class="shell">
-  <aside class="sidebar">
-    <div class="sidebar-header">
-      <img class="logo" src={logoWordmark} alt="ValhallaAI" />
-      <p>Multi-agent orchestration • Model switching • Vault coordination</p>
-    </div>
-
-    <nav>
-      {#each sections as section}
-        <button class:active={activeTab === section.id} on:click={() => (activeTab = section.id)}>
-          <span class="icon">{section.icon}</span>
-          {section.label}
-        </button>
-      {/each}
-    </nav>
-  </aside>
+  {#if sidebarOpen}
+    <aside class="sidebar">
+      <nav>
+        {#each sections as section}
+          <button class:active={activeTab === section.id} on:click={() => (activeTab = section.id)}>
+            <span class="icon">{section.icon}</span>
+            {section.label}
+          </button>
+        {/each}
+      </nav>
+    </aside>
+  {/if}
 
   <main>
+    <div class="topbar">
+      <button class="sidebar-toggle" on:click={toggleSidebar} title={sidebarOpen ? "Hide sidebar" : "Show sidebar"}>
+        {sidebarOpen ? "◀" : "▶"}
+      </button>
+    </div>
+
     <section class="content">
       {#if activeTab === "models"}
-        <ModelPicker />
+        <ModelPicker {logoWordmark} />
       {:else if activeTab === "vault"}
         <VaultBrowser />
       {:else if activeTab === "agents"}
@@ -98,8 +116,9 @@
     min-height: 100vh;
   }
 
-  /* Left sidebar — logo + section nav, Gemini-style vertical layout
-     instead of the previous horizontal tab bar under the header. */
+  /* Left sidebar — section nav only now; the big logo/tagline moved to
+     ModelPicker's empty-chat state (main center of the screen) instead
+     of living here permanently. */
   .sidebar {
     flex: 0 0 240px;
     background: var(--bg-surface);
@@ -107,27 +126,6 @@
     display: flex;
     flex-direction: column;
     padding: 1.5rem 1rem;
-  }
-
-  .sidebar-header {
-    text-align: center;
-    padding: 0.5rem 0 1.5rem 0;
-    margin-bottom: 1rem;
-    border-bottom: 1px solid var(--border-color);
-  }
-
-  .sidebar-header .logo {
-    display: block;
-    height: 34px;
-    width: auto;
-    margin: 0 auto;
-  }
-
-  .sidebar-header p {
-    margin: 0.6rem 0 0 0;
-    font-size: 0.7rem;
-    line-height: 1.4;
-    color: var(--text-secondary);
   }
 
   nav {
@@ -175,6 +173,27 @@
     min-width: 0;
     display: flex;
     flex-direction: column;
+  }
+
+  /* Always-visible strip so the sidebar toggle is reachable even when the
+     sidebar itself is hidden — without this there'd be no way back in. */
+  .topbar {
+    flex-shrink: 0;
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .sidebar-toggle {
+    width: auto;
+    padding: 0.4rem 0.6rem;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    border-radius: 6px;
+  }
+
+  .sidebar-toggle:hover {
+    color: var(--text-primary);
+    background: var(--bg-surface-hover);
   }
 
   .content {
