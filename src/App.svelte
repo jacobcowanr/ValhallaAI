@@ -3,7 +3,7 @@
   import VaultBrowser from "./routes/VaultBrowser.svelte";
   import AgentControl from "./routes/AgentControl.svelte";
   import Settings from "./routes/Settings.svelte";
-  import logoWordmark from "./assets/logo-wordmark.png";
+  import logoWordmark from "./assets/ValhallaAI_Logo.png";
 
   let activeTab = "models";
 </script>
