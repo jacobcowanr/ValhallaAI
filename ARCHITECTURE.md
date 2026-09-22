@@ -125,10 +125,12 @@ User picks a **default provider + model**, saved to `localStorage`. Nothing is h
 Loads the saved default on mount, lets the user override per-conversation, sends through the router, renders responses with token usage.
 
 ### 4.4 Agent Control (`src/routes/AgentControl.svelte`)
-Run starts one agent and waits for it to exit. The button calls the Tauri command `run_agent`, which runs `scripts/run_agent.sh` with an allowlisted name (`claude-agent`, `hermes-agent`, `grok-agent`). Hermes is the host CLI (`hermes chat --oneshot`). Claude and Grok are `docker compose run --rm` one-shot containers. The same script is what you run from a terminal.
+Run starts one agent and waits for it to exit. The button calls the Tauri command `run_agent`, which runs `scripts/run_agent.sh` with an allowlisted name (`claude-agent`, `hermes-agent`, `grok-agent`). Hermes is the host CLI (`hermes chat --oneshot`). Claude and Grok are `docker compose run --rm` one-shot containers. The same script is what you run from a terminal. The cards read real state via `agent_status`: enabled flags come from `vault/agents-config.json`, and last-run time plus OK/ERROR are recovered from each `AGENT_OUTBOX_<agent>.md`. Nothing about run history lives in component state, which is why it survives a relaunch.
 
 ### 4.5 Vault Browser (`src/routes/VaultBrowser.svelte`)
-Refresh calls the Tauri command `vault_status`. It lists the files under `vault/` and runs `git status --short -- vault` in the project. It does not pull or push. The screen does not take a path from the user.
+Refresh calls the Tauri command `vault_status`. It lists the files under `vault/`, runs `git status --short -- vault`, and reports the last commit touching `AGENT_SYNC.md`. It does not pull or push.
+
+Clicking a file calls `vault_file`, which returns its text. **This command does take a path from the frontend**, so it is untrusted input to a filesystem read. `resolve_vault_path()` canonicalizes the candidate — which resolves `..` *and* symlinks — and refuses anything landing outside `vault/`, anything that is not a file, and anything over 2 MB. The guard is a separate function specifically so it can be unit-tested; four tests cover it, including a symlink pointing out of the vault.
 
 ### 4.6 Agent Runtime (`agents/*`, `scripts/run_agent.sh`)
 Each agent is one-shot:
