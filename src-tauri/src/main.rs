@@ -127,10 +127,29 @@ fn claude_bin() -> String {
     std::env::var("CLAUDE_SUBSCRIPTION_DIRECTSDK_COMMAND").unwrap_or_else(|_| "claude".to_string())
 }
 
+/// The DirectSDK request shape. Deliberately **not** `AnthropicRequest`.
+///
+/// This path must never carry `apiKey`: the whole point of DirectSDK is that
+/// it bills the Pro/Max subscription via `claude auth login`, not the paid
+/// `ANTHROPIC_API_KEY` that the `anthropic` provider uses. Sharing
+/// `AnthropicRequest` is exactly what broke this command — its `api_key` is a
+/// required field, so serde rejected every call with `missing field apiKey`
+/// before the CLI was ever spawned, even though the body below never reads it.
+/// Do not "tidy" these two structs back into one.
+///
+/// `AnthropicTurn` is shared on purpose — it is only `{role, content}`, which
+/// is what `toAnthropicMessages()` emits for both paths, and carries no key.
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ClaudeSubscriptionRequest {
+    model: String,
+    messages: Vec<AnthropicTurn>,
+}
+
 /// Claude Pro/Max via the official `claude` CLI. The paid API key is removed
 /// from the child environment so this cannot silently bill `ANTHROPIC_API_KEY`.
 #[tauri::command]
-fn claude_subscription(request: AnthropicRequest) -> ChatReply {
+fn claude_subscription(request: ClaudeSubscriptionRequest) -> ChatReply {
     let bin = claude_bin();
     let auth = Command::new(&bin)
         .args(["auth", "status"])
