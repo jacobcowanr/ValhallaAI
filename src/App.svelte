@@ -307,10 +307,17 @@
     background: none;
     cursor: pointer;
     font-family: var(--font-display);
-    font-size: 1.05rem;
+    font-size: 1.1rem;
     font-weight: 400;
-    letter-spacing: 0.02em;
-    color: var(--text-secondary);
+    /* A decorative face needs more tracking than a UI face: the glyphs are
+       angular and narrow, so tight spacing makes adjacent letters read as
+       one shape. */
+    letter-spacing: 0.06em;
+    /* Was --text-secondary (7.1:1). Fine for a body face, but Norse's thin
+       strokes read dimmer than the ratio implies, so the inactive state
+       goes to full primary. Active is still distinguished by the accent
+       colour and its background tint, not by being the only legible one. */
+    color: var(--text-primary);
     text-align: left;
     transition: all 0.15s;
   }
@@ -327,9 +334,20 @@
     background: var(--bg-surface-hover);
   }
 
+  /* Was accent-on-soft-bg: #a90303 text on #2a0e0e, which is 2.31:1 -- red on
+     red, well under the 4.5:1 AA floor. A solid accent fill with white text
+     is 7.77:1 and reads as the selected row at a glance. */
   button.active {
-    color: var(--accent);
-    background: var(--accent-soft-bg);
+    color: var(--accent-text);
+    background: var(--accent);
+  }
+
+  /* Without this the generic button:hover rule repaints the selected row with
+     the neutral surface colour, so hovering the active item made it look
+     deselected. Hover now deepens the same red instead. */
+  button.active:hover {
+    color: var(--accent-text);
+    background: var(--accent-hover);
   }
 
   main {
@@ -424,9 +442,21 @@
     white-space: nowrap;
   }
 
+  .profile-name {
+    color: var(--text-primary);
+    letter-spacing: 0.05em;
+  }
+
+  /* An email address is data, not branding -- it has no business in a
+     display face. Norse renders it in caps with angular strokes, which is
+     unreadable at this size. Body font, no opacity dimming, and normal
+     tracking: 3.36:1 -> 7.1:1, and it renders in real lowercase. */
   .profile-sub {
-    font-size: 0.72rem;
-    opacity: 0.6;
+    font-family: var(--font-body);
+    font-size: 0.75rem;
+    letter-spacing: 0;
+    color: var(--text-secondary);
+    text-transform: none;
   }
 
   .content {
