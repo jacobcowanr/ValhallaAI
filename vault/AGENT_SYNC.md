@@ -317,3 +317,17 @@ Shared coordination log for ValhallaAI agents. Synced to a **private** GitHub re
 - **Decisions:** Left `vault/AGENT_OUTBOX_*.md` alone. Those are run records, not docs. Did not commit `vault/agents-config.json` (Grok `enabled` is still a local edit). Did not push.
 - **TO: Jacob:** The four docs and `env.example` are the ones to trust. The log underneath them describes older states on purpose.
 ---
+## [2026-09-22 02:00] Grok Build
+- **Did:** Handoff for Opus 5. Did not apply the fix. Jacob sent "Test" in Models & Chat with provider **Claude Subscription DirectSDK** and model `claude-haiku-4-5-20251001`. The window showed: `Error: invalid args 'request' for command 'claude_subscription': missing field 'apiKey'`.
+- **Cause:** `claude_subscription` in `src-tauri/src/main.rs` takes `AnthropicRequest`. That struct requires `api_key`, which serde renames to `apiKey`. `callClaudeDirectSDK` in `src/lib/llm-router.ts` invokes the command with only `{ model, messages }`. Tauri rejects the payload before `claude` is spawned. The CLI login is fine. A separate manual `claude -p` with `ANTHROPIC_API_KEY` removed, model `claude-haiku-4-5-20251001`, returned `pong`.
+- **Fix:** Give `claude_subscription` its own argument struct with `model` and `messages` only. Do not reuse `AnthropicRequest`. Do not pass or require the paid key. Keep stripping `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_FOUNDRY_API_KEY`, and the Bedrock/Vertex/Foundry switches from the child environment. After the Rust change, Jacob must quit and rerun `npm run tauri-dev`. A Vite reload will not pick it up.
+- **Do not confuse the three Claude paths:**
+  - **Anthropic API Key** and **Anthropic OAuth** both call `anthropic_messages` and bill `ANTHROPIC_API_KEY`. OAuth is still not a separate login. The paid path no longer uses the webview `fetch` (that was the "Load failed" error). It goes through the desktop process as of `023aee6`.
+  - **Claude Subscription DirectSDK** is the CLI path. It is the one broken in the screenshot.
+  - **Agent Control → claude-agent** is the Docker container. It still uses `ANTHROPIC_API_KEY`. It is not a login screen.
+- **Repo state:** `origin/main` is `e75046f`. Local `main` is `42177ae`, 4 commits ahead, not pushed: `7b38fc7`, `023aee6`, `335994f`, `42177ae`. `.env` is gitignored and must stay untracked. `vault/agents-config.json` is a local uncommitted edit setting grok-agent `"enabled": true`. Do not commit that. There is no `XAI_API_KEY`.
+- **Files:** `CONTRIBUTING.md`, `README.md`, this log. No code change in this entry.
+- **Decisions:** Left the `apiKey` bug for Opus 5. Documented it instead of fixing it in the same turn.
+- **TO: Opus 5:** Pick up at `claude_subscription` / `AnthropicRequest` in `src-tauri/src/main.rs` and the invoke in `callClaudeDirectSDK`. Split the subscription struct off `AnthropicRequest`, rebuild with `npm run tauri-dev`, and have Jacob resend "Test" on Claude Subscription DirectSDK. Success is a reply, not `missing field apiKey`. Do not point that provider back at `callAnthropic`.
+- **TO: Jacob:** Give Opus 5 this entry. The four commits above it are local only until you say to push.
+---
