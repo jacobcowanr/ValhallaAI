@@ -734,6 +734,66 @@ fn provider_keys() -> Result<std::collections::HashMap<String, String>, String> 
 
 /// What is in vault/ and whether git sees changes there. No path argument,
 /// so the screen cannot point git at another directory. Does not pull or push.
+/// Resolve an untrusted relative path against the vault directory, or refuse.
+///
+/// Extracted from `vault_file` so the guard itself is unit-testable -- a path
+/// check that has never been run against a traversal attempt is a guard only
+/// in the sense that someone wrote one.
+fn resolve_vault_path(vault: &std::path::Path, path: &str) -> Result<PathBuf, String> {
+    let vault_real = vault
+        .canonicalize()
+        .map_err(|err| format!("Could not resolve the vault directory: {err}"))?;
+
+    // canonicalize() resolves `..` AND symlinks, so the comparison below sees
+    // the true destination. Screening the raw string for ".." instead would
+    // miss a symlink inside vault/ pointing somewhere else entirely.
+    let real = vault
+        .join(path)
+        .canonicalize()
+        .map_err(|err| format!("Could not open {path}: {err}"))?;
+
+    if !real.starts_with(&vault_real) {
+        return Err(format!("{path} is outside the vault directory."));
+    }
+    if !real.is_file() {
+        return Err(format!("{path} is not a file."));
+    }
+    Ok(real)
+}
+
+/// Read one file out of `vault/` for the Vault Browser.
+///
+/// `path` arrives from the frontend, so it is untrusted input to a filesystem
+/// read. Both guards below matter:
+///
+/// 1. `canonicalize()` resolves `..` segments AND symlinks, then the result is
+///    checked to still sit under the canonicalized vault directory. Checking
+///    the raw string for ".." instead would miss a symlink inside vault/
+///    pointing at ~/.ssh, and would also reject legitimate paths.
+/// 2. A size cap, so a huge or accidental binary cannot be pulled wholesale
+///    into the webview.
+#[tauri::command]
+fn vault_file(path: String) -> Result<String, String> {
+    const MAX_VAULT_FILE_BYTES: u64 = 2 * 1024 * 1024;
+
+    let vault = project_root().join("vault");
+    let real = resolve_vault_path(&vault, &path)?;
+
+    let size = fs::metadata(&real)
+        .map_err(|err| format!("Could not stat {path}: {err}"))?
+        .len();
+    if size > MAX_VAULT_FILE_BYTES {
+        return Err(format!(
+            "{path} is {:.1} MB, over the 2 MB view limit. Open it in an editor instead.",
+            size as f64 / (1024.0 * 1024.0)
+        ));
+    }
+
+    fs::read_to_string(&real).map_err(|err| {
+        format!("Could not read {path} as text ({err}). It may be a binary file.")
+    })
+}
+
 #[tauri::command]
 fn vault_status() -> Result<VaultStatus, String> {
     let root = project_root();
@@ -798,10 +858,69 @@ fn main() {
             run_agent,
             provider_keys,
             vault_status,
+            vault_file,
             anthropic_messages,
             google_sign_in,
             claude_subscription
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod vault_path_tests {
+    use super::resolve_vault_path;
+    use std::fs;
+
+    /// Builds a temp tree:  root/vault/ok.md  and  root/secret.txt
+    fn fixture() -> std::path::PathBuf {
+        let base = std::env::temp_dir().join(format!(
+            "valhallaai-vaulttest-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        fs::create_dir_all(base.join("vault")).unwrap();
+        fs::write(base.join("vault").join("ok.md"), "hello").unwrap();
+        fs::write(base.join("secret.txt"), "do not read").unwrap();
+        base
+    }
+
+    #[test]
+    fn reads_a_file_inside_the_vault() {
+        let base = fixture();
+        assert!(resolve_vault_path(&base.join("vault"), "ok.md").is_ok());
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn rejects_parent_traversal() {
+        let base = fixture();
+        let err = resolve_vault_path(&base.join("vault"), "../secret.txt").unwrap_err();
+        assert!(err.contains("outside the vault"), "unexpected error: {err}");
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn rejects_a_symlink_escaping_the_vault() {
+        let base = fixture();
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(base.join("secret.txt"), base.join("vault").join("link.txt"))
+                .unwrap();
+            let err = resolve_vault_path(&base.join("vault"), "link.txt").unwrap_err();
+            assert!(err.contains("outside the vault"), "unexpected error: {err}");
+        }
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn rejects_a_directory() {
+        let base = fixture();
+        fs::create_dir_all(base.join("vault").join("sub")).unwrap();
+        let err = resolve_vault_path(&base.join("vault"), "sub").unwrap_err();
+        assert!(err.contains("not a file"), "unexpected error: {err}");
+        let _ = fs::remove_dir_all(&base);
+    }
 }
