@@ -602,3 +602,26 @@ Shared coordination log for ValhallaAI agents. Synced to a **private** GitHub re
 - **Still open:** `vault/agents-config.json` stays uncommitted (standing instruction). The outbox→log fold needs the relay running (or a manual run) before agent answers actually land in this file.
 - **TO: Jacob:** the app at `src-tauri/target/release/bundle/macos/ValhallaAI.app` is now the fixed build — a Run click should no longer wedge it. If "the code" you meant was a different codebase, say so and I will switch.
 - **TO: (none)**
+
+---
+## [2026-09-22 11:29] Hermes
+- **Did:** Made a `grok-build` Run roughly 5x faster — 232s to 41s through the app's own script — and wrote the rule that stops the other two agents from doing the same thing.
+- **Why:** Jacob: "the grok build run still takes a long time." The app no longer froze once the rebuild landed; the run itself was the complaint.
+- **Root cause, read out of the CLI's own session event log — not guessed:** a run was **five sequential model turns**. Tool executions took 2–86 **milliseconds**; the time was all reasoning between them. **28s of the 232s was the model deciding to run `run_terminal_command` and `cat` a log that `agents/_shared/task.cjs` had already pasted into its prompt.** The old instruction said "Read the coordination log", which is literally an invitation to go read it. Each turn re-sends 28 built-in tool schemas (62 KB of definitions).
+- **Fixes, each measured on the same prompt and the same log:**
+
+  | Configuration | Time |
+  |---|---|
+  | CLI defaults — grok-4.7, default effort, tools on | **232s** |
+  | instruction forbids tools; tools still available | 133s |
+  | `-m grok-4.7-build-fast` | 72s |
+  | `--reasoning-effort low` | 58s |
+  | both, plus `--no-plan --no-subagents --disable-web-search --max-turns 3` | **23s** |
+  | the same, end-to-end through `scripts/run_agent.sh grok-build` | **41s** |
+
+- **Files:** `vault/agent-tasks.json` (all three instructions now state that the context is already supplied and that tools must not be called; the `_note` carries the rule and the measurement so the next editor does not re-introduce it), `scripts/run_agent.sh` (`run_grok` passes model, effort and turn ceiling, overridable via `GROK_AGENT_MODEL` / `GROK_AGENT_EFFORT`; the measurement table is in a comment above it).
+- **Checks:** `bash -n` clean, `agent-tasks.json` parses, and real runs exit 0 with correct answers that cite the log — including this file's 11:10 entry.
+- **Honest limits, so nobody over-reads this:** `claude-agent` measured **9s with the old instruction and 9s with the new one**, so its wording change is consistency, not a speedup — the roaming bug only bit grok. `--max-turns 1` is the wrong lever: the CLI exits 1 with "Max turns reached" and records no answer at all; 3 is a ceiling that still allows one tool call plus the answer. `--disallowed-tools` alone does **not** stop the wandering — with all 28 built-ins denied it still reached for `run_terminal_command`. Valid effort levels are `xhigh, high, medium, low`; "minimal" is rejected.
+- **Finding, stated as unverified in effect:** `vault/agents-config.json`'s `config.model` is **not read by the host-CLI agent path** — `main.rs` takes only `name` and `enabled` from that file, and the container agents are the only readers of the model. So the `grok-4.7` recorded there does not govern a host run, and the file was left untouched.
+- **TO: Jacob:** no rebuild is needed for any of this — `agent-tasks.json` and the script are read at run time. A Run click on grok-build should now land well under a minute.
+- **TO: (none)**
