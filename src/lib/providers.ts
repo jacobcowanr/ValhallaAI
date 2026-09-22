@@ -61,7 +61,6 @@ export const PROVIDERS: Record<LLMProvider, ProviderEntry> = {
       "claude-opus-5",
       "claude-sonnet-5",
       "claude-fable-5-1",
-      "claude-sonnet-4-5",
       "claude-haiku-4-5-20251001",
     ],
   },
@@ -150,6 +149,10 @@ export const PROVIDERS: Record<LLMProvider, ProviderEntry> = {
     name: "OpenClaw",
     models: ["openclaw-default"],
   },
+  // Verified 2026-09-22 against GET https://openrouter.ai/api/v1/models.
+  // Four ids were dead (claude-3.5-sonnet, gemini-pro-1.5, grok-3,
+  // llama-3.1-405b-instruct) and have been swapped for live equivalents.
+  // Check against that endpoint rather than editing from memory.
   openrouter: {
     // Same situation as Nous above: OpenRouter aggregates hundreds of
     // models. Curated a similarly-sized subset rather than the full
@@ -163,18 +166,18 @@ export const PROVIDERS: Record<LLMProvider, ProviderEntry> = {
     name: "OpenRouter",
     models: [
       "anthropic/claude-opus-5",
-      "anthropic/claude-3.5-sonnet",
+      "anthropic/claude-sonnet-5",
       "anthropic/claude-haiku-4.5",
       "openai/gpt-4o",
       "openai/gpt-4o-mini",
       "openai/gpt-4.1",
       "openai/o3",
-      "google/gemini-pro-1.5",
+      "google/gemini-2.5-pro",
       "google/gemini-2.5-flash",
       "x-ai/grok-4.7",
-      "x-ai/grok-3",
+      "x-ai/grok-4.6",
       "meta-llama/llama-4-maverick",
-      "meta-llama/llama-3.1-405b-instruct",
+      "meta-llama/llama-4-scout",
       "mistralai/mistral-large",
       "deepseek/deepseek-r1",
       "deepseek/deepseek-chat",
