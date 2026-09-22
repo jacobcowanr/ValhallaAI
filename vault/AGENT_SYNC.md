@@ -557,3 +557,13 @@ Shared coordination log for ValhallaAI agents. Synced to a **private** GitHub re
 - **Verified:** svelte-check 0 errors / 0 warnings; `cargo check` clean; picker shows exactly 13 providers with no stale entries; image e2e 18/18.
 - **Files:** `src/routes/ModelPicker.svelte`, `src/lib/llm-router.ts`, `src/lib/providers.ts`, `src-tauri/src/main.rs`, `scripts/run_agent.sh`, `README.md`, `ARCHITECTURE.md`, `POSITIONING.md`, `CONTRIBUTING.md`, `Reports/Image-Attachments-Prompt_09.22.2026.md`, this log.
 - **Not done:** `npm run tauri-build` is running as this entry is written, so the `.app` does not yet contain the Rust change. `vault/agents-config.json` remains deliberately uncommitted.
+
+---
+## [2026-09-22 10:05] Hermes
+- **Did:** Brought the documentation current and added diagrams.
+- **Why:** README, ARCHITECTURE and POSITIONING described an app that no longer exists — "16 LLM providers", an agent flow that said everything runs in Docker, a chat sequence with no images. A reader trusting them would be wrong about the thing the docs exist to explain.
+- **ARCHITECTURE.md:** redrew the system map (13 providers + user-defined, the three runtimes with how each runs, the sign-in gate, Sessions, `agent-tasks.json`). Rewrote the chat data flow to show the image path and the branch for a provider that cannot take one, with a table of the four image encodings and a flowchart of how a failed response becomes a readable error. Rewrote the agent data flow to show the subscription-first branch. Replaced the one-line provider catalog with a table (auth, call shape, image support) and a flowchart of how `callLLM` routes.
+- **README.md:** added a "what it does" table and a one-screen flowchart, and stated up front that the default provider cannot read images. Replaced the provider list with a table of image support and billing. The `lib/` listing was missing `profiles.ts`, `custom-providers.ts` and `custom-agents.ts`.
+- **POSITIONING.md:** added a quadrant chart of where each tool sits, and a sentence on why the "partial" and "planned" cells are deliberate rather than incomplete.
+- **Verified:** all 9 mermaid diagrams render, checked with `@mermaid-js/mermaid-cli` before committing — including the three that were already in the files, so a pre-existing broken diagram would have been caught too.
+- **Files:** `README.md`, `ARCHITECTURE.md`, `POSITIONING.md`, this log.
