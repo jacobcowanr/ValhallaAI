@@ -38,6 +38,24 @@ The same three buttons are on **Agent Control** inside the desktop app. **Settin
 
 `VAULT_REPO` is optional and unused until you want the vault relay to push. The relay's push path has not been run against this repo.
 
+## Launching it
+
+`scripts/valhallaai` is symlinked onto PATH, so the app opens from anywhere:
+
+```bash
+valhallaai          # open the app
+valhallaai build    # produce a release .app -- after this, opening is instant
+valhallaai relay    # start the vault relay (stop: valhallaai relay stop)
+```
+
+With no release build yet, `valhallaai` falls back to `npm run tauri-dev` and
+holds the terminal until Ctrl+C. Run `valhallaai build` once to get a real
+launchable app instead. To set the symlink up on another machine:
+
+```bash
+ln -sf "$PWD/scripts/valhallaai" ~/.local/bin/valhallaai
+```
+
 ## Project structure
 
 ```

@@ -1,0 +1,89 @@
+#!/bin/sh
+# ValhallaAI launcher.
+#
+# Lives in the repo and is symlinked onto PATH (~/.local/bin/valhallaai), the
+# same shape as hermes and claude on this machine. Keeping the real file here
+# means it is version-controlled and updates with a pull, rather than drifting
+# as a private copy in a bin directory.
+#
+#   valhallaai          open the app
+#   valhallaai dev      force the dev build even if a release app exists
+#   valhallaai build    produce a release .app, after which launching is
+#                       instant and does not hold a terminal
+#   valhallaai relay    start the vault relay (stop: valhallaai relay stop)
+
+set -eu
+
+# Resolve this script's real location through however many symlinks, so the
+# project directory is found no matter where it was invoked from. `readlink -f`
+# is avoided: it is not portable across the BSD/GNU split.
+self=$0
+while [ -L "$self" ]; do
+    link=$(readlink "$self")
+    case $link in
+        /*) self=$link ;;
+        *)  self=$(dirname "$self")/$link ;;
+    esac
+done
+PROJECT_DIR=$(cd "$(dirname "$self")/.." && pwd)
+
+COMPOSE="docker compose -f $PROJECT_DIR/docker-compose.local.yml"
+APP_BUNDLE="$PROJECT_DIR/src-tauri/target/release/bundle/macos/valhallaai.app"
+
+die() {
+    echo "valhallaai: $1" >&2
+    exit 1
+}
+
+need() {
+    command -v "$1" >/dev/null 2>&1 || die "$1 is not installed or not on PATH."
+}
+
+case ${1:-open} in
+    open)
+        # A release bundle starts instantly and does not tie up a terminal, so
+        # prefer it when one has been built. Otherwise fall through to dev.
+        if [ -d "$APP_BUNDLE" ]; then
+            exec open "$APP_BUNDLE"
+        fi
+        echo "No release build yet — starting the dev app. Ctrl+C to stop."
+        echo "Run 'valhallaai build' once to get a launchable app instead."
+        need npm
+        cd "$PROJECT_DIR" && exec npm run tauri-dev
+        ;;
+    dev)
+        need npm
+        cd "$PROJECT_DIR" && exec npm run tauri-dev
+        ;;
+    build)
+        need npm
+        command -v cargo >/dev/null 2>&1 || [ -x "$HOME/.cargo/bin/cargo" ] \
+            || die "cargo is not on PATH. Install Rust, or run: . \"\$HOME/.cargo/env\""
+        # cargo lives in ~/.cargo/bin, which a non-interactive shell often does
+        # not have on PATH even when an interactive one does.
+        PATH="$HOME/.cargo/bin:$PATH"
+        export PATH
+        cd "$PROJECT_DIR" && npm run tauri-build
+        echo
+        echo "Built. 'valhallaai' now opens it directly."
+        ;;
+    relay)
+        need docker
+        if [ "${2:-start}" = "stop" ]; then
+            exec $COMPOSE stop vault-relay
+        fi
+        echo "Starting the vault relay. It folds agent outboxes into"
+        echo "AGENT_SYNC.md and commits. Stop it with: valhallaai relay stop"
+        exec $COMPOSE --profile optional up -d vault-relay
+        ;;
+    -h|--help|help)
+        # Grep for the usage lines rather than a fixed line range, so editing
+        # the header comment cannot silently shift what --help prints.
+        echo "ValhallaAI launcher"
+        echo
+        grep '^#   valhallaai' "$self" | sed 's/^#   /  /'
+        ;;
+    *)
+        die "unknown command '$1'. Try: valhallaai --help"
+        ;;
+esac
