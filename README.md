@@ -1,123 +1,193 @@
 # ValhallaAI
 
-**Multi-provider AI orchestration, self-hosted.** One app to talk to 13 LLM providers, run agents against them, and coordinate those agents through a git-synced markdown vault instead of a database.
+**Multi-provider AI orchestration, self-hosted.** One desktop app to talk to 13 LLM providers, run agents against them, and coordinate those agents through a git-synced markdown vault instead of a database.
 
-**Status:** Local development. Not public yet — see [CONTRIBUTING.md](./CONTRIBUTING.md#why-local-first) for why.
+**Status: local development, not public.** See [Why local-first](./CONTRIBUTING.md#why-local-first) for the policy and the four-item gate. macOS builds are what exist today; Windows and Linux are designed for and not yet built ([ARCHITECTURE.md §4.1](./ARCHITECTURE.md#41-cross-platform-constraint)).
 
 ## What it does
 
 | | |
 |---|---|
-| **Chat** | 13 providers behind one UI. Drop or paste a screenshot and 12 of them read it. |
-| **Agents** | Three runtimes, run one at a time. Claude and Hermes run on a subscription login first and fall back to a paid key only when there is no login. |
-| **Coordination** | A git-synced markdown vault. Each agent writes its own outbox; a relay folds them into one log. No database. |
-| **Extensible** | Add a provider or an agent from Settings, without editing the source. |
+| **Chat** | 13 providers behind one UI, one picker. Drop, paste, or pick a screenshot and **12 of the 13** read it. |
+| **Agents** | Three runtimes, run one at a time. All three prefer a flat-rate subscription login and fall back to a paid key only when there is no login. |
+| **Coordination** | A git-synced markdown vault. Each agent appends to its own outbox; a relay folds them into one append-only log. No database. |
+| **Extensible** | Add a provider (any OpenAI-compatible endpoint) or an agent (bound to one of the three allowlisted runtimes) from the UI, without editing the source. |
+| **Your keys, your machine** | Provider keys load from your own `.env` inside the desktop app — not from a browser tab. Nothing is sent anywhere except the provider you picked. |
 
 ```mermaid
-flowchart LR
-    You[You] --> Chat[Models and Chat]
-    You --> Agents[Agent Control]
-    You --> Vault[Vault Browser]
-    Chat --> Providers[13 providers]
-    Chat -. screenshots .-> Providers
-    Agents --> Runtimes[3 runtimes<br/>subscription first]
-    Runtimes --> Outbox[per-agent outbox]
-    Outbox --> Log[AGENT_SYNC.md]
-    Vault --> Log
+flowchart TB
+    accTitle: ValhallaAI at a glance
+    accDescr {
+        Three jobs in one window. Models and Chat routes to thirteen providers,
+        twelve of which accept images. Agent Control starts one of three agent
+        runtimes, each preferring a subscription login. The runtimes read their
+        task from the vault, write their answer to their own outbox, and a relay
+        folds those into the append-only coordination log, which is a git tree.
+        The Vault Browser reads that folder and shows git status without pushing.
+    }
+    You((You)) --> Chat["Models & Chat<br/>13 providers, 12 read images"]
+    You --> Agents["Agent Control<br/>one run at a time"]
+    You --> VaultUI["Vault Browser<br/>read-only"]
+    Chat --> Sub["subscription login first<br/>paid key as fallback"]
+    Chat --> Keys["per-token keys"]
+    Agents --> Runtimes["claude-agent / hermes-agent / grok-build"]
+    Runtimes --> Outbox["per-agent outbox<br/>(gitignored)"]
+    Outbox -.->|"not automatic"| Relay["vault relay"]
+    Relay -.-> Log[("AGENT_SYNC.md<br/>append-only, in git")]
+    VaultUI --> Log
+
+    style Chat fill:#667eea,color:#fff
+    style Agents fill:#667eea,color:#fff
+    style Relay fill:#f5f5f5
 ```
 
-The one caveat worth knowing up front: the default chat provider, Claude Subscription DirectSDK, cannot read images. It bills a flat-rate subscription, which is why it is the default, but it sends a text prompt to the `claude` CLI and there is no field an image can travel in. Switch to Google or Nous Portal for screenshots. The reason, and what it would take to change, is in [ARCHITECTURE.md §5](./ARCHITECTURE.md).
+**Reading it.** Everything solid is in use today; the one dotted pair is the relay, because folding your outboxes into the shared log is a **separate step you start** rather than something a Run click does. That single fact is the biggest difference between this design and this project's daily reality — it is stated in three places on purpose ([ARCHITECTURE.md §9.3](./ARCHITECTURE.md#93-the-honest-state-of-the-relay)).
 
 ## Start here
 
 | Document | What it covers |
 |---|---|
-| [ARCHITECTURE.md](./ARCHITECTURE.md) | System design, diagrams, data flow, how the pieces fit together |
-| [POSITIONING.md](./POSITIONING.md) | What problem this solves, how it differs from Hermes/LangChain/Open WebUI/etc., and what's honestly *not* novel |
-| [CONTRIBUTING.md](./CONTRIBUTING.md) | Local-first policy, project conventions, how to add a provider or agent |
+| [ARCHITECTURE.md](./ARCHITECTURE.md) | Design of record: system map, component responsibilities, data flow, security model, measured agent performance, and a table of what is proven versus merely built |
+| [POSITIONING.md](./POSITIONING.md) | What problem this solves, how it differs from Hermes / LangChain / Open WebUI / LibreChat / Modal, and what is honestly *not* novel |
+| [CONTRIBUTING.md](./CONTRIBUTING.md) | Local-first policy, conventions, recipes for adding a provider or an agent, and the known-open-issues list |
 
 ## Quick start (local dev)
 
-The desktop app is what reads `.env`. A plain browser tab cannot. `npm run tauri-dev` needs the Rust toolchain (`rustup`).
+**Prerequisites:** Node 18+, npm, and the Rust toolchain (`rustup`) for the Tauri shell. Docker/OrbStack is needed only for the two container fallbacks.
 
 ```bash
 npm install
 cp env.example .env
-# Fill values as NAME=value. No labels on their own line. See env.example.
+# Fill in NAME=value lines only. A label on its own line makes Docker Compose
+# reject the whole file. See env.example for the accepted names.
 
-npm run tauri-dev
+npm run tauri-dev          # dev mode, hot reload
 ```
 
-Run one agent at a time. Do not start the stack with `docker compose up`: `claude-agent` makes one paid call and exits, and a restart policy is not what you want on that container. Hermes does not run inside its image.
+**The desktop app is what reads `.env`. A plain browser tab cannot** — it has no filesystem access, so provider keys would silently be missing. Use `npm run tauri-dev`, or a release build.
+
+### Build a real app (recommended after the first run)
 
 ```bash
-scripts/run_agent.sh hermes-agent    # host Hermes CLI, one shot
-scripts/run_agent.sh claude-agent    # subscription first, paid key only as fallback
-scripts/run_agent.sh grok-build      # subscription via the Grok Build CLI; container fallback needs XAI_API_KEY
+valhallaai build           # release .app + .dmg; opening is then instant
+valhallaai                 # launch it
 ```
 
-The same three buttons are on **Agent Control** inside the desktop app. **Settings** shows which chat keys came from `.env`. Nous Portal does not use a key in that file; it uses the local Hermes proxy (`hermes proxy start`).
-
-**Claude Subscription DirectSDK** is selected in Models & Chat, not in Agent Control. It uses `claude auth login`, not the paid key, and is working as of 2026-09-22. It is the only subscription-billed Claude path; `Anthropic (API key)` bills `ANTHROPIC_API_KEY`.
-
-`VAULT_REPO` is optional and unused until you want the vault relay to push. The relay's push path has not been run against this repo.
-
-## Launching it
-
-`scripts/valhallaai` is symlinked onto PATH, so the app opens from anywhere:
-
-```bash
-valhallaai          # open the app
-valhallaai build    # produce a release .app -- after this, opening is instant
-valhallaai relay    # start the vault relay (stop: valhallaai relay stop)
-```
-
-With no release build yet, `valhallaai` falls back to `npm run tauri-dev` and
-holds the terminal until Ctrl+C. Run `valhallaai build` once to get a real
-launchable app instead. To set the symlink up on another machine:
+With no release build, `valhallaai` falls back to `npm run tauri-dev` and holds the terminal until Ctrl+C. To put the launcher on PATH on a new machine:
 
 ```bash
 ln -sf "$PWD/scripts/valhallaai" ~/.local/bin/valhallaai
 ```
+
+## Running agents
+
+Three runtimes. **One at a time** — the same three buttons exist on **Agent Control** inside the app, and the terminal takes the same argument.
+
+```bash
+scripts/run_agent.sh hermes-agent    # host Hermes CLI, one shot, --max-turns 1
+scripts/run_agent.sh claude-agent    # subscription first, paid key as fallback
+scripts/run_agent.sh grok-build      # Grok CLI subscription, container fallback
+```
+
+| Runtime | Where it runs | Auth | Billing |
+|---|---|---|---|
+| `claude-agent` | host `claude` CLI, else Docker | `claude auth login` (Pro/Max) | subscription; container bills `ANTHROPIC_API_KEY` |
+| `hermes-agent` | host `hermes` CLI | `hermes portal` login | subscription |
+| `grok-build` | host `grok` CLI, else Docker | `grok login` (grok.com) | subscription; container bills `XAI_API_KEY` |
+
+Each run reads its task from `vault/agent-tasks.json`, does the work, appends one entry to `vault/AGENT_OUTBOX_<agent>.md`, and exits. **Nothing writes `AGENT_SYNC.md` directly** — the relay folds outboxes into it ([ARCHITECTURE.md §9.2](./ARCHITECTURE.md#92-the-full-agent-and-vault-picture)).
+
+**Do not start the agents with `docker compose up`.** `claude-agent` makes one paid call and exits; a restart policy is not what you want on that container (`restart: "no"` is deliberate). Hermes does not run inside its image at all — it needs the macOS virtualenv at `~/.hermes`.
+
+Edits to `vault/agent-tasks.json` take effect on the **next run with no rebuild**, because the task is read at run time. Edits to Rust or Svelte code need `npm run tauri-dev` (or a rebuild) — a Vite hot reload does not pick up a Rust change.
+
+### Why a run is fast now (and was not before)
+
+A `grok-build` run used to take **197 seconds** to answer a question whose answer was already in the prompt: the instruction said "read the coordination log", so the model spent its first turn deciding to `cat` a file the runner had already pasted in. The fix was an instruction that says the context is supplied, plus a fast model variant at low reasoning effort. Measured: **197 s → 41 s end to end**, with the same answer citing the same log entries.
+
+The ladder, the three levers that *don't* work, and the honest note that `claude-agent` was never slow are in [ARCHITECTURE.md §8](./ARCHITECTURE.md#8-agent-run-performance). Overrides: `GROK_AGENT_MODEL`, `GROK_AGENT_EFFORT`, `AGENT_TIMEOUT_SECS`.
+
+## Providers (13)
+
+| Provider | Reads images | Billed how | Key from |
+|---|---|---|---|
+| Anthropic (API key) | yes | per token | `.env` — `ANTHROPIC_API_KEY` |
+| ChatGPT / Codex | yes | per token | `.env` — `OPENAI_API_KEY` |
+| **Claude Subscription DirectSDK** | **no — text only** | **flat-rate subscription (the default)** | `claude auth login` |
+| Fireworks AI | yes | per token | Settings |
+| Google Gemini | yes | per token | `.env` — `GOOGLE_API_KEY` |
+| Groq | yes | per token | Settings |
+| MiniMax | yes | per token | Settings |
+| Nous Portal | yes | flat-rate | local Hermes proxy — no pasted key |
+| Ollama | yes | free — runs on this machine | none |
+| OpenRouter | yes | per token | `.env` — `OPENROUTER_API_KEY` |
+| Perplexity | yes | per token | Settings |
+| Qwen Code | yes | per token | Settings |
+| xAI Grok | yes | per token | `.env` — `XAI_API_KEY` |
+
+Anything else that speaks the OpenAI dialect can be added from **Settings → Custom Providers** (name + chat-completions URL + model ids). The id is namespaced `custom:<slug>` so it can never shadow a built-in. Why the list has this shape, and what was removed from it, is in [POSITIONING.md §3.2](./POSITIONING.md#32-genuinely-novel-for-this-category-breadth-of-provider-catalog-behind-one-interface). How each one is actually called is in [ARCHITECTURE.md §7](./ARCHITECTURE.md#7-provider-catalog).
+
+## The caveats worth knowing before you rely on it
+
+1. **The default provider cannot read images.** Claude Subscription DirectSDK pipes a text prompt to the `claude` CLI, so there is no field an image can travel in. It is the default because it is flat-rate. **If your work is screenshot-heavy, switch to Google or Nous Portal.** Making this path work means letting the CLI read temp files, i.e. widening what tools it may use — a decision, not a tweak ([ARCHITECTURE.md §6.1](./ARCHITECTURE.md#61-sending-a-chat-message)).
+2. **The relay is not running by default, so agent answers stop in their outbox.** `valhallaai relay` starts it. Its fold-and-commit logic is verified; its **push has never run against this repo** and requires `VAULT_REPO` to be set ([ARCHITECTURE.md §9.3](./ARCHITECTURE.md#93-the-honest-state-of-the-relay)).
+3. **The Vault Browser never pushes.** The app has no push path anywhere by design. It lists files and reports `git status`; you commit and push from a terminal.
+4. **Perplexity's Sonar Chat Completions endpoint retires 2026-09-27.** After that the catalog entry needs a rewrite against Perplexity's newer API ([CONTRIBUTING.md](./CONTRIBUTING.md#known-open-issues)).
+5. **macOS-only builds so far.** The `.app` is ad-hoc signed, arm64-only, and expects a checkout to exist on the machine. Not distributable to anyone else yet.
 
 ## Project structure
 
 ```
 ValhallaAI/
 ├─ ARCHITECTURE.md           Design of record — read first
-├─ POSITIONING.md            Why this exists, differentiation
-├─ CONTRIBUTING.md           Conventions, known issues
+├─ POSITIONING.md            Why this exists, differentiation, honest non-novelty
+├─ CONTRIBUTING.md           Conventions, recipes, known issues
+├─ README.md                 this file
 ├─ env.example               .env template (copy to .env; never commit .env)
-├─ src/                      Svelte frontend (Tauri desktop app)
-│  ├─ routes/                Models & Chat, Recent, Projects, Sessions, Vault, Agents, Profile, Settings
-│  └─ lib/                   llm-router.ts, providers.ts, provider-keys.ts,
-│                           sessions.ts, profiles.ts, custom-providers.ts,
-│                           custom-agents.ts
-├─ src-tauri/src/main.rs     Tauri commands: run_agent, provider_keys, vault_status
-├─ scripts/valhallaai       Launcher symlinked onto PATH
-├─ scripts/run_agent.sh      One-shot runner the UI and the terminal share
-├─ scripts/vault_relay.sh    Folds agent outboxes into AGENT_SYNC.md
-├─ agents/                   Claude and Grok containers; Hermes runs on the host
-├─ vault/                    AGENT_SYNC.md and agents-config.json
+├─ index.html                Vite entry point
+├─ src/                      Svelte frontend (runs inside the Tauri webview)
+│  ├─ App.svelte             sidebar shell + profile card + nav
+│  ├─ routes/                Models & Chat, Recent, Projects, Sessions,
+│  │                         VaultBrowser, AgentControl, Profile, Settings,
+│  │                         Onboarding
+│  └─ lib/                   llm-router.ts (the only place that talks to
+│                            providers), providers.ts (the only catalog),
+│                            provider-keys.ts, sessions.ts, profiles.ts,
+│                            custom-providers.ts, custom-agents.ts
+├─ src-tauri/src/main.rs     Tauri commands: run_agent, agent_status,
+│                            provider_keys, vault_status, vault_file,
+│                            google_sign_in + path/config helpers
+├─ src-tauri/src/envfile.rs  Reads the allowlisted .env keys
+├─ scripts/valhallaai        Launcher: open, build, relay
+├─ scripts/run_agent.sh      One-shot runner shared by the UI and the terminal
+├─ scripts/vault_relay.sh    Folds outboxes into AGENT_SYNC.md, commits, can push
+├─ scripts/vault_relay.Dockerfile
+├─ agents/                   claude + grok containers, _shared/task.cjs prompt builder
+├─ vault/                    agent-tasks.json, agents-config.json, AGENT_SYNC.md,
+│                            AGENT_OUTBOX_*.md (gitignored)
 └─ docker-compose.local.yml
 ```
 
-## Providers (13)
+## Troubleshooting
 
-| Provider | Reads images | Billed how |
+Every entry here is a real failure that cost time, not a hypothetical.
+
+| Symptom | Cause | Fix |
 |---|---|---|
-| Anthropic (API key) | yes | per token |
-| ChatGPT / Codex | yes | per token |
-| Claude Subscription DirectSDK | no — text only | flat-rate subscription, the default |
-| Fireworks AI | yes | per token |
-| Google Gemini | yes | per token |
-| Groq | yes | per token |
-| MiniMax | yes | per token |
-| Nous Portal | yes | flat-rate, via the local Hermes proxy |
-| Ollama | yes | free — runs on this machine |
-| OpenRouter | yes | per token |
-| Perplexity | yes | per token |
-| Qwen Code | yes | per token |
-| xAI Grok | yes | per token |
+| The window freezes for minutes on **Run** and only force-quit helps | The installed `.app` predates `run_agent` becoming `async` (a *synchronous* Tauri command blocks the webview's event loop for the whole run) | `valhallaai build`, or `npm run tauri-dev`. Confirm `async fn run_agent` is present in `src-tauri/src/main.rs` |
+| A run says "no subscription" and then fails with `docker: command not found` | Tauri launches the runner with a GUI `PATH` (`/usr/bin:/bin:/usr/sbin:/sbin`), so `grok`/`claude` look absent | The script now prepends `~/.grok/bin`, `~/.local/bin`, `~/.hermes/bin`, `~/.orbstack/bin` plus `path_helper`. If you hit it again, check the binary is in one of those |
+| A `grok-build` run takes ~3 minutes | The prompt invites tool use, or the model default is in play | Check `vault/agent-tasks.json` for the "context is already supplied, do not call tools" line and the `run_grok` flags in `scripts/run_agent.sh` |
+| `grok --max-turns 1` records **no answer** | One turn is exhausted deciding what to do | Use `3`. It is a ceiling, not a target |
+| `npx tsc --noEmit` is clean but the app is broken | Plain `tsc` silently skips `.svelte` files entirely | `npm run check` (`svelte-check`) — see [CONTRIBUTING.md](./CONTRIBUTING.md#before-claiming-something-works) |
+| A screenshot disappears from a message | The provider is Claude Subscription DirectSDK (text-only) | Switch to Google or Nous Portal; the UI warns and disables Send for this case |
+| The agent's answer is not in `AGENT_SYNC.md` | Nothing folds outboxes automatically | Read `vault/AGENT_OUTBOX_<agent>.md`, or run `valhallaai relay` |
+| Docker Compose rejects `.env` with a syntax error | A label sits on its own line | `NAME=value` lines and `#` comments only |
+| An agent's "answer" is a `MODULE_NOT_FOUND` stack trace | Some CLI hook noise was captured as stdout | Fixed by the `redact()` filter in `run_agent.sh`; if a new hook appears, add its pattern there |
 
-Why the list is this shape, and what was removed from it, is in [POSITIONING.md §3.2](./POSITIONING.md). How each one is called is in [ARCHITECTURE.md §8](./ARCHITECTURE.md).
+## What is proven, and what is not
+
+The full table is [ARCHITECTURE.md §12](./ARCHITECTURE.md#12-verification-what-is-proven-and-what-is-merely-built). The short version:
+
+**Proven:** 13 providers counted three ways; 12 read images; a Run click no longer freezes the app; `grok-build` bills the subscription with no `XAI_API_KEY` set; a run is ~5× faster (197 s → 41 s); `cargo test` → 14 passed; the relay folds and commits (verified on a throwaway repo); Google sign-in round-trips end to end.
+
+**Not proven, and not claimed:** the relay has never pushed to a remote; there is no daily multi-agent loop in this repo yet; Windows and Linux builds have never been produced; `callNous()` has not been exercised against the live proxy since the provider-count changes; `claude-agent`'s instruction edit is a consistency fix, not a speedup (9 s before, 9 s after).
