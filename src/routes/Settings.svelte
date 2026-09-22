@@ -1,10 +1,14 @@
 <script>
   import { onMount } from "svelte";
 
-  let defaultProvider = "nous";
-  let defaultModel = "x-ai/grok-4.7";
+  const FALLBACK_PROVIDER = "nous";
+  const FALLBACK_MODEL = "x-ai/grok-4.7";
+
+  let defaultProvider = FALLBACK_PROVIDER;
+  let defaultModel = FALLBACK_MODEL;
   let apiKeys = {};
   let saved = false;
+  let ollamaEndpoint = "";
 
   const providers = {
     anthropic: {
@@ -83,12 +87,25 @@
 
   onMount(() => {
     // Load saved preferences
-    const saved = localStorage.getItem("vahalla-prefs");
-    if (saved) {
-      const prefs = JSON.parse(saved);
-      defaultProvider = prefs.defaultProvider || "nous";
-      defaultModel = prefs.defaultModel || "x-ai/grok-4.7";
+    const savedPrefs = localStorage.getItem("vahalla-prefs");
+    if (savedPrefs) {
+      const prefs = JSON.parse(savedPrefs);
+      // A previously-saved provider can disappear from the catalog (e.g. the
+      // GitHub Copilot removal). Falling back here instead of trusting the
+      // stored value keeps the model dropdown from silently rendering empty.
+      if (prefs.defaultProvider && providers[prefs.defaultProvider]) {
+        defaultProvider = prefs.defaultProvider;
+        defaultModel = providers[prefs.defaultProvider].models.includes(prefs.defaultModel)
+          ? prefs.defaultModel
+          : providers[prefs.defaultProvider].models[0];
+      } else {
+        defaultProvider = FALLBACK_PROVIDER;
+        defaultModel = FALLBACK_MODEL;
+      }
     }
+
+    // Load the saved Ollama endpoint so the field reflects what's actually stored.
+    ollamaEndpoint = localStorage.getItem("ollama-endpoint") || "";
 
     // Load API keys (only from env or user input, not from storage for security)
     const providers_to_check = ["NOUS_API_KEY", "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY", "XAI_API_KEY"];
@@ -167,7 +184,8 @@
           type="text"
           id="ollama-endpoint"
           placeholder="http://localhost:11434"
-          on:blur={(e) => localStorage.setItem("ollama-endpoint", e.target.value)}
+          bind:value={ollamaEndpoint}
+          on:blur={() => localStorage.setItem("ollama-endpoint", ollamaEndpoint)}
         />
         <small>Default: http://localhost:11434</small>
       </div>
@@ -175,7 +193,7 @@
       <div class="ollama-help">
         <p><strong>Getting started with Ollama:</strong></p>
         <ol>
-          <li>Download from <a href="https://ollama.ai" target="_blank">ollama.ai</a></li>
+          <li>Download from <a href="https://ollama.ai" target="_blank" rel="noopener noreferrer">ollama.ai</a></li>
           <li>Run: <code>ollama serve</code></li>
           <li>Pull a model: <code>ollama pull llama2</code></li>
           <li>Select Ollama (Local) in Vahalla and choose your model</li>

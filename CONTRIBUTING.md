@@ -60,8 +60,18 @@ Vahalla/
 
 ## Known open issues
 
-Tracked here until there's a formal issue tracker (see the most recent code review findings for current details):
-- Replicate's async prediction API isn't polled — `callReplicate()` returns the immediate (often empty) response instead of waiting for completion
-- `temperature: 0` is silently replaced with the default in several provider functions (`config.temperature || 0.7` treats `0` as falsy)
-- No migration path if a previously-saved default provider is later removed from the provider list (e.g. the GitHub Copilot removal)
-- Google Gemini's `callGoogle()` folds `system` role messages into `user` role instead of using Gemini's `systemInstruction` field
+Tracked here until there's a formal issue tracker.
+
+**Fixed** (were flagged by code review, resolved in a follow-up pass):
+- ~~Replicate's async prediction API wasn't polled~~ — `callReplicate()` now polls the prediction's status URL until it reaches a terminal state or times out (~60s)
+- ~~`temperature: 0` was silently replaced with the default~~ — fixed across all provider functions (`config.temperature ?? 0.7`, not `||`)
+- ~~No migration path for a removed default provider~~ — `Settings.svelte` and `ModelPicker.svelte` now fall back to Nous/grok-4.7 if a saved `defaultProvider` no longer exists in the catalog
+- ~~Google Gemini folded `system` role into `user` role~~ — `callGoogle()` now extracts `system` messages into Gemini's `systemInstruction` field
+- ~~Ollama endpoint field didn't reflect its saved value~~ — added `bind:value` + load-on-mount in `Settings.svelte`
+- ~~External link missing `rel="noopener noreferrer"`~~ — fixed on the ollama.ai link
+- ~~7 provider functions duplicated near-identical fetch boilerplate~~ — extracted into a shared `callOpenAICompatible()` helper in `llm-router.ts`; 9 providers (OpenRouter, ChatGPT, Grok, Nous, Fireworks, Groq, OpenClaw, Perplexity, Together) now share it
+
+**Still open:**
+- `Settings.svelte` and `ModelPicker.svelte` still each hold their own copy of the `providers` catalog object — extracting to a shared `providers.ts` module is the next real refactor (see [Adding a new LLM provider](#adding-a-new-llm-provider))
+- Provider functions read credentials via `process.env.*`, which is a Node convention — needs verification this resolves correctly under Vite/Tauri's frontend bundling before any provider is used for real
+- Dead `callDeepSeek()` function was removed during the router cleanup (DeepSeek isn't a standalone provider in the current catalog — it's reachable via Nous and OpenRouter's model lists instead)
