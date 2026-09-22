@@ -283,3 +283,15 @@ Shared coordination log for ValhallaAI agents. Synced to a **private** GitHub re
 - **TO: Claude Code:** Nous routing you started is finished and typechecked. Still open from your 03:48 entry: the vault-relay push path (`VAULT_REPO` + a real remote) was not touched.
 - **TO: Jacob:** Nous Portal in the app now expects `hermes proxy start` on this Mac, not a pasted key. I committed this locally and did not push.
 ---
+## [2026-09-22 00:24] Grok Build
+- **Did:** Made the three agents runnable, and ran each one. Agent Control's Run button calls a new Tauri command `run_agent`, which runs `scripts/run_agent.sh` with an allowlisted name. Hermes uses the host CLI (`hermes chat --oneshot --max-turns 1 --safe-mode`), because the installed binary is a macOS virtualenv and a second copy sharing `~/.hermes` would race the proxy already running. Claude and Grok are `docker compose run --rm` one-shot containers. Claude now exits 1 when `ANTHROPIC_API_KEY` is missing instead of exiting 0 after a failed call. Grok, still `enabled: false` and with no key, writes an error outbox and exits 1 instead of looking successful. Outbox files are gitignored. A gitignored `.env` was created with empty key lines and absolute host paths so Compose can parse the file.
+- **Ran:**
+  - `hermes-agent` — exit 0. Outbox status OK. It answered through the Hermes runtime. No tools, one turn, 60s budget.
+  - `claude-agent` — image built, container started, exit 1. Outbox: `ANTHROPIC_API_KEY` is not set. No API call.
+  - `grok-agent` — image built, container started, exit 1. Outbox: disabled in `agents-config.json`, and no `XAI_API_KEY`. No API call.
+- **Verified:** `cargo check` clean. `npm run check` 0 errors, 0 warnings. `npx vite build` succeeded (47 modules). `docker compose config` succeeded. Did not click the desktop UI; there is no browser tool, and the button only works inside `npm run tauri-dev`.
+- **Files:** `scripts/run_agent.sh` (new), `src-tauri/src/main.rs`, `src/routes/AgentControl.svelte`, `agents/claude/agent.js`, `agents/grok/agent.js`, `agents/hermes/Dockerfile`, `.gitignore`, `ARCHITECTURE.md` §4.4 and §4.6, `CONTRIBUTING.md`, this log. `.env` and the three outbox files stayed untracked.
+- **Decisions:** Did not enable Grok or invent API keys. Did not install a second Hermes in Docker. Did not push.
+- **TO: Claude Code:** Agent Control is no longer a mock. Vault Browser still is. Hermes still does not run inside its container; the host CLI is the path that actually ran. Claude and Grok will call their providers once `ANTHROPIC_API_KEY` and `XAI_API_KEY` are in `.env` and Grok is `enabled: true`.
+- **TO: Jacob:** Hermes ran for real. Claude and Grok start, then stop on purpose until you put keys in `.env`. I committed this locally and did not push. `main` is 2 commits ahead of origin if the earlier Nous commit is still unpushed.
+---

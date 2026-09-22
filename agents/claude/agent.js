@@ -12,9 +12,7 @@ const VAULT_PATH = process.env.VAULT_PATH || "/vault";
 const AGENT_NAME = process.env.AGENT_NAME || "claude-agent";
 const OUTBOX_FILE = path.join(VAULT_PATH, `AGENT_OUTBOX_${AGENT_NAME}.md`);
 
-const client = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
+const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 
 async function readConfig() {
   try {
@@ -46,6 +44,18 @@ async function runAgent() {
 
   console.log(`[${AGENT_NAME}] Config loaded: ${config.config.model}`);
 
+  if (!ANTHROPIC_API_KEY) {
+    const message = "ANTHROPIC_API_KEY is not set. Add it to .env and run this agent again.";
+    console.error(`[${AGENT_NAME}] ${message}`);
+    await appendOutbox(
+      `## [${new Date().toISOString()}] ${AGENT_NAME}\n- Status: ERROR\n- Error: ${message}\n`
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  const client = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
+
   try {
     // Example: simple echo task
     const prompt =
@@ -75,11 +85,13 @@ async function runAgent() {
   } catch (error) {
     console.error(`[${AGENT_NAME}] Error:`, error);
     await appendOutbox(`## [${new Date().toISOString()}] ${AGENT_NAME}\n- Status: ERROR\n- Error: ${error.message}\n`);
+    process.exitCode = 1;
   }
 }
 
-// Run once, then exit (can be wrapped in a scheduler later)
+// Run once, then exit. Errors must not exit 0 — a success code used to
+// hide a failed API call.
 runAgent().then(() => {
   console.log(`[${AGENT_NAME}] Done`);
-  process.exit(0);
+  process.exit(process.exitCode || 0);
 });
