@@ -1,0 +1,76 @@
+version: "3.9"
+
+services:
+  # Agent Runtime for Claude SDK
+  claude-agent:
+    build:
+      context: ./agents/claude
+      dockerfile: Dockerfile
+    container_name: vahalla-claude
+    volumes:
+      - ./vault:/vault
+      - ./agents/claude/config:/app/config
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - VAULT_PATH=/vault
+      - AGENT_NAME=claude-agent
+    networks:
+      - vahalla
+    restart: unless-stopped
+
+  # Agent Runtime for Hermes
+  hermes-agent:
+    build:
+      context: ./agents/hermes
+      dockerfile: Dockerfile
+    container_name: vahalla-hermes
+    volumes:
+      - ./vault:/vault
+      - ~/.hermes:/root/.hermes
+    environment:
+      - HERMES_HOME=/root/.hermes
+      - VAULT_PATH=/vault
+      - AGENT_NAME=hermes-agent
+    networks:
+      - vahalla
+    restart: unless-stopped
+
+  # Agent Runtime for Grok (optional)
+  grok-agent:
+    build:
+      context: ./agents/grok
+      dockerfile: Dockerfile
+    container_name: vahalla-grok
+    volumes:
+      - ./vault:/vault
+    environment:
+      - XAI_API_KEY=${XAI_API_KEY}
+      - VAULT_PATH=/vault
+      - AGENT_NAME=grok-agent
+    networks:
+      - vahalla
+    profiles:
+      - optional
+    restart: unless-stopped
+
+  # Vault sync relay (optional — runs git pull/push on schedule)
+  vault-relay:
+    image: alpine:latest
+    container_name: vahalla-relay
+    volumes:
+      - ./vault:/vault
+      - ~/.ssh:/root/.ssh
+    environment:
+      - VAULT_REPO=${VAULT_REPO:-}
+      - GIT_AUTHOR_NAME=Vahalla
+      - GIT_AUTHOR_EMAIL=vahalla@local
+    entrypoint: /bin/sh -c "cd /vault && while true; do git pull && sleep 300; done"
+    networks:
+      - vahalla
+    profiles:
+      - optional
+    restart: unless-stopped
+
+networks:
+  vahalla:
+    driver: bridge
