@@ -83,41 +83,34 @@ export const PROVIDERS: Record<LLMProvider, ProviderEntry> = {
     ],
   },
   fireworks: {
-    // Verified 2026-09-22 against Fireworks' live Serverless list
-    // (fireworks.ai/models?modelTypes=Serverless, rendered in a browser —
-    // the filter is client-side, so a plain fetch returns the full library
-    // of 316 and tells you nothing about what is callable). Every id below
-    // was then confirmed from that model's own page, which prints its
+    // Verified 2026-09-22 against Fireworks' live Serverless list, then cut
+    // down. The full serverless set was 17 chat models, which is a catalog,
+    // not a picker — Jacob asked for the newer models plus the older ones
+    // that are still cheap and productive, not everything available.
+    //
+    // Every id was confirmed from that model's own page, which prints its
     // callable path. The path is always accounts/fireworks/models/<slug>
-    // even when the page URL says a different publisher
-    // (deepseek-ai/deepseek-v4p1-flash -> accounts/fireworks/models/...).
+    // even when the page URL says a different publisher.
     //
-    // The previous list (llama-v3p1-405b, mixtral-8x22b) was from the
-    // platform's launch era and matched neither the serverless set nor the
-    // id format the endpoint expects.
+    // Kept: the current cheap tier (DeepSeek V4.1 Flash, GLM 5.3 Flash),
+    // Qwen 3.8 Max as the one full-price newer model, and the older models
+    // whose price still justifies them — gpt-oss-120b at $0.15/$0.60 and
+    // Nemotron Lightning at $0.05/$0.20, the cheapest productive model here.
     //
-    // Two serverless entries are deliberately absent: qwen3-reranker-8b and
-    // qwen3-embedding-8b. Fireworks' page labels them LLM, but they are not
-    // chat-completions models and would fail on send.
+    // Dropped: the dated DeepSeek snapshots (V4-Pro-0813, V4-Flash-0731,
+    // V4-Flash-Vision-Exp — superseded by V4.1 Flash), the full-price tiers
+    // that duplicate a cheaper sibling (GLM-5.3, GLM 5.2, Kimi K3), the
+    // older Kimi snapshots (K2.7 Code, K2.6), and the models with no stated
+    // price (Muse Glimmer, MiniMax M3, Inkling). Two serverless entries were
+    // never included: qwen3-reranker-8b and qwen3-embedding-8b are not chat
+    // models.
     name: "Fireworks AI",
     models: [
       "accounts/fireworks/models/deepseek-v4p1-flash",
       "accounts/fireworks/models/glm-5p3-flash",
-      "accounts/fireworks/models/glm-5p3",
-      "accounts/fireworks/models/kimi-k3",
-      "accounts/fireworks/models/deepseek-v4-pro-0813",
       "accounts/fireworks/models/qwen3p8-max",
-      "accounts/fireworks/models/muse-glimmer-30b",
-      "accounts/fireworks/models/deepseek-v4-flash-0731",
-      "accounts/fireworks/models/glm-5p2",
-      "accounts/fireworks/models/kimi-k2p7-code",
-      "accounts/fireworks/models/minimax-m3",
       "accounts/fireworks/models/gpt-oss-120b",
-      "accounts/fireworks/models/nemotron-3-ultra-nvfp4",
-      "accounts/fireworks/models/deepseek-v4-flash-vision-exp",
       "accounts/fireworks/models/nemotron-lightning-3p5-30b-a3b",
-      "accounts/fireworks/models/inkling",
-      "accounts/fireworks/models/kimi-k2p6",
     ],
   },
   google: {
