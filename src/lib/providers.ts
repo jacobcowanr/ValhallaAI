@@ -115,21 +115,33 @@ export const PROVIDERS: Record<LLMProvider, ProviderEntry> = {
     ],
   },
   google: {
-    // Verified 2026-09-22 against GET /v1beta/models with the live key: every
-    // id below is present and reports generateContent support. The previous
-    // list (gemini-2.0-flash, gemini-1.5-pro, gemini-1.5-flash) was entirely
-    // dead -- none of the three existed any more, so every send on this
-    // provider 404'd. Check against that endpoint rather than writing ids
-    // from memory; Gemini retires them faster than any other provider here.
+    // Verified 2026-09-22 by actually POSTing generateContent, not by reading
+    // GET /v1beta/models. That distinction is the whole lesson of this entry:
+    // `gemini-2.5-pro`, `gemini-2.5-flash`, and `gemini-2.5-flash-lite` all
+    // appear in the models list AND report generateContent support, but a real
+    // request returns 404 "This model is no longer available to new users.
+    // Please update your code to use models/gemini-3.6-flash". Listing is not
+    // the same as callable, so a key-verified models list is still not proof.
+    //
+    // What a real request showed for this key:
+    //   gemini-3.6-flash   200, answered "PONG"
+    //   gemini-3.5-flash   200 (callable; returned empty text on a 64-token cap)
+    //   gemini-3.8-flash   503 UNAVAILABLE "currently experiencing high demand"
+    //                      -- the model exists and the key is valid; the
+    //                      capacity is Google-side and temporary
+    //   gemini-2.5-flash   404, replaced by 3.6-flash per Google's own message
+    //   gemini-3.7-flash   present in the list, not individually requested
+    //
+    // gemini-3.6-flash is FIRST on purpose. The picker selects models[0] when
+    // the provider changes, so first place is the de facto default, and an
+    // entry that is newest-but-503ing is a bad default. This is the one
+    // exception to the newest-first ordering; re-check it before moving it.
     name: "Google (Gemini)",
     models: [
+      "gemini-3.6-flash",
       "gemini-3.8-flash",
       "gemini-3.7-flash",
-      "gemini-3.6-flash",
       "gemini-3.5-flash",
-      "gemini-2.5-pro",
-      "gemini-2.5-flash",
-      "gemini-2.5-flash-lite",
     ],
   },
   groq: {
@@ -140,10 +152,6 @@ export const PROVIDERS: Record<LLMProvider, ProviderEntry> = {
     // enterprise-only ("Contact sales") and Whisper is speech-to-text.
     name: "Groq (Fast Inference)",
     models: ["openai/gpt-oss-120b", "openai/gpt-oss-20b"],
-  },
-  huggingface: {
-    name: "Hugging Face Inference API",
-    models: ["meta-llama/Llama-2-70b-chat-hf", "mistralai/Mistral-7B-Instruct-v0.1"],
   },
   minimax: {
     // Verified 2026-09-22 against platform.minimax.io's text chat API
@@ -236,10 +244,6 @@ export const PROVIDERS: Record<LLMProvider, ProviderEntry> = {
   qwen: {
     name: "Qwen Code",
     models: ["qwen-coder-32b", "qwen-turbo"],
-  },
-  replicate: {
-    name: "Replicate (image/video/audio models, not chat LLMs)",
-    models: ["meta/llama-2-70b-chat", "mistralai/mistral-7b-instruct-v0.1"],
   },
   xai_grok: {
     // Verified 2026-09-22 against docs.x.ai/developers/models. xAI's own

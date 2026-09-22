@@ -169,7 +169,32 @@ fn run_agent(service: String, runtime: Option<String>) -> Result<String, String>
 #[serde(rename_all = "camelCase")]
 struct AnthropicTurn {
     role: String,
-    content: String,
+    /// Either a plain string (a text-only turn) or Anthropic's content-block
+    /// array, which is what a turn carrying images looks like. Held as a
+    /// `Value` so `anthropic_messages` forwards exactly what the frontend
+    /// built instead of Rust having to model every block variant — the
+    /// `image` block with its base64 `source` then reaches the API intact.
+    content: serde_json::Value,
+}
+
+impl AnthropicTurn {
+    /// This turn's text, ignoring any image blocks.
+    ///
+    /// The subscription CLI path takes a single text prompt, so it can only
+    /// use the text. Images are NOT silently dropped in the UI — that path is
+    /// deliberately outside IMAGE_CAPABLE_PROVIDERS, so the app says so
+    /// before an attachment is ever added.
+    fn text(&self) -> String {
+        match &self.content {
+            serde_json::Value::String(text) => text.clone(),
+            serde_json::Value::Array(blocks) => blocks
+                .iter()
+                .filter_map(|block| block.get("text").and_then(|text| text.as_str()))
+                .collect::<Vec<_>>()
+                .join("\n"),
+            _ => String::new(),
+        }
+    }
 }
 
 #[derive(serde::Deserialize)]
@@ -289,7 +314,7 @@ fn claude_subscription(request: ClaudeSubscriptionRequest) -> ChatReply {
         let speaker = if turn.role == "assistant" { "Assistant" } else { "User" };
         prompt.push_str(speaker);
         prompt.push_str(": ");
-        prompt.push_str(&turn.content);
+        prompt.push_str(&turn.text());
         prompt.push_str("\n\n");
     }
 
