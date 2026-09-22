@@ -68,7 +68,9 @@ ValhallaAI/
 │  ├─ routes/                Models & Chat, Sessions, Vault, Agents, Settings
 │  └─ lib/                   llm-router.ts, providers.ts, provider-keys.ts, sessions.ts
 ├─ src-tauri/src/main.rs     Tauri commands: run_agent, provider_keys, vault_status
+├─ scripts/valhallaai       Launcher symlinked onto PATH
 ├─ scripts/run_agent.sh      One-shot runner the UI and the terminal share
+├─ scripts/vault_relay.sh    Folds agent outboxes into AGENT_SYNC.md
 ├─ agents/                   Claude and Grok containers; Hermes runs on the host
 ├─ vault/                    AGENT_SYNC.md and agents-config.json
 └─ docker-compose.local.yml
