@@ -60,16 +60,12 @@ export const PROVIDERS: Record<LLMProvider, ProviderEntry> = {
     models: ["minimax-text-01", "minimax-abab6.5s-chat"],
   },
   nous: {
-    // Nous Portal aggregates 300+ models across vendors (OpenRouter-style
-    // catalog). This is a curated subset — flagship/notable models per
-    // major vendor, not the full list, which would make the dropdown
-    // unusable. Slugs follow the vendor/model-name convention already
-    // used elsewhere in this file; they're constructed to match that
-    // pattern, not individually verified against a live Nous API call —
-    // same approach as every other provider's model list in this project.
-    // x-ai/grok-4.7 stays first: it's the actual configured default
-    // elsewhere (FALLBACK_MODEL below, Hermes's own default), not just
-    // alphabetically/chronologically first.
+    // Curated subset of the Portal catalog, not the full list. Checked
+    // 2026-09-22 against the local Hermes proxy GET /v1/models (400 ids).
+    // 18 slugs matched. The Qwen coder entry had been
+    // qwen/qwen3-coder-480b-a35b; the live id for the model named
+    // "Qwen3 Coder 480B A35B" is qwen/qwen3-coder.
+    // x-ai/grok-4.7 stays first: it is FALLBACK_MODEL below.
     name: "Nous Portal",
     models: [
       "x-ai/grok-4.7",
@@ -85,7 +81,7 @@ export const PROVIDERS: Record<LLMProvider, ProviderEntry> = {
       "deepseek/deepseek-v4.1-flash",
       "deepseek/deepseek-v4-pro-0813",
       "qwen/qwen3.8-max-0902",
-      "qwen/qwen3-coder-480b-a35b",
+      "qwen/qwen3-coder",
       "meta-llama/llama-4-maverick",
       "meta-llama/llama-3.3-70b-instruct",
       "moonshotai/kimi-k3",
