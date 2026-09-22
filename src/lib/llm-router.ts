@@ -22,7 +22,7 @@
 import { invoke } from "@tauri-apps/api/tauri";
 import { inTauri } from "./provider-keys";
 
-export type LLMProvider = "anthropic" | "chatgpt" | "claude_directsdk" | "fireworks" | "google" | "groq" | "huggingface" | "minimax" | "nous" | "ollama" | "openclaw" | "openrouter" | "perplexity" | "qwen" | "replicate" | "together" | "xai_grok";
+export type LLMProvider = "anthropic" | "chatgpt" | "claude_directsdk" | "fireworks" | "google" | "groq" | "huggingface" | "minimax" | "nous" | "ollama" | "openrouter" | "perplexity" | "qwen" | "replicate" | "together" | "xai_grok";
 
 export interface LLMConfig {
   provider: LLMProvider;
@@ -58,7 +58,6 @@ const IMAGE_CAPABLE_PROVIDERS: ReadonlySet<LLMProvider> = new Set([
   "nous",
   "fireworks",
   "groq",
-  "openclaw",
   "perplexity",
   "together",
 ]);
@@ -106,8 +105,6 @@ export async function callLLM(
         return await callNous(config, messages);
       case "ollama":
         return await callOllama(config, messages);
-      case "openclaw":
-        return await callOpenClaw(config, messages);
       case "openrouter":
         return await callOpenRouter(config, messages);
       case "perplexity":
@@ -470,19 +467,6 @@ async function callGroq(
 ): Promise<LLMResponse> {
   return callOpenAICompatible(config, messages, {
     endpoint: "https://api.groq.com/openai/v1/chat/completions",
-    authHeader: bearer,
-  });
-}
-
-/**
- * OpenClaw
- */
-async function callOpenClaw(
-  config: LLMConfig,
-  messages: LLMMessage[]
-): Promise<LLMResponse> {
-  return callOpenAICompatible(config, messages, {
-    endpoint: "https://api.openclaw.ai/v1/chat/completions",
     authHeader: bearer,
   });
 }

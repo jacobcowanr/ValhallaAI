@@ -244,7 +244,7 @@ send.
 
 **Not verifiable on this machine**, and stated rather than assumed:
 `chatgpt` and `xai_grok` (keys blank in `.env`); `fireworks`, `groq`,
-`together`, `perplexity`, `minimax`, `qwen`, `replicate`, `openclaw` (no key
+`together`, `perplexity`, `minimax`, `qwen`, `replicate` (no key
 at all, and none expose a public list); `ollama` (**not installed here** —
 the catalog offers 7 local models against a runtime that is absent).
 
@@ -312,7 +312,7 @@ Tracked here until there's a formal issue tracker.
 
 **Fixed 2026-09-22 (Nous Portal).** Direct calls to `inference-api.nousresearch.com` 401 when the only login on the machine is `hermes portal` OAuth, because that flow never produces a key you can paste. `callNous()` now posts to the local Hermes subscription proxy at `http://127.0.0.1:8645/v1`, which is Nous's documented path for third-party apps. Checked against a running proxy: `GET /v1/models` returned 400 ids, 18 of the 19 curated slugs matched, and `qwen/qwen3-coder-480b-a35b` was replaced with the live id `qwen/qwen3-coder` (display name "Qwen3 Coder 480B A35B"). Settings and the chat empty-state no longer ask for a Nous API key. **Verified end to end on 2026-09-22:** `hermes portal info` reports `Auth: ✓ logged in`, the proxy answers on `127.0.0.1:8645`, and a real `POST /v1/chat/completions` on `x-ai/grok-4.7` returned a reply with a usage payload.
 
-**Added 2026-09-22: image attachments in Models & Chat, real for 9/17 providers.** `LLMMessage` gained an optional `images?: string[]` field (data URLs). `callOpenAICompatible()` builds the standard OpenAI multimodal content array (`[{type:"text"}, {type:"image_url"}, ...]`) when a message carries images — wired in once at the shared helper, so it covers all 9 providers that use it (OpenRouter, ChatGPT, xAI Grok, Nous, Fireworks, Groq, OpenClaw, Perplexity, Together) for free. `providerSupportsImages()` is exported so the UI can gate on it.
+**Added 2026-09-22: image attachments in Models & Chat, real for 8/16 providers.** `LLMMessage` gained an optional `images?: string[]` field (data URLs). `callOpenAICompatible()` builds the standard OpenAI multimodal content array (`[{type:"text"}, {type:"image_url"}, ...]`) when a message carries images — wired in once at the shared helper, so it covers all 8 providers that use it (OpenRouter, ChatGPT, xAI Grok, Nous, Fireworks, Groq, Perplexity, Together) for free. `providerSupportsImages()` is exported so the UI can gate on it.
 
 **Still open:**
 - **Sessions (`src/lib/sessions.ts`) persist to `localStorage`, with no size cap or eviction policy.** Fine for normal use, but there's no limit on how many sessions or how much message history accumulates — a very long-running install could eventually hit `localStorage`'s per-origin quota (typically 5-10MB depending on platform). the internal `persist()` function's `try/catch` means a quota failure degrades to "this session's latest messages don't persist" rather than crashing, but there's no user-facing warning when that happens, and no pruning/archiving of old sessions. A real fix would be IndexedDB (much higher quota) or an explicit "delete old sessions" affordance — neither attempted here.
