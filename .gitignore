@@ -17,4 +17,5 @@ src-tauri/target/
 pnpm-lock.yaml
 *.log
 vault/.git
+vault/AGENT_OUTBOX_*.md
 .vault-cache/

@@ -85,7 +85,10 @@ async function runAgent() {
 
   const config = readConfig();
   if (!config || !config.enabled) {
-    console.log(`[${AGENT_NAME}] Disabled or not found in config`);
+    const message = "grok-agent is disabled in vault/agents-config.json, and XAI_API_KEY is not set. Enable it and add the key before running.";
+    console.error(`[${AGENT_NAME}] ${message}`);
+    appendOutbox(`## [${new Date().toISOString()}] ${AGENT_NAME}\n- Status: ERROR\n- Error: ${message}\n`);
+    process.exitCode = 1;
     return;
   }
 

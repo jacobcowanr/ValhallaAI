@@ -124,18 +124,20 @@ User picks a **default provider + model**, saved to `localStorage`. Nothing is h
 ### 4.3 Model Picker (`src/routes/ModelPicker.svelte`)
 Loads the saved default on mount, lets the user override per-conversation, sends through the router, renders responses with token usage.
 
-### 4.4 Agent Control (`src/routes/AgentControl.svelte`) — UI mock, not wired up
-Intended to start/stop Docker-based agent containers and show last-run status. **As built, `toggleAgent()` only flips local component state — it does not invoke Docker.** `src-tauri/src/main.rs` registers zero Tauri commands, so there is currently no IPC path from this UI to Docker at all. The component now shows a visible "not wired up yet" notice rather than looking functional. Real wiring needs a Tauri command (`.invoke_handler()`) that shells out to `docker-compose`; tracked as open work in [CONTRIBUTING.md](./CONTRIBUTING.md#known-open-issues), not implemented.
+### 4.4 Agent Control (`src/routes/AgentControl.svelte`)
+Run starts one agent and waits for it to exit. The button calls the Tauri command `run_agent`, which runs `scripts/run_agent.sh` with an allowlisted name (`claude-agent`, `hermes-agent`, `grok-agent`). Hermes is the host CLI (`hermes chat --oneshot`). Claude and Grok are `docker compose run --rm` one-shot containers. The same script is what you run from a terminal. Vault Browser is still a mock (§4.5).
 
 ### 4.5 Vault Browser (`src/routes/VaultBrowser.svelte`) — UI mock, not wired up
 Intended to show vault sync status, last pull, recent entries. **As built, `syncVault()` is a `setTimeout` stub — it does not run git.** Same underlying gap as §4.4: no Tauri command exists to shell out to git. Shows the same visible notice.
 
-### 4.6 Agent Runtime (`agents/*`)
-Each agent is a Docker container that:
-1. Reads its config from `vault/agents-config.json`
-2. Does its work (call an LLM, run a task)
-3. Appends a result to its own outbox file in the vault
-4. Exits (agents are one-shot by default, not daemons)
+### 4.6 Agent Runtime (`agents/*`, `scripts/run_agent.sh`)
+Each agent is one-shot:
+1. Reads its config from `vault/agents-config.json` (Claude and Grok; Hermes uses the CLI's own login)
+2. Does its work
+3. Appends a result to `vault/AGENT_OUTBOX_<agent>.md` (gitignored; the relay folds it)
+4. Exits
+
+Hermes runs on the host because the installed CLI is a macOS virtualenv under `~/.hermes`. A Linux container cannot execute that binary, and installing a second Hermes that shares the same home would race the proxy that is already running. Claude and Grok stay as Docker containers. Claude exits with an error if `ANTHROPIC_API_KEY` is unset, instead of calling the API and then exiting 0.
 
 ## 5. Data flow: sending a chat message
 

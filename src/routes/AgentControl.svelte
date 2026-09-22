@@ -1,37 +1,67 @@
 <script lang="ts">
-  // MOCK — toggleAgent() below only flips local component state. It does
-  // NOT start or stop a Docker container. main.rs registers no Tauri
-  // commands, so there is currently no IPC path from this UI to Docker or
-  // git at all. Flagged by a 2026-09-21 verification pass; real wiring
-  // (a Tauri command that shells out to `docker-compose up/down <service>`)
-  // is tracked as open work in CONTRIBUTING.md, not implemented here yet.
+  import { invoke } from "@tauri-apps/api/tauri";
+
   interface AgentStatus {
     name: string;
-    status: "running" | "stopped";
+    blurb: string;
+    status: "running" | "stopped" | "error";
     lastRun: string | null;
+    output: string;
   }
 
   let agents: AgentStatus[] = [
-    { name: "claude-agent", status: "stopped", lastRun: null },
-    { name: "hermes-agent", status: "stopped", lastRun: null },
-    { name: "grok-agent", status: "stopped", lastRun: null },
+    {
+      name: "claude-agent",
+      blurb: "One-shot Docker container. Needs ANTHROPIC_API_KEY in .env.",
+      status: "stopped",
+      lastRun: null,
+      output: "",
+    },
+    {
+      name: "hermes-agent",
+      blurb: "Runs the Hermes CLI on this Mac, one shot, then exits.",
+      status: "stopped",
+      lastRun: null,
+      output: "",
+    },
+    {
+      name: "grok-agent",
+      blurb: "One-shot Docker container. Disabled in agents-config.json until XAI_API_KEY is set.",
+      status: "stopped",
+      lastRun: null,
+      output: "",
+    },
   ];
 
-  function toggleAgent(agent: AgentStatus): void {
-    if (agent.status === "running") {
+  function inTauri(): boolean {
+    return typeof window !== "undefined" && "__TAURI__" in window;
+  }
+
+  async function runAgent(agent: AgentStatus): Promise<void> {
+    if (agent.status === "running") return;
+    agent.status = "running";
+    agent.output = "";
+    try {
+      if (!inTauri()) {
+        throw new Error(
+          `Not inside the desktop app. From a terminal: scripts/run_agent.sh ${agent.name}`
+        );
+      }
+      agent.output = await invoke<string>("run_agent", { service: agent.name });
       agent.status = "stopped";
-    } else {
-      agent.status = "running";
-      agent.lastRun = new Date().toLocaleString();
+    } catch (error) {
+      agent.status = "error";
+      agent.output = typeof error === "string" ? error : error instanceof Error ? error.message : "Run failed";
     }
+    agent.lastRun = new Date().toLocaleString();
   }
 </script>
 
 <div class="container">
   <h2>Agent Control</h2>
   <p class="mock-notice">
-    ⚠ Not wired up yet — these buttons only change what's shown here. Run agents manually with
-    <code>docker-compose -f docker-compose.local.yml up &lt;service&gt;</code> for now.
+    Run starts that agent once and waits until it exits. Output is also appended to
+    <code>vault/AGENT_OUTBOX_&lt;agent&gt;.md</code>.
   </p>
 
   <div class="agents-grid">
@@ -43,19 +73,24 @@
         </div>
 
         <div class="agent-body">
+          <p>{agent.blurb}</p>
           {#if agent.lastRun}
             <p>Last run: {agent.lastRun}</p>
           {:else}
             <p class="empty">Never run</p>
           {/if}
+          {#if agent.output}
+            <pre class="output">{agent.output}</pre>
+          {/if}
         </div>
 
         <div class="agent-footer">
           <button
-            on:click={() => toggleAgent(agent)}
-            class={agent.status === "running" ? "danger" : "primary"}
+            on:click={() => runAgent(agent)}
+            class="primary"
+            disabled={agent.status === "running"}
           >
-            {agent.status === "running" ? "Stop" : "Start"}
+            {agent.status === "running" ? "Running..." : "Run"}
           </button>
         </div>
       </div>
@@ -140,6 +175,24 @@
     color: var(--text-secondary);
   }
 
+  .status.error {
+    background: var(--danger-bg, #f8d7da);
+    color: var(--danger-text, #721c24);
+  }
+
+  .output {
+    margin: 0.75rem 0 0 0;
+    max-height: 160px;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 0.75rem;
+    background: var(--bg-surface-raised);
+    color: var(--text-primary);
+    padding: 0.5rem;
+    border-radius: 4px;
+  }
+
   .agent-body {
     flex: 1;
     margin-bottom: 1rem;
@@ -176,16 +229,13 @@
     color: var(--accent-text);
   }
 
-  button.primary:hover {
+  button.primary:hover:not(:disabled) {
     background: var(--accent-hover);
   }
 
-  button.danger {
-    background: var(--danger);
-    color: white;
+  button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
   }
 
-  button.danger:hover {
-    background: var(--danger-hover);
-  }
 </style>
