@@ -81,9 +81,10 @@
   // reactive block that restored the session's provider/model).
   function syncProviderModelToActiveSession(): void {
     const session = $sessions.find((s) => s.id === $activeSessionId);
-    if (session) {
+    if (session && PROVIDERS[session.provider]) {
       selectedProvider = session.provider;
-      selectedModel = session.model;
+      const models = PROVIDERS[session.provider].models;
+      selectedModel = models.includes(session.model) ? session.model : models[0];
     } else {
       const defaults = loadGlobalDefaultProviderModel();
       selectedProvider = defaults.provider;

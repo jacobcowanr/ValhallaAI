@@ -25,11 +25,11 @@ export interface ProviderEntry {
 export const PROVIDERS: Record<LLMProvider, ProviderEntry> = {
   anthropic: {
     name: "Anthropic API Key",
-    models: ["claude-opus-5", "claude-3.5-sonnet", "claude-haiku-4.5-20251001"],
+    models: ["claude-opus-5", "claude-sonnet-4-5", "claude-haiku-4-5-20251001"],
   },
   anthropic_oauth: {
     name: "Anthropic OAuth (Usage Credits)",
-    models: ["claude-opus-5", "claude-3.5-sonnet", "claude-haiku-4.5-20251001"],
+    models: ["claude-opus-5", "claude-sonnet-4-5", "claude-haiku-4-5-20251001"],
   },
   chatgpt: {
     name: "ChatGPT or Codex Subscription",
@@ -37,7 +37,7 @@ export const PROVIDERS: Record<LLMProvider, ProviderEntry> = {
   },
   claude_directsdk: {
     name: "Claude Subscription DirectSDK",
-    models: ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4.5-20251001"],
+    models: ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5-20251001"],
   },
   fireworks: {
     name: "Fireworks AI",
