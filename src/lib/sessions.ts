@@ -13,6 +13,11 @@
 import { writable, get } from "svelte/store";
 import type { LLMProvider, LLMResponse } from "./llm-router";
 import { FALLBACK_PROVIDER, FALLBACK_MODEL } from "./providers";
+// Importing profiles here is what guarantees the active profile is
+// resolved before loadSessions() runs at the bottom of this module: ES
+// modules evaluate their dependencies first. Without it, scopedKey()
+// would build a key against an empty profile id.
+import { scopedKey } from "./profiles";
 
 export interface ChatMessage {
   type: "user" | "assistant";
@@ -31,8 +36,11 @@ export interface ChatSession {
   updatedAt: number;
 }
 
-const SESSIONS_KEY = "valhallaai-sessions";
-const ACTIVE_SESSION_KEY = "valhallaai-active-session";
+// Resolved per call rather than captured in a const: switchProfile()
+// reloads the window, but a stale module-level constant would still be
+// the wrong shape to reason about if that ever changes.
+const sessionsKey = () => scopedKey("valhallaai-sessions");
+const activeSessionKey = () => scopedKey("valhallaai-active-session");
 const MAX_TITLE_LENGTH = 48;
 
 export const sessions = writable<ChatSession[]>([]);
@@ -46,12 +54,12 @@ function newId(): string {
 
 function persist(): void {
   try {
-    localStorage.setItem(SESSIONS_KEY, JSON.stringify(get(sessions)));
+    localStorage.setItem(sessionsKey(), JSON.stringify(get(sessions)));
     const active = get(activeSessionId);
     if (active) {
-      localStorage.setItem(ACTIVE_SESSION_KEY, active);
+      localStorage.setItem(activeSessionKey(), active);
     } else {
-      localStorage.removeItem(ACTIVE_SESSION_KEY);
+      localStorage.removeItem(activeSessionKey());
     }
   } catch (err) {
     // localStorage can throw (quota exceeded, private-browsing lockouts,
@@ -63,11 +71,11 @@ function persist(): void {
 
 export function loadSessions(): void {
   try {
-    const raw = localStorage.getItem(SESSIONS_KEY);
+    const raw = localStorage.getItem(sessionsKey());
     const loaded: ChatSession[] = raw ? JSON.parse(raw) : [];
     sessions.set(loaded);
 
-    const savedActive = localStorage.getItem(ACTIVE_SESSION_KEY);
+    const savedActive = localStorage.getItem(activeSessionKey());
     if (savedActive && loaded.some((s) => s.id === savedActive)) {
       activeSessionId.set(savedActive);
     } else if (loaded.length > 0) {

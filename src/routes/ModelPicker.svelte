@@ -7,6 +7,7 @@
   } from "../lib/llm-router";
   import { PROVIDERS, PROVIDER_ENTRIES, FALLBACK_PROVIDER, FALLBACK_MODEL } from "../lib/providers";
   import { loadEnvProviderKeys, resolveApiKey } from "../lib/provider-keys";
+  import { scopedKey } from "../lib/profiles";
   import { sessions, activeSessionId, createSession, appendToSession } from "../lib/sessions";
 
   // Passed down from App.svelte rather than imported directly here, so
@@ -78,7 +79,7 @@
   let attachError = "";
 
   function apiKeyStorageKey(providerId: LLMProvider): string {
-    return `valhallaai-apikey-${providerId}`;
+    return scopedKey(`valhallaai-apikey-${providerId}`);
   }
 
   function loadApiKeyFor(providerId: LLMProvider): void {
@@ -89,7 +90,7 @@
   }
 
   function loadGlobalDefaultProviderModel(): { provider: LLMProvider; model: string } {
-    const prefs = localStorage.getItem("valhallaai-prefs");
+    const prefs = localStorage.getItem(scopedKey("valhallaai-prefs"));
     if (prefs) {
       const { defaultProvider, defaultModel } = JSON.parse(prefs) as {
         defaultProvider?: LLMProvider;
