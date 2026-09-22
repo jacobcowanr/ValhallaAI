@@ -32,7 +32,7 @@ export interface ChatMessage {
 export interface ChatSession {
   id: string;
   title: string;
-  provider: LLMProvider;
+  provider: string;
   model: string;
   messages: ChatMessage[];
   createdAt: number;
@@ -103,7 +103,7 @@ export function loadSessions(): void {
 // component's onMount fires, regardless of the component tree's shape.
 loadSessions();
 
-export function createSession(provider: LLMProvider, model: string): string {
+export function createSession(provider: string, model: string): string {
   const id = newId();
   const now = Date.now();
   const session: ChatSession = {
@@ -141,7 +141,7 @@ export function getActiveSession(): ChatSession | null {
 export function appendToSession(
   id: string,
   newMessages: ChatMessage[],
-  provider: LLMProvider,
+  provider: string,
   model: string
 ): void {
   sessions.update((all) =>

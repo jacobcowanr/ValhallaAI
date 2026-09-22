@@ -5,7 +5,15 @@
     providerSupportsImages,
     type LLMProvider,
   } from "../lib/llm-router";
-  import { PROVIDERS, PROVIDER_ENTRIES, FALLBACK_PROVIDER, FALLBACK_MODEL } from "../lib/providers";
+  import {
+    FALLBACK_PROVIDER,
+    FALLBACK_MODEL,
+    allProviderEntries,
+    isCustomProviderId,
+    isKnownProvider,
+    providerModels,
+    providerName,
+  } from "../lib/providers";
   import { loadEnvProviderKeys, resolveApiKey } from "../lib/provider-keys";
   import { scopedKey } from "../lib/profiles";
   import { sessions, activeSessionId, createSession, appendToSession } from "../lib/sessions";
@@ -19,7 +27,7 @@
     dataUrl: string;
   }
 
-  let selectedProvider: LLMProvider = FALLBACK_PROVIDER;
+  let selectedProvider: string = FALLBACK_PROVIDER;
   let selectedModel: string = FALLBACK_MODEL;
   let apiKey = "";
   let userMessage = "";
@@ -227,35 +235,34 @@
   let fileInput: HTMLInputElement;
   let attachError = "";
 
-  function apiKeyStorageKey(providerId: LLMProvider): string {
+  function apiKeyStorageKey(providerId: string): string {
     return scopedKey(`valhallaai-apikey-${providerId}`);
   }
 
-  function loadApiKeyFor(providerId: LLMProvider): void {
+  function loadApiKeyFor(providerId: string): void {
     // .env wins when the desktop app can read it. A key saved in Settings
     // is the fallback for providers that file does not cover.
     const stored = localStorage.getItem(apiKeyStorageKey(providerId)) || "";
     apiKey = resolveApiKey(providerId, stored);
   }
 
-  function loadGlobalDefaultProviderModel(): { provider: LLMProvider; model: string } {
+  function loadGlobalDefaultProviderModel(): { provider: string; model: string } {
     const prefs = localStorage.getItem(scopedKey("valhallaai-prefs"));
     if (prefs) {
       const { defaultProvider, defaultModel } = JSON.parse(prefs) as {
-        defaultProvider?: LLMProvider;
+        defaultProvider?: string;
         defaultModel?: string;
       };
       // A previously-saved provider can disappear from the catalog (e.g. the
-      // GitHub Copilot removal). Falling back here instead of trusting the
-      // stored value keeps the model dropdown from silently rendering empty
-      // and callLLM() from failing with "Unknown provider" on every send.
-      if (defaultProvider && PROVIDERS[defaultProvider]) {
+      // GitHub Copilot removal, or a custom provider the user deleted).
+      // Falling back here instead of trusting the stored value keeps the
+      // model dropdown from silently rendering empty and callLLM() from
+      // failing with "Unknown provider" on every send.
+      if (defaultProvider && isKnownProvider(defaultProvider)) {
+        const models = providerModels(defaultProvider);
         return {
           provider: defaultProvider,
-          model:
-            defaultModel && PROVIDERS[defaultProvider].models.includes(defaultModel)
-              ? defaultModel
-              : PROVIDERS[defaultProvider].models[0],
+          model: defaultModel && models.includes(defaultModel) ? defaultModel : models[0],
         };
       }
     }
@@ -272,9 +279,11 @@
   // reactive block that restored the session's provider/model).
   function syncProviderModelToActiveSession(): void {
     const session = $sessions.find((s) => s.id === $activeSessionId);
-    if (session && PROVIDERS[session.provider]) {
+    // A session can name a provider that is no longer available (the user
+    // deleted a custom one). Check it still resolves before trusting it.
+    if (session && isKnownProvider(session.provider)) {
       selectedProvider = session.provider;
-      const models = PROVIDERS[session.provider].models;
+      const models = providerModels(session.provider);
       selectedModel = models.includes(session.model) ? session.model : models[0];
     } else {
       const defaults = loadGlobalDefaultProviderModel();
@@ -300,11 +309,25 @@
   // silently send it to the wrong API).
   $: loadApiKeyFor(selectedProvider);
 
+  // Reset the model only when the provider CHANGES and the current model is
+  // not one of the new provider's. Without this, switching to a provider
+  // whose model list doesn't include the current selection sends the old
+  // model id to the new endpoint — which 404s. (Settings.svelte already had
+  // this guard; the picker did not.)
+  let lastProvider: string | null = null;
+  $: if (selectedProvider && selectedProvider !== lastProvider) {
+    const models = providerModels(selectedProvider);
+    if (models.length > 0 && !models.includes(selectedModel)) {
+      selectedModel = models[0];
+    }
+    lastProvider = selectedProvider;
+  }
+
   // Live warning as soon as a provider switch makes existing attachments
   // unsendable — don't wait until the user hits Send to tell them.
   $: imagesSupported = providerSupportsImages(selectedProvider);
   $: if (attachedImages.length > 0 && !imagesSupported) {
-    attachError = `${PROVIDERS[selectedProvider]?.name} doesn't support image attachments. Remove the image(s) or switch providers.`;
+    attachError = `${providerName(selectedProvider)} doesn't support image attachments. Remove the image(s) or switch providers.`;
   } else {
     attachError = "";
   }
@@ -442,9 +465,9 @@
               Uses your Claude subscription through the <code>claude</code> CLI
               (<code>claude auth login</code>). Does not use the paid API key.
             </p>
-          {:else if !apiKey && selectedProvider !== "ollama"}
+          {:else if !apiKey && selectedProvider !== "ollama" && !isCustomProviderId(selectedProvider)}
             <p class="hint">
-              No API key set for {PROVIDERS[selectedProvider]?.name} yet — add one in
+              No API key set for {providerName(selectedProvider)} yet — add one in
               <strong>⚙ Settings</strong>.
             </p>
           {/if}
@@ -610,7 +633,7 @@
       <div class="picker">
         <label class="picker-label" for="model-bar-provider">Provider</label>
         <select id="model-bar-provider" bind:value={selectedProvider}>
-          {#each PROVIDER_ENTRIES as [key, { name }]}
+          {#each allProviderEntries() as [key, { name }]}
             <option value={key}>{name}</option>
           {/each}
         </select>
@@ -619,7 +642,7 @@
       <div class="picker">
         <label class="picker-label" for="model-bar-model">Model</label>
         <select id="model-bar-model" bind:value={selectedModel}>
-          {#each PROVIDERS[selectedProvider]?.models || [] as model}
+          {#each providerModels(selectedProvider) as model}
             <option value={model}>{model}</option>
           {/each}
         </select>

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { sessions, activeSessionId, deleteSession, type ChatSession } from "../lib/sessions";
-  import { PROVIDERS } from "../lib/providers";
+  import { providerName } from "../lib/providers";
 
   export let onSelect: () => void;
 
@@ -54,7 +54,7 @@
             <div class="session-preview">{preview(session)}</div>
           </div>
           <div class="session-meta">
-            <span class="session-provider">{PROVIDERS[session.provider]?.name ?? session.provider}</span>
+            <span class="session-provider">{providerName(session.provider)}</span>
             <span class="session-time">{formatTimestamp(session.updatedAt)}</span>
             <button class="delete-btn" on:click={(e) => handleDelete(e, session.id)} title="Delete session">
               ✕
