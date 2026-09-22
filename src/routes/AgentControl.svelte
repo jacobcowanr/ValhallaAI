@@ -70,20 +70,25 @@
 
   h2 {
     margin-top: 0;
+    font-family: var(--font-display);
+    font-weight: 400;
+    letter-spacing: 0.02em;
+    color: var(--text-primary);
   }
 
   .mock-notice {
-    background: #fff4e6;
-    border: 1px solid #ffd8a8;
+    background: var(--warning-bg);
+    border: 1px solid var(--warning-border);
     border-radius: 6px;
     padding: 0.75rem 1rem;
     font-size: 0.85rem;
-    color: #8a5a00;
+    color: var(--warning-text);
     margin: 0 0 1.5rem 0;
   }
 
   .mock-notice code {
-    background: white;
+    background: var(--bg-surface-raised);
+    color: var(--text-primary);
     padding: 2px 4px;
     border-radius: 2px;
     font-family: monospace;
@@ -97,10 +102,10 @@
   }
 
   .agent-card {
-    background: white;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-color);
     border-radius: 8px;
     padding: 1.5rem;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
     display: flex;
     flex-direction: column;
   }
@@ -115,6 +120,7 @@
   .agent-header h3 {
     margin: 0;
     font-size: 1.1rem;
+    color: var(--text-primary);
   }
 
   .status {
@@ -125,13 +131,13 @@
   }
 
   .status.running {
-    background: #d4edda;
-    color: #155724;
+    background: var(--success-bg);
+    color: var(--success-text);
   }
 
   .status.stopped {
-    background: #f8d7da;
-    color: #721c24;
+    background: var(--bg-surface-raised);
+    color: var(--text-secondary);
   }
 
   .agent-body {
@@ -142,11 +148,11 @@
   .agent-body p {
     margin: 0;
     font-size: 0.9rem;
-    color: #666;
+    color: var(--text-secondary);
   }
 
   .agent-body p.empty {
-    color: #999;
+    color: var(--text-muted);
     font-style: italic;
   }
 
@@ -166,20 +172,20 @@
   }
 
   button.primary {
-    background: #667eea;
-    color: white;
+    background: var(--accent);
+    color: var(--accent-text);
   }
 
   button.primary:hover {
-    background: #764ba2;
+    background: var(--accent-hover);
   }
 
   button.danger {
-    background: #dc3545;
+    background: var(--danger);
     color: white;
   }
 
   button.danger:hover {
-    background: #c82333;
+    background: var(--danger-hover);
   }
 </style>

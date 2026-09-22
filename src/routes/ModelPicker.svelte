@@ -167,9 +167,9 @@
     flex-direction: column;
     gap: 1rem;
     padding: 1rem;
-    background: white;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-color);
     border-radius: 8px;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
   }
 
   .field {
@@ -181,20 +181,22 @@
   label {
     font-weight: 600;
     font-size: 0.9rem;
-    color: #333;
+    color: var(--text-primary);
   }
 
   select,
   input {
     padding: 0.5rem;
-    border: 1px solid #ddd;
+    border: 1px solid var(--border-color);
     border-radius: 4px;
     font-size: 0.9rem;
+    background: var(--bg-surface-raised);
+    color: var(--text-primary);
   }
 
   small {
     font-size: 0.75rem;
-    color: #999;
+    color: var(--text-muted);
   }
 
   .chat {
@@ -202,9 +204,9 @@
     display: flex;
     flex-direction: column;
     gap: 1rem;
-    background: white;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-color);
     border-radius: 8px;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
     padding: 1rem;
   }
 
@@ -219,14 +221,15 @@
   .message {
     padding: 1rem;
     border-radius: 8px;
-    background: #f5f5f5;
+    background: var(--bg-surface-raised);
+    color: var(--text-primary);
   }
 
   .message.user {
     align-self: flex-end;
     max-width: 70%;
-    background: #667eea;
-    color: white;
+    background: var(--accent);
+    color: var(--accent-text);
   }
 
   .message.assistant {
@@ -241,12 +244,12 @@
 
   .usage {
     font-size: 0.8rem;
-    color: #666;
-    opacity: 0.7;
+    color: var(--text-secondary);
+    opacity: 0.8;
   }
 
   .message.user .usage {
-    color: rgba(255, 255, 255, 0.7);
+    color: rgba(255, 255, 255, 0.75);
   }
 
   .input-area {
@@ -257,18 +260,20 @@
   textarea {
     flex: 1;
     padding: 0.75rem;
-    border: 1px solid #ddd;
+    border: 1px solid var(--border-color);
     border-radius: 4px;
     font-family: inherit;
     font-size: 0.9rem;
     resize: none;
     min-height: 60px;
+    background: var(--bg-surface-raised);
+    color: var(--text-primary);
   }
 
   button {
     padding: 0.75rem 1.5rem;
-    background: #667eea;
-    color: white;
+    background: var(--accent);
+    color: var(--accent-text);
     border: none;
     border-radius: 4px;
     cursor: pointer;
@@ -277,7 +282,7 @@
   }
 
   button:hover:not(:disabled) {
-    background: #764ba2;
+    background: var(--accent-hover);
   }
 
   button:disabled {

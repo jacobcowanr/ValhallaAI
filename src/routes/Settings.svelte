@@ -180,6 +180,10 @@
 
   h2 {
     margin-top: 0;
+    font-family: var(--font-display);
+    font-weight: 400;
+    letter-spacing: 0.02em;
+    color: var(--text-primary);
   }
 
   .settings-panel {
@@ -189,21 +193,22 @@
   }
 
   .section {
-    background: white;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-color);
     border-radius: 8px;
     padding: 1.5rem;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
   }
 
   .section h3 {
     margin: 0 0 0.5rem 0;
     font-size: 1.1rem;
+    color: var(--text-primary);
   }
 
   .section-description {
     margin: 0 0 1rem 0;
     font-size: 0.9rem;
-    color: #666;
+    color: var(--text-secondary);
   }
 
   .field {
@@ -216,34 +221,36 @@
   label {
     font-weight: 600;
     font-size: 0.9rem;
-    color: #333;
+    color: var(--text-primary);
   }
 
   select,
   input {
     padding: 0.75rem;
-    border: 1px solid #ddd;
+    border: 1px solid var(--border-color);
     border-radius: 4px;
     font-size: 0.9rem;
     font-family: inherit;
+    background: var(--bg-surface-raised);
+    color: var(--text-primary);
   }
 
   select:hover,
   input:hover {
-    border-color: #bbb;
+    border-color: var(--text-muted);
   }
 
   select:focus,
   input:focus {
     outline: none;
-    border-color: #667eea;
-    box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.1);
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-soft-bg);
   }
 
   .save-btn {
     padding: 0.75rem 1.5rem;
-    background: #667eea;
-    color: white;
+    background: var(--accent);
+    color: var(--accent-text);
     border: none;
     border-radius: 4px;
     cursor: pointer;
@@ -253,7 +260,7 @@
   }
 
   .save-btn:hover {
-    background: #764ba2;
+    background: var(--accent-hover);
   }
 
   .api-keys {
@@ -265,11 +272,12 @@
   p {
     margin: 0.5rem 0;
     font-size: 0.9rem;
-    color: #666;
+    color: var(--text-secondary);
   }
 
   .ollama-help {
-    background: #f0f4ff;
+    background: var(--accent-soft-bg);
+    border: 1px solid var(--accent-soft-border);
     padding: 1rem;
     border-radius: 4px;
     margin-top: 1rem;
@@ -279,7 +287,7 @@
   .ollama-help p {
     margin: 0 0 0.5rem 0;
     font-weight: 600;
-    color: #333;
+    color: var(--text-primary);
   }
 
   .ollama-help ol {
@@ -289,11 +297,12 @@
 
   .ollama-help li {
     margin: 0.25rem 0;
-    color: #666;
+    color: var(--text-secondary);
   }
 
   .ollama-help code {
-    background: white;
+    background: var(--bg-surface-raised);
+    color: var(--text-primary);
     padding: 2px 4px;
     border-radius: 2px;
     font-family: monospace;
@@ -301,18 +310,19 @@
   }
 
   .ollama-help a {
-    color: #667eea;
+    color: var(--accent);
     text-decoration: none;
   }
 
   .ollama-help a:hover {
+    color: var(--accent-hover);
     text-decoration: underline;
   }
 
   small {
     display: block;
     font-size: 0.8rem;
-    color: #999;
+    color: var(--text-muted);
     margin-top: 0.25rem;
   }
 </style>
