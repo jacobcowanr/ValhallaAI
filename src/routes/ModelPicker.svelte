@@ -4,20 +4,13 @@
     callLLM,
     providerSupportsImages,
     type LLMProvider,
-    type LLMResponse,
   } from "../lib/llm-router";
   import { PROVIDERS, PROVIDER_ENTRIES, FALLBACK_PROVIDER, FALLBACK_MODEL } from "../lib/providers";
+  import { sessions, activeSessionId, createSession, appendToSession } from "../lib/sessions";
 
   // Passed down from App.svelte rather than imported directly here, so
   // there's one import of the logo asset, not one per place it's shown.
   export let logoWordmark: string;
-
-  interface ChatMessage {
-    type: "user" | "assistant";
-    text: string;
-    usage?: LLMResponse["usage"];
-    imageCount?: number;
-  }
 
   interface AttachedImage {
     name: string;
@@ -28,8 +21,14 @@
   let selectedModel: string = FALLBACK_MODEL;
   let apiKey = "";
   let userMessage = "";
-  let responses: ChatMessage[] = [];
   let loading = false;
+
+  // Messages now live in the sessions store (src/lib/sessions.ts), not
+  // local component state — previously `responses` was ephemeral, lost on
+  // every tab switch or restart, with no way to have more than one
+  // conversation. Read-only here; sendMessage() below writes through
+  // appendToSession() instead of mutating an array directly.
+  $: responses = $sessions.find((s) => s.id === $activeSessionId)?.messages ?? [];
 
   let attachedImages: AttachedImage[] = [];
   let attachMenuOpen = false;
@@ -46,8 +45,7 @@
     apiKey = localStorage.getItem(apiKeyStorageKey(providerId)) || "";
   }
 
-  onMount(() => {
-    // Load user's saved preferences
+  function loadGlobalDefaultProviderModel(): { provider: LLMProvider; model: string } {
     const prefs = localStorage.getItem("valhallaai-prefs");
     if (prefs) {
       const { defaultProvider, defaultModel } = JSON.parse(prefs) as {
@@ -59,18 +57,48 @@
       // stored value keeps the model dropdown from silently rendering empty
       // and callLLM() from failing with "Unknown provider" on every send.
       if (defaultProvider && PROVIDERS[defaultProvider]) {
-        selectedProvider = defaultProvider;
-        selectedModel =
-          defaultModel && PROVIDERS[defaultProvider].models.includes(defaultModel)
-            ? defaultModel
-            : PROVIDERS[defaultProvider].models[0];
-      } else {
-        selectedProvider = FALLBACK_PROVIDER;
-        selectedModel = FALLBACK_MODEL;
+        return {
+          provider: defaultProvider,
+          model:
+            defaultModel && PROVIDERS[defaultProvider].models.includes(defaultModel)
+              ? defaultModel
+              : PROVIDERS[defaultProvider].models[0],
+        };
       }
     }
+    return { provider: FALLBACK_PROVIDER, model: FALLBACK_MODEL };
+  }
+
+  // Single source of truth for what selectedProvider/selectedModel should
+  // be: the active session's own provider/model if one exists (switching
+  // to a past session restores what it was actually using), otherwise the
+  // user's global default. Called once on mount AND every time the active
+  // session id changes — both paths go through the same function instead
+  // of two competing pieces of logic (which is what caused a real bug
+  // here: onMount's prefs-load used to run after, and clobber, a separate
+  // reactive block that restored the session's provider/model).
+  function syncProviderModelToActiveSession(): void {
+    const session = $sessions.find((s) => s.id === $activeSessionId);
+    if (session) {
+      selectedProvider = session.provider;
+      selectedModel = session.model;
+    } else {
+      const defaults = loadGlobalDefaultProviderModel();
+      selectedProvider = defaults.provider;
+      selectedModel = defaults.model;
+    }
     loadApiKeyFor(selectedProvider);
+  }
+
+  onMount(() => {
+    syncProviderModelToActiveSession();
   });
+
+  let lastActiveSessionId: string | null = null;
+  $: if ($activeSessionId !== lastActiveSessionId) {
+    lastActiveSessionId = $activeSessionId;
+    syncProviderModelToActiveSession();
+  }
 
   // Re-load the saved key whenever the provider changes, so switching
   // providers doesn't leave the previous provider's key sitting around (or
@@ -133,6 +161,28 @@
     loading = true;
     const imageUrls = attachedImages.map((img) => img.dataUrl);
     const imageCount = attachedImages.length;
+    const outgoingText = userMessage;
+
+    // A session gets created lazily, on the first message, rather than
+    // requiring the "New Session" button first — the empty state's own
+    // hint ("Send a message to start chatting") promises this works
+    // without an extra click.
+    let sessionId = $activeSessionId;
+    if (!sessionId) {
+      sessionId = createSession(selectedProvider, selectedModel);
+    }
+
+    // Send the FULL prior conversation as context, not just the new
+    // message in isolation. Every message here used to go to the model
+    // with zero memory of anything said before it, even mid-"session" —
+    // that was true before sessions existed too, but it's a much more
+    // visible gap now that there's an actual persisted conversation to
+    // draw context from, so fixing it here rather than leaving sessions
+    // as history-only-for-display.
+    const priorTurns = responses.map((msg) => ({
+      role: msg.type === "user" ? ("user" as const) : ("assistant" as const),
+      content: msg.text,
+    }));
 
     const response = await callLLM(
       {
@@ -140,22 +190,29 @@
         model: selectedModel,
         apiKey: apiKey,
       },
-      [{ role: "user", content: userMessage, images: imageUrls.length > 0 ? imageUrls : undefined }]
+      [
+        ...priorTurns,
+        { role: "user", content: outgoingText, images: imageUrls.length > 0 ? imageUrls : undefined },
+      ]
     );
 
-    responses = [
-      ...responses,
-      {
-        type: "user",
-        text: userMessage,
-        imageCount: imageCount > 0 ? imageCount : undefined,
-      },
-      {
-        type: "assistant",
-        text: response.success ? (response.content ?? "") : `Error: ${response.error}`,
-        usage: response.usage,
-      },
-    ];
+    appendToSession(
+      sessionId,
+      [
+        {
+          type: "user",
+          text: outgoingText,
+          imageCount: imageCount > 0 ? imageCount : undefined,
+        },
+        {
+          type: "assistant",
+          text: response.success ? (response.content ?? "") : `Error: ${response.error}`,
+          usage: response.usage,
+        },
+      ],
+      selectedProvider,
+      selectedModel
+    );
 
     userMessage = "";
     attachedImages = [];
