@@ -6,42 +6,47 @@
   import Settings from "./routes/Settings.svelte";
   import logoWordmark from "./assets/ValhallaAI_Logo.png";
 
+  const sections = [
+    { id: "models", label: "Models & Chat", icon: "💬" },
+    { id: "vault", label: "Vault Browser", icon: "🗂" },
+    { id: "agents", label: "Agent Control", icon: "🤖" },
+    { id: "settings", label: "Settings", icon: "⚙" },
+  ];
+
   let activeTab = "models";
 </script>
 
-<main>
-  <header>
-    <img class="logo" src={logoWordmark} alt="ValhallaAI" />
-    <p>Multi-agent orchestration • Model switching • Vault coordination</p>
-  </header>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <img class="logo" src={logoWordmark} alt="ValhallaAI" />
+      <p>Multi-agent orchestration • Model switching • Vault coordination</p>
+    </div>
 
-  <nav>
-    <button class:active={activeTab === "models"} on:click={() => (activeTab = "models")}>
-      Models & Chat
-    </button>
-    <button class:active={activeTab === "vault"} on:click={() => (activeTab = "vault")}>
-      Vault Browser
-    </button>
-    <button class:active={activeTab === "agents"} on:click={() => (activeTab = "agents")}>
-      Agent Control
-    </button>
-    <button class:active={activeTab === "settings"} on:click={() => (activeTab = "settings")}>
-      ⚙ Settings
-    </button>
-  </nav>
+    <nav>
+      {#each sections as section}
+        <button class:active={activeTab === section.id} on:click={() => (activeTab = section.id)}>
+          <span class="icon">{section.icon}</span>
+          {section.label}
+        </button>
+      {/each}
+    </nav>
+  </aside>
 
-  <section class="content">
-    {#if activeTab === "models"}
-      <ModelPicker />
-    {:else if activeTab === "vault"}
-      <VaultBrowser />
-    {:else if activeTab === "agents"}
-      <AgentControl />
-    {:else if activeTab === "settings"}
-      <Settings />
-    {/if}
-  </section>
-</main>
+  <main>
+    <section class="content">
+      {#if activeTab === "models"}
+        <ModelPicker />
+      {:else if activeTab === "vault"}
+        <VaultBrowser />
+      {:else if activeTab === "agents"}
+        <AgentControl />
+      {:else if activeTab === "settings"}
+        <Settings />
+      {/if}
+    </section>
+  </main>
+</div>
 
 <style>
   /*
@@ -88,51 +93,71 @@
     padding: 0;
   }
 
-  main {
+  .shell {
+    display: flex;
     min-height: 100vh;
+  }
+
+  /* Left sidebar — logo + section nav, Gemini-style vertical layout
+     instead of the previous horizontal tab bar under the header. */
+  .sidebar {
+    flex: 0 0 240px;
+    background: var(--bg-surface);
+    border-right: 1px solid var(--border-color);
     display: flex;
     flex-direction: column;
+    padding: 1.5rem 1rem;
   }
 
-  header {
-    background: var(--bg-page);
-    border-bottom: 1px solid var(--border-color);
-    padding: 2rem;
+  .sidebar-header {
     text-align: center;
+    padding: 0.5rem 0 1.5rem 0;
+    margin-bottom: 1rem;
+    border-bottom: 1px solid var(--border-color);
   }
 
-  header .logo {
+  .sidebar-header .logo {
     display: block;
-    height: 56px;
+    height: 34px;
     width: auto;
     margin: 0 auto;
   }
 
-  header p {
-    margin: 0.75rem 0 0 0;
-    font-size: 0.9rem;
+  .sidebar-header p {
+    margin: 0.6rem 0 0 0;
+    font-size: 0.7rem;
+    line-height: 1.4;
     color: var(--text-secondary);
   }
 
   nav {
-    background: var(--bg-surface);
-    border-bottom: 1px solid var(--border-color);
-    padding: 0 2rem;
     display: flex;
-    gap: 0;
+    flex-direction: column;
+    gap: 0.25rem;
   }
 
   button {
-    flex: 1;
-    padding: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    width: 100%;
+    padding: 0.7rem 0.85rem;
     border: none;
+    border-radius: 8px;
     background: none;
     cursor: pointer;
-    font-size: 1rem;
+    font-size: 0.9rem;
     font-weight: 500;
     color: var(--text-secondary);
-    transition: all 0.2s;
-    border-bottom: 3px solid transparent;
+    text-align: left;
+    transition: all 0.15s;
+  }
+
+  .icon {
+    font-size: 1rem;
+    width: 1.25rem;
+    text-align: center;
+    flex-shrink: 0;
   }
 
   button:hover {
@@ -142,7 +167,14 @@
 
   button.active {
     color: var(--accent);
-    border-bottom-color: var(--accent);
+    background: var(--accent-soft-bg);
+  }
+
+  main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
   }
 
   .content {
