@@ -193,7 +193,7 @@ Deliberately does not import anything from Settings.svelte or vice versa — the
 ### 5.4 Onboarding (`src/routes/Onboarding.svelte`)
 A sign-in gate, mounted unconditionally at the top of `App.svelte`. `visible` is derived from `!hasPassedGate(activeProfile)`, so there is no local open/close state to fall out of sync with the profile store, and no backdrop-click or Escape handler — the ways through are a sign-in with **Google or GitHub**, or **Continue without an account**.
 
-**Optional as of 2026-09-22 — and UNRATIFIED, which is the part to read first.** The gate was skippable, then made mandatory *by Jacob explicitly*, then flipped back to optional later the same day. **That third flip was proposed by an agent rather than asked for by Jacob, and he has not been told about it** — no request for it appears in any session, so what the code implements is a proposal in the tree, not a decision. Two consequences: treat the mandatory gate as Jacob's standing instruction until he answers, and say so when describing this screen. The argument for the change is distribution rather than UX — sign-in credentials come from the *user's* `.env`, so requiring it means every new user registers a Google Cloud OAuth client and a GitHub OAuth app before the app will open — and the local path sets `authProvider: "local"`, which opens the gate without pretending to be an identity.
+**Optional as of 2026-09-22 — ratified, with the provenance kept on the record.** The gate was skippable, then made mandatory *by Jacob explicitly*, then flipped back to optional the same day. That third flip began as an agent proposal: no user turn asked for it, the agent that caught the discrepancy marked the docs UNRATIFIED rather than let a proposal read as a decision (`cbe5449` was the revert target while it stood), and **Jacob was then asked directly and chose the local path** — in the same four-question decision pass that picked MIT for the licence. So the code now matches a decision, and the detour is recorded rather than tidied away, because "a decision attributed to Jacob that he never made" is a failure this repo has been burned by before. The argument for it is distribution rather than UX — sign-in credentials come from the *user's* `.env`, so requiring it means every new user registers a Google Cloud OAuth client and a GitHub OAuth app before the app will open — and the local path sets `authProvider: "local"`, which opens the gate without pretending to be an identity.
 
 The split that keeps this honest is two predicates, not one: **`hasPassedGate()`** is what the gate asks (`isSignedIn(profile) || authProvider === "local"`), and **`isSignedIn()`** stays the identity test that the sidebar chip and Profile page ask. A local profile is *not* signed in, and a chip that claimed otherwise would be lying — verified in the running app: the gate clears, the profile page reads "Not signed in", and the sidebar chip still offers sign-in.
 
@@ -397,7 +397,7 @@ sequenceDiagram
 
 | Family | Providers | Shape sent |
 |---|---|---|
-| OpenAI-compatible | OpenRouter, ChatGPT, Grok, Nous, Fireworks, Groq, Perplexity, MiniMax, Qwen | `[{type:"text"},{type:"image_url",image_url:{url}}]` — data URL kept whole |
+| OpenAI-compatible | OpenRouter, ChatGPT, Grok, Nous, Fireworks, Groq, MiniMax, Qwen | `[{type:"text"},{type:"image_url",image_url:{url}}]` — data URL kept whole |
 | Google Gemini | Google | `{inlineData:{mimeType,data}}` — camelCase, prefix stripped |
 | Anthropic | Anthropic (API key) | `{type:"image",source:{type:"base64",media_type,data}}` — prefix stripped |
 | Ollama | Ollama | a raw-base64 `images` array alongside the text |
@@ -461,7 +461,7 @@ Two smaller facts follow from the same incident:
 | Nous Portal | Hermes portal login, no pasted key | local proxy at `127.0.0.1:8645` | yes |
 | Ollama | none — runs on this machine | local `/api/chat` | yes |
 | OpenRouter | API key | OpenAI-compatible | yes |
-| Perplexity | API key | OpenAI-compatible — **see the deadline in §7.4** | yes |
+| Perplexity | API key | **Agent API** — `preset`, not a model id; rewritten 2026-09-22, **unverified** (§7.4) | **no** |
 | Qwen Code | API key | own endpoint (DashScope), accepts the content array | yes |
 | xAI Grok | `XAI_API_KEY` | OpenAI-compatible | yes |
 
@@ -518,7 +518,7 @@ Gemini's `GET /v1beta/models` lists `gemini-2.5-flash` and reports `generateCont
 `callNous()` posts to the local Hermes subscription proxy at `http://127.0.0.1:8645/v1` (`hermes portal` once, then `hermes proxy start`), which attaches the Portal credential. A direct call to `inference-api.nousresearch.com` 401s, because the portal login never produces a key you can paste. **Unverified by this project:** the proxy answered a real completion on 2026-09-22 (a live `x-ai/grok-4.7` response came back through `127.0.0.1:8645`), but that is the Hermes side of the contract; ValhallaAI's own `callNous` path has not been exercised against it since the provider-count changes.
 
 ### 7.4 Known third-party deadline
-Perplexity's Sonar Chat Completions endpoint is supported **only until 2026-09-27**, at which point the OpenAI-compatible path this catalog uses stops working. Tracked in [CONTRIBUTING.md](./CONTRIBUTING.md#known-open-issues) with the alternatives; it is a dated, externally imposed change, which is exactly the kind of thing a catalog rots from.
+Perplexity's Sonar Chat Completions endpoint is supported **only until 2026-09-27**, so on 2026-09-22 the catalog's `perplexity` entry was rewritten onto Perplexity's **Agent API** (`POST /v1/agent`) rather than left to break. It is no longer an OpenAI-dialect provider: the request sends a **`preset`** (`low` | `fast` | `medium`) instead of a model id and an `input` string instead of `messages`, and the reply arrives as a typed `output` array (`{type: "message"}` → `content[].type === "output_text"`) rather than `choices[0].message.content`. Three things follow, and all three are recorded rather than smoothed over: **it has never been run** (no Perplexity key exists on this machine), the model dropdown therefore shows a raw preset name, and it was **removed from `IMAGE_CAPABLE_PROVIDERS`** because the new path sends text only — leaving it listed would have let the composer accept an attachment the provider silently drops, which is the exact failure that set exists to prevent.
 
 ### 7.5 Billing preference, where a subscription exists
 Claude Subscription DirectSDK and Nous Portal run on a flat-rate login and never touch a per-token key. Anthropic (API key) and xAI Grok have no subscription path and bill per token. The chat defaults to Claude Subscription DirectSDK on Haiku for exactly this reason: the out-of-the-box path costs nothing per message. §8.4 lists the cost, honestly, of choosing it.
@@ -834,6 +834,7 @@ Kept as a table rather than scattered caveats, because this document's failure m
 | Multi-agent coordination as a daily loop here | ❌ not yet | One agent at a time, fold is manual (§9.3) |
 | Windows / Linux builds | ❌ not built | macOS only so far (§4.1) |
 | `callNous` against the live proxy | ⚠️ unverified | The proxy itself answered; this client path has not been exercised since |
+| Perplexity Agent API rewrite | ⚠️ unverified | **Never run** — no Perplexity key exists on this machine. Shape taken from Perplexity's own quickstart and Sonar→Agent migration guide; a 400 naming `input` or `preset` on first use means a documented field moved |
 | Sign-in (Google and GitHub) | ✅ proven | Both providers round-trip end to end against live consent screens; GitHub confirmed by a real sign-in on 2026-09-22 |
 | The gate opens without an account | ✅ proven | Clicked through against the running dev server (`localhost:5173`) — the stricter environment, since `inTauri()` is false there and both OAuth buttons are disabled by design: the gate clears, it survives a full reload, the profile page reads "Not signed in" while the sidebar chip still offers sign-in, and a fresh profile with no provider configured still gets the gate. Not re-run inside the packaged desktop app; the local path makes no Tauri call, so nothing it touches is environment-specific. |
 | DirectSDK CLI resolution | ✅ proven | Reproduced the ENOENT under the GUI `PATH`, then confirmed the resolved path runs `claude auth status` and reports `loggedIn: true`; 8 `cargo test` cases cover the search order, the executable-bit check, and the override |

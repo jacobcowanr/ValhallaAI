@@ -159,7 +159,7 @@ The ladder, the three levers that *don't* work, and the honest note that `claude
 | Nous Portal | yes | flat-rate | local Hermes proxy — no pasted key |
 | Ollama | yes | free — runs on this machine | none |
 | OpenRouter | yes | per token | `.env` — `OPENROUTER_API_KEY` |
-| Perplexity | yes | per token | Settings |
+| Perplexity | **no** — see caveat 4 | per token | Settings |
 | Qwen Code | yes | per token | Settings |
 | xAI Grok | yes | per token | `.env` — `XAI_API_KEY` |
 
@@ -170,7 +170,7 @@ Anything else that speaks the OpenAI dialect can be added from **Settings → Cu
 1. **The default provider cannot read images.** Claude Subscription DirectSDK pipes a text prompt to the `claude` CLI, so there is no field an image can travel in. It is the default because it is flat-rate. **If your work is screenshot-heavy, switch to Google or Nous Portal.** Making this path work means letting the CLI read temp files, i.e. widening what tools it may use — a decision, not a tweak ([ARCHITECTURE.md §6.1](./ARCHITECTURE.md#61-sending-a-chat-message)).
 2. **The relay is not running by default, so agent answers stop in their outbox.** `valhallaai relay` starts it. Its fold-and-commit logic is verified; its **push has never run against this repo** and requires `VAULT_REPO` to be set ([ARCHITECTURE.md §9.3](./ARCHITECTURE.md#93-the-honest-state-of-the-relay)).
 3. **The Vault Browser never pushes.** The app has no push path anywhere by design. It lists files and reports `git status`; you commit and push from a terminal.
-4. **Perplexity's Sonar Chat Completions endpoint retires 2026-09-27.** After that the catalog entry needs a rewrite against Perplexity's newer API ([CONTRIBUTING.md](./CONTRIBUTING.md#known-open-issues)).
+4. **Perplexity was rewritten onto the Agent API on 2026-09-22 and has never been run.** Sonar Chat Completions retires 2026-09-27, so the old `{model, messages}` → `{choices}` path would have kept working for five more days and then stopped. The replacement uses `POST /v1/agent` with a **`preset`** (`low`, `fast`, `medium`) instead of a model id and a typed `output` array instead of `choices`. **No Perplexity key exists on this machine, so not one line of it has been exercised** — treat the first run with a key as the real test. Two consequences already known: the model dropdown shows the raw preset name ("low"), and **this provider no longer reads images**, since the rewrite sends the conversation as text ([CONTRIBUTING.md](./CONTRIBUTING.md#known-open-issues)).
 5. **macOS-only builds so far.** The `.app` is ad-hoc signed, arm64-only, and expects a checkout to exist on the machine. Not distributable to anyone else yet.
 
 ## Project structure
@@ -234,4 +234,4 @@ The full table is [ARCHITECTURE.md §12](./ARCHITECTURE.md#12-verification-what-
 
 **Proven:** 13 providers counted three ways; 12 read images; a Run click no longer freezes the app; `grok-build` bills the subscription with no `XAI_API_KEY` set; a run is ~5× faster (197 s → 41 s); `cargo test` → 22 passed; the relay folds and commits (verified on a throwaway repo); **Google and GitHub sign-in both round-trip end to end**, GitHub against a live consent screen; the DirectSDK path resolves the `claude` CLI under the app's real (minimal) PATH.
 
-**Not proven, and not claimed:** the relay has never pushed to a remote; there is no daily multi-agent loop in this repo yet; Windows and Linux builds have never been produced; `callNous()` has not been exercised against the live proxy since the provider-count changes; `claude-agent`'s instruction edit is a consistency fix, not a speedup (9 s before, 9 s after).
+**Not proven, and not claimed:** the relay has never pushed to a remote; there is no daily multi-agent loop in this repo yet; Windows and Linux builds have never been produced; `callNous()` has not been exercised against the live proxy since the provider-count changes; **the Perplexity Agent API rewrite has never been run (no key)**; `claude-agent`'s instruction edit is a consistency fix, not a speedup (9 s before, 9 s after).

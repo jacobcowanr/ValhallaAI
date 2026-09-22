@@ -263,13 +263,31 @@ export const PROVIDERS: Record<LLMProvider, ProviderEntry> = {
     ],
   },
   perplexity: {
-    // Verified 2026-09-22 against docs.perplexity.ai. The previous list
-    // (pplx-7b-online, pplx-70b-online) is retired. Perplexity warns that
-    // Sonar Chat Completions moves to the Agent API and is supported only
-    // until 2026-09-27, so these ids have a short life — re-check after
-    // that date rather than assuming they still answer.
+    // These are **presets, not model ids** (verified 2026-09-22 against
+    // docs.perplexity.ai's Agent API quickstart and its "Migrate from Sonar"
+    // guide). Sonar Chat Completions retires 2026-09-27 and the `sonar*` ids go
+    // with it; Perplexity's own mapping is:
+    //   sonar               -> fast
+    //   sonar-pro           -> low      <- first here, see below
+    //   sonar-reasoning-pro -> medium
+    //   sonar-deep-research -> high     (not offered — the priciest tier)
+    // The router sends the value as `preset`; changing these to model ids means
+    // changing that call too, and the Agent API also accepts real third-party
+    // model ids here (e.g. `openai/gpt-5.6-sol`) if this ever becomes a gateway
+    // rather than a presets list.
+    //
+    // `low` is FIRST, unlike the old list where `sonar` was. Presets are not
+    // ranked newest-to-oldest, and Perplexity documents `fast` as single-fact
+    // lookups while `low` is the everyday-research default — which is what a
+    // chat window actually is. So the first entry is the sensible default
+    // rather than the cheapest one.
+    //
+    // One honest wart: the model bar shows the raw preset name, so it reads
+    // "low" rather than a friendly label. `ProviderEntry.models` is a plain
+    // string array with no label field, and inventing one is a catalog-shape
+    // change, not a rename. Recorded in CONTRIBUTING rather than worked around.
     name: "Perplexity (Search + LLM)",
-    models: ["sonar", "sonar-pro", "sonar-reasoning-pro"],
+    models: ["low", "fast", "medium"],
   },
   qwen: {
     name: "Qwen Code",

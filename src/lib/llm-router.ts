@@ -79,7 +79,14 @@ const IMAGE_CAPABLE_PROVIDERS: ReadonlySet<LLMProvider> = new Set([
   "nous",
   "fireworks",
   "groq",
-  "perplexity",
+  // "perplexity" was removed from this set on 2026-09-22, the day its Sonar
+  // Chat Completions path was rewritten onto the Agent API. The old path went
+  // through callOpenAICompatible and could carry an image_url block; the new
+  // one sends the conversation as a plain `input` string, so an attachment
+  // would be dropped without a word. Being listed here is what tells the
+  // composer the provider CAN take an image, so listing it while discarding
+  // them is the silent-data-loss shape this whole set exists to prevent.
+  // Re-add it only with the Responses-style content array and a real test.
   "google",
   "anthropic",
   "minimax",
@@ -617,16 +624,118 @@ async function callGroq(
 }
 
 /**
- * Perplexity: search + LLM
+ * Perplexity: search-grounded answers, via the **Agent API**.
+ *
+ * This is no longer an OpenAI-dialect provider, which is why it stopped using
+ * `callOpenAICompatible`. Sonar Chat Completions — the old
+ * `POST /chat/completions` + `{model, messages}` in, `{choices}` out shape —
+ * is supported only until **2026-09-27**, when it becomes the Agent API.
+ *
+ * What changed, and why this is a standalone function rather than a new
+ * endpoint string:
+ *   - `POST https://api.perplexity.ai/v1/agent`  (`/v1/responses` is an alias)
+ *   - `preset` (`fast` | `low` | `medium` | `high`) replaces the `sonar*` ids
+ *   - `input` replaces `messages`; `instructions` carries the system prompt
+ *   - the reply is **not** at `choices[0].message.content`. It is a typed
+ *     `output` array: take the item with `type: "message"`, then the entries
+ *     in its `content` with `type: "output_text"`, and join their `text`.
+ *
+ * **UNVERIFIED — this machine has no Perplexity key, so none of this has been
+ * exercised against the live endpoint.** The shape comes from Perplexity's own
+ * quickstart and their "Migrate from Sonar" guide (read 2026-09-22), and the
+ * preset names are theirs. The first run with a key is the real test: a 400
+ * naming `input` or `preset` would mean a documented field moved. Nothing here
+ * guesses past those docs — in particular `input` is sent as the plain string
+ * every one of their examples uses, not the Responses-style message array,
+ * because a guess in that direction fails as a 400 rather than a bad answer.
  */
 async function callPerplexity(
   config: LLMConfig,
   messages: LLMMessage[]
 ): Promise<LLMResponse> {
-  return callOpenAICompatible(config, messages, {
-    endpoint: "https://api.perplexity.ai/chat/completions",
-    authHeader: bearer,
+  const missingKey = requireApiKey(config);
+  if (missingKey) return missingKey;
+
+  // The system prompt goes in `instructions`; the conversation becomes `input`,
+  // flattened as labelled turns, since that is the form Perplexity documents.
+  const instructions = messages
+    .filter((m) => m.role === "system")
+    .map((m) => m.content)
+    .join("\n\n")
+    .trim();
+
+  const input = messages
+    .filter((m) => m.role !== "system")
+    .map((m) => `${m.role === "assistant" ? "Assistant" : "User"}: ${m.content}`)
+    .join("\n\n")
+    .trim();
+
+  const body: Record<string, unknown> = {
+    // `preset`, not `model` — the catalog's perplexity entries ARE presets, and
+    // sending one as `model` is the mistake this field name exists to prevent.
+    preset: config.model,
+    input: input || instructions || "",
+  };
+  if (instructions) body.instructions = instructions;
+  // The Agent API's field is `max_output_tokens`; `max_tokens` is Sonar's.
+  if (config.maxTokens) body.max_output_tokens = config.maxTokens;
+
+  const response = await fetch("https://api.perplexity.ai/v1/agent", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${config.apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
   });
+
+  if (!response.ok) {
+    return { success: false, error: await describeHttpError(response) };
+  }
+
+  const data = (await response.json()) as {
+    output?: Array<{
+      type?: string;
+      content?: Array<{ type?: string; text?: string }>;
+    }>;
+    usage?: { input_tokens?: number; output_tokens?: number };
+    error?: { message?: string } | null;
+  };
+
+  // A 200 can still carry a failure on this API, so `error` is checked before
+  // `output` is read — otherwise a failed run reports as "no text returned".
+  if (data?.error?.message) {
+    return { success: false, error: `HTTP 200 but the response carried an error: ${data.error.message}` };
+  }
+
+  const text = (data.output ?? [])
+    .filter((item) => item?.type === "message")
+    .flatMap((item) => item.content ?? [])
+    .filter((part) => part?.type === "output_text" && typeof part.text === "string")
+    .map((part) => part.text as string)
+    .join("")
+    .trim();
+
+  if (!text) {
+    // Its own message rather than an empty bubble: this endpoint can return
+    // only `search_results` items, and a blank reply would read as a broken
+    // provider instead of a response that carried no prose.
+    return {
+      success: false,
+      error:
+        "Perplexity returned no output_text. The Agent API can reply with only search results; " +
+        "check the preset and whether the model answered.",
+    };
+  }
+
+  return {
+    success: true,
+    content: text,
+    usage: {
+      inputTokens: data.usage?.input_tokens ?? 0,
+      outputTokens: data.usage?.output_tokens ?? 0,
+    },
+  };
 }
 
 /**
