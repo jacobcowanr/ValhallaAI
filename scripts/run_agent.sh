@@ -40,7 +40,49 @@ export PATH="$HOME/.grok/bin:$HOME/.local/bin:$HOME/.hermes/bin:$HOME/.orbstack/
 redact() {
   sed -E \
     -e '/python-dotenv could not parse/d' \
+    -e '/Terminated: (15|9) /d' \
     -e 's/(sk-|xai-|ghp_|github_pat_|sk-ant-)[A-Za-z0-9_-]{6,}/[redacted]/g'
+}
+
+# Hard time limit for a host CLI, overridable for a slow machine or a long task.
+AGENT_TIMEOUT_SECS="${AGENT_TIMEOUT_SECS:-900}"
+
+# Run a command with a time limit, then report 143 if it had to be killed.
+#
+# macOS ships no `timeout` binary -- that is GNU coreutils -- so this is the
+# portable equivalent. It matters because a host CLI can wait on something that
+# will never arrive: a tool-approval prompt with no TTY attached, or a stalled
+# socket read. Unbounded, that leaves a Run click spinning with no end.
+#
+# SIGTERM, then SIGKILL after a grace period, so a CLI mid-write gets a chance
+# to flush what it has before it is torn down.
+run_with_timeout() {
+  local secs="$1"; shift
+  "$@" &
+  local cmd_pid=$!
+  (
+    sleep "$secs"
+    kill -TERM "$cmd_pid" 2>/dev/null
+    sleep 5
+    kill -KILL "$cmd_pid" 2>/dev/null
+  ) &
+  local watchdog=$!
+  wait "$cmd_pid"
+  local status=$?
+  # Stop the watchdog so it cannot fire against a recycled PID later.
+  kill -TERM "$watchdog" 2>/dev/null
+  wait "$watchdog" 2>/dev/null
+  return "$status"
+}
+
+# A killed CLI exits 128+signal: 143 = SIGTERM, 137 = SIGKILL. Both mean the
+# time limit was reached rather than the agent failing on its own.
+timed_out_note() {
+  case "$1" in
+    143) printf '%s' "Timed out after ${AGENT_TIMEOUT_SECS}s (SIGTERM). Set AGENT_TIMEOUT_SECS to raise the limit." ;;
+    137) printf '%s' "Timed out after ${AGENT_TIMEOUT_SECS}s (SIGKILL). Set AGENT_TIMEOUT_SECS to raise the limit." ;;
+    *)   printf '%s' "" ;;
+  esac
 }
 
 write_outbox() {
@@ -162,7 +204,8 @@ run_claude() {
     local tmp_out tmp_err
     tmp_out="$(mktemp)"
     tmp_err="$(mktemp)"
-    env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL \
+    run_with_timeout "$AGENT_TIMEOUT_SECS" env \
+      -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL \
       -u ANTHROPIC_FOUNDRY_API_KEY -u CLAUDE_CODE_USE_BEDROCK -u CLAUDE_CODE_USE_VERTEX \
       -u CLAUDE_CODE_USE_FOUNDRY CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \
       claude -p "$prompt" >"$tmp_out" 2>"$tmp_err"
@@ -179,9 +222,17 @@ run_claude() {
   fi
 
   # On success the agent's answer is stdout alone. On failure, keep the error
-  # text too, or the outbox records a failure with no reason.
+  # text too, or the outbox records a failure with no reason. A killed CLI
+  # reports 143/137, which is a time limit rather than the agent failing, so
+  # that is named explicitly instead of being left to look like an error.
+  local note
+  note="$(timed_out_note "$status")"
   if [ "$status" -eq 0 ]; then
     body="$out_text"
+  elif [ -n "$note" ]; then
+    body="${note}
+${out_text}
+${err_text}"
   else
     body="${out_text}
 ${err_text}"
@@ -240,7 +291,7 @@ run_grok() {
     local tmp_out tmp_err
     tmp_out="$(mktemp)"
     tmp_err="$(mktemp)"
-    env -u XAI_API_KEY grok -p "$prompt" >"$tmp_out" 2>"$tmp_err"
+    run_with_timeout "$AGENT_TIMEOUT_SECS" env -u XAI_API_KEY grok -p "$prompt" >"$tmp_out" 2>"$tmp_err"
     status=$?
     out_text="$(cat "$tmp_out")"
     err_text="$(cat "$tmp_err")"
@@ -253,8 +304,14 @@ run_grok() {
     err_text=""
   fi
 
+  local note
+  note="$(timed_out_note "$status")"
   if [ "$status" -eq 0 ]; then
     body="$out_text"
+  elif [ -n "$note" ]; then
+    body="${note}
+${out_text}
+${err_text}"
   else
     body="${out_text}
 ${err_text}"
