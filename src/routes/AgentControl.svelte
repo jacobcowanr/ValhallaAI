@@ -1,6 +1,15 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/tauri";
+  import {
+    AGENT_RUNTIMES,
+    RUNTIME_BLURB,
+    addCustomAgent,
+    buildCustomAgent,
+    loadCustomAgents,
+    removeCustomAgent,
+    type CustomAgent,
+  } from "../lib/custom-agents";
 
   interface AgentStatus {
     name: string;
@@ -13,6 +22,11 @@
     /** From agents-config.json, not hardcoded. */
     enabled: boolean;
     output: string;
+    /** Set only for a user-defined agent: which built-in agent it runs as.
+     *  The built-in cards have no runtime of their own — they ARE the runtime. */
+    runtime?: string;
+    /** True for an agent the user added. Controls the Remove button. */
+    custom?: boolean;
   }
 
   /** Shape of the agent_status command's reply. */
@@ -55,6 +69,13 @@
     },
   ];
 
+  let customAgents: CustomAgent[] = [];
+  let caName = "";
+  let caRuntime = "hermes-agent";
+  let caNote = "";
+  let caError = "";
+  let caSaved = false;
+
   function inTauri(): boolean {
     return typeof window !== "undefined" && "__TAURI__" in window;
   }
@@ -95,8 +116,49 @@
   }
 
   onMount(() => {
+    customAgents = loadCustomAgents();
     void loadStatus();
   });
+
+  /** Built-in cards first, then the user's, as one list for the grid. */
+  function cardFor(agent: CustomAgent): AgentStatus {
+    return {
+      name: agent.name,
+      blurb: agent.note || RUNTIME_BLURB[agent.runtime],
+      status: "stopped",
+      lastRun: null,
+      lastResult: "",
+      enabled: true,
+      output: "",
+      runtime: agent.runtime,
+      custom: true,
+    };
+  }
+
+  $: allAgents = [...agents, ...customAgents.map(cardFor)];
+
+  function submitCustomAgent(): void {
+    const draft = buildCustomAgent(
+      { name: caName, runtime: caRuntime, note: caNote },
+      customAgents
+    );
+    if (draft.error || !draft.agent) {
+      caError = draft.error ?? "Could not add that agent.";
+      return;
+    }
+    customAgents = addCustomAgent(draft.agent, customAgents);
+    caName = "";
+    caNote = "";
+    caError = "";
+    caSaved = true;
+    setTimeout(() => {
+      caSaved = false;
+    }, 2000);
+  }
+
+  function deleteCustomAgent(name: string): void {
+    customAgents = removeCustomAgent(name, customAgents);
+  }
 
   async function runAgent(agent: AgentStatus): Promise<void> {
     if (agent.status === "running") return;
@@ -108,7 +170,12 @@
           `Not inside the desktop app. From a terminal: scripts/run_agent.sh ${agent.name}`
         );
       }
-      agent.output = await invoke<string>("run_agent", { service: agent.name });
+      agent.output = await invoke<string>("run_agent", {
+        service: agent.name,
+        // Only a custom agent passes a runtime. The Rust side re-checks it
+        // against the allowlist and runs THAT, never the display name.
+        runtime: agent.runtime ?? null,
+      });
       agent.status = "stopped";
     } catch (error) {
       agent.status = "error";
@@ -130,10 +197,13 @@
   </p>
 
   <div class="agents-grid">
-    {#each agents as agent}
+    {#each allAgents as agent}
       <div class="agent-card">
         <div class="agent-header">
           <h3>{agent.name}</h3>
+          {#if agent.custom && agent.runtime}
+            <span class="status runtime" title="Runs as {agent.runtime}">via {agent.runtime}</span>
+          {/if}
           {#if !agent.enabled}
             <span class="status disabled" title="enabled: false in vault/agents-config.json">disabled</span>
           {/if}
@@ -165,10 +235,49 @@
           >
             {agent.status === "running" ? "Running..." : "Run"}
           </button>
+          {#if agent.custom}
+            <button class="remove" on:click={() => deleteCustomAgent(agent.name)}>Remove</button>
+          {/if}
         </div>
       </div>
     {/each}
   </div>
+
+  <section class="add-agent">
+    <h3>Add an agent</h3>
+    <p class="add-description">
+      Add an agent that is not listed above. It runs as one of the three existing agents — a custom
+      agent is a name and an entry point, not a new runtime, so it cannot run anything those three
+      cannot already run.
+    </p>
+
+    <div class="field">
+      <label for="ca-name">Name:</label>
+      <input id="ca-name" type="text" bind:value={caName} placeholder="Research agent" />
+    </div>
+
+    <div class="field">
+      <label for="ca-runtime">Runs as:</label>
+      <select id="ca-runtime" bind:value={caRuntime}>
+        {#each AGENT_RUNTIMES as runtime}
+          <option value={runtime}>{runtime} — {RUNTIME_BLURB[runtime]}</option>
+        {/each}
+      </select>
+    </div>
+
+    <div class="field">
+      <label for="ca-note">Note (optional):</label>
+      <input id="ca-note" type="text" bind:value={caNote} placeholder="What you use this one for" />
+    </div>
+
+    {#if caError}
+      <p class="ca-error">{caError}</p>
+    {/if}
+
+    <button class="add-btn" on:click={submitCustomAgent}>
+      {caSaved ? "✓ Added" : "Add Agent"}
+    </button>
+  </section>
 </div>
 
 <style>

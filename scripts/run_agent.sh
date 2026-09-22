@@ -86,9 +86,72 @@ run_container() {
   "${compose[@]}" run --rm --no-deps "$service"
 }
 
+# Is the Claude CLI logged in on a subscription?
+#
+# `claude auth status` is the only reliable signal, and it is checked with the
+# paid key stripped from the environment so that "yes" actually means the
+# subscription is what will answer. Without the strip, a machine with both a
+# login and a key set could report loggedIn for a session that still bills.
+claude_subscription_available() {
+  command -v claude >/dev/null 2>&1 || return 1
+  local status
+  status="$(env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL \
+    -u ANTHROPIC_FOUNDRY_API_KEY -u CLAUDE_CODE_USE_BEDROCK -u CLAUDE_CODE_USE_VERTEX \
+    -u CLAUDE_CODE_USE_FOUNDRY claude auth status 2>/dev/null)" || return 1
+  printf '%s' "$status" | grep -q '"loggedIn": *true'
+}
+
+# Claude agent: SUBSCRIPTION FIRST, paid API key only as the fallback.
+#
+# `claude auth login` (Pro/Max) has no per-token cost; ANTHROPIC_API_KEY bills
+# every token. The same preference already governs Models & Chat, where
+# Claude Subscription DirectSDK is the default provider. Agent Control used to
+# always run the Docker container, which always bills the paid key, so the
+# agent path silently cost money the chat path did not. This makes the two
+# agree.
+#
+# Fallback is deliberate, not a failure: a machine with no subscription login
+# still works, it just bills the key — and the outbox records which path ran,
+# so the cost is visible afterwards rather than implied.
+run_claude() {
+  local out="$VAULT/AGENT_OUTBOX_claude-agent.md"
+  local prompt
+  prompt="$(node "$ROOT/agents/_shared/task.cjs" "$VAULT" claude-agent 2>/dev/null)"
+  if [ -z "$prompt" ]; then
+    prompt="You are the ValhallaAI claude-agent. Reply with exactly two lines and then stop. Line 1: Status: OK. Line 2: one sentence naming which model provider answered. Do not use tools. Do not read or write files."
+  fi
+
+  local raw status billing
+  if claude_subscription_available; then
+    billing="subscription"
+    raw="$(env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL \
+      -u ANTHROPIC_FOUNDRY_API_KEY -u CLAUDE_CODE_USE_BEDROCK -u CLAUDE_CODE_USE_VERTEX \
+      -u CLAUDE_CODE_USE_FOUNDRY CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \
+      claude -p "$prompt" 2>&1)"
+    status=$?
+  else
+    # No subscription login (or no CLI). The container is the paid path.
+    billing="paid-key"
+    raw="$(run_container claude-agent 2>&1)"
+    status=$?
+  fi
+
+  raw="$(printf '%s\n' "$raw" | redact)"
+  local flat
+  flat="$(printf '%s' "$raw" | tr '\n' ' ' | sed -E 's/[[:space:]]+/ /g' | cut -c1-2000)"
+  if [ "$status" -eq 0 ]; then
+    write_outbox "$out" "OK (${billing})" "$flat"
+  else
+    write_outbox "$out" "ERROR (${billing})" "$flat"
+  fi
+  printf '%s\n' "$raw"
+  return "$status"
+}
+
 case "$AGENT" in
   hermes-agent) run_hermes ;;
-  claude-agent|grok-agent) run_container "$AGENT" ;;
+  claude-agent) run_claude ;;
+  grok-agent) run_container "grok-agent" ;;
   *)
     echo "Unknown agent: ${AGENT}" >&2
     echo "Use claude-agent, hermes-agent, or grok-agent." >&2
