@@ -54,6 +54,9 @@ Vahalla/
 - Never commit secrets, API keys, or credentials to `vault/` — it's the one thing that's expected to eventually sync to a git remote.
 - Vault is coordination + config, not a database. If you're tempted to query it, that's a sign you need a different datastore (see [ARCHITECTURE.md §7](./ARCHITECTURE.md#7-what-the-vault-is--and-isnt)).
 
+### Cross-platform (macOS + Windows)
+Standing constraint on every change — see [ARCHITECTURE.md §3.1](./ARCHITECTURE.md#31-cross-platform-constraint) for the full rationale and checklist. Before merging anything touching file paths, Docker volumes, or host shell-outs, check it against that table. When in doubt: no hardcoded `~`, no bare `/` path concatenation, no host-shell script that isn't also runnable on Windows (containerized scripts are fine — the container is always Linux).
+
 ### Commits
 - Descriptive messages, present tense, explain *why* not just *what* when the reasoning isn't obvious from the diff
 - One logical change per commit where reasonable
@@ -75,3 +78,5 @@ Tracked here until there's a formal issue tracker.
 - `Settings.svelte` and `ModelPicker.svelte` still each hold their own copy of the `providers` catalog object — extracting to a shared `providers.ts` module is the next real refactor (see [Adding a new LLM provider](#adding-a-new-llm-provider))
 - Provider functions read credentials via `process.env.*`, which is a Node convention — needs verification this resolves correctly under Vite/Tauri's frontend bundling before any provider is used for real
 - Dead `callDeepSeek()` function was removed during the router cleanup (DeepSeek isn't a standalone provider in the current catalog — it's reachable via Nous and OpenRouter's model lists instead)
+- **Windows path**: `docker-compose.local.yml`'s `~/.hermes` and `~/.ssh` volume mounts were fixed to read from `.env` (`HOST_HERMES_DIR`/`HOST_SSH_DIR`, see `env.example`) instead of relying on tilde expansion, which Docker Compose doesn't reliably do and Windows doesn't support at all — but this has only been verified on macOS. Running the full agent stack on Windows (Docker Desktop/WSL2) hasn't been tested end-to-end yet.
+- `src-tauri/tauri.conf.json`'s `identifier` is still the placeholder `com.tauri.dev` — fine for local dev, needs a real reverse-DNS identifier before any distributable build
