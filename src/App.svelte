@@ -15,12 +15,15 @@
   import { FALLBACK_PROVIDER, FALLBACK_MODEL } from "./lib/providers";
   import type { LLMProvider } from "./lib/llm-router";
 
+  // "settings" deliberately excluded from this list — it's pinned to the
+  // bottom of the sidebar separately (see the markup below), reserving
+  // that spot for a future sign-in/profile area next to it, same
+  // placement convention as Gemini/most chat apps use.
   const sections = [
     { id: "models", label: "Models & Chat", icon: "💬" },
     { id: "sessions", label: "Sessions", icon: "🕘" },
     { id: "vault", label: "Vault Browser", icon: "🗂" },
     { id: "agents", label: "Agent Control", icon: "🤖" },
-    { id: "settings", label: "Settings", icon: "⚙" },
   ];
 
   let activeTab = "models";
@@ -92,6 +95,16 @@
           </button>
         {/each}
       </nav>
+
+      <!-- Pinned to the bottom via margin-top: auto on .sidebar-bottom.
+           Reserved space for a future sign-in/profile area alongside
+           Settings — not built yet, just the layout accommodating it. -->
+      <div class="sidebar-bottom">
+        <button class:active={activeTab === "settings"} on:click={() => (activeTab = "settings")}>
+          <span class="icon">⚙</span>
+          Settings
+        </button>
+      </div>
     </aside>
   {/if}
 
@@ -216,6 +229,17 @@
     gap: 0.25rem;
   }
 
+  /* margin-top: auto on the LAST child of a column flex container pushes
+     it (and everything after it, but there's nothing after it here) to
+     the bottom of the available space — this is what actually pins
+     Settings below New Session + nav instead of it just being last in
+     document order (which alone wouldn't separate it visually). */
+  .sidebar-bottom {
+    margin-top: auto;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--border-color);
+  }
+
   button {
     display: flex;
     align-items: center;
@@ -226,8 +250,10 @@
     border-radius: 8px;
     background: none;
     cursor: pointer;
-    font-size: 0.9rem;
-    font-weight: 500;
+    font-family: var(--font-display);
+    font-size: 1.05rem;
+    font-weight: 400;
+    letter-spacing: 0.02em;
     color: var(--text-secondary);
     text-align: left;
     transition: all 0.15s;
