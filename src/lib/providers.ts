@@ -145,10 +145,6 @@ export const PROVIDERS: Record<LLMProvider, ProviderEntry> = {
     name: "Ollama (Local)",
     models: ["neural-chat", "zephyr", "mistral", "llama2:13b", "llama2", "orca-mini", "dolphin-mixtral"],
   },
-  openclaw: {
-    name: "OpenClaw",
-    models: ["openclaw-default"],
-  },
   // Verified 2026-09-22 against GET https://openrouter.ai/api/v1/models.
   // Four ids were dead (claude-3.5-sonnet, gemini-pro-1.5, grok-3,
   // llama-3.1-405b-instruct) and have been swapped for live equivalents.
