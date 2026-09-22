@@ -2,8 +2,11 @@
   import { onMount } from "svelte";
   import { callLLM } from "../lib/llm-router";
 
-  let selectedProvider = "nous";
-  let selectedModel = "x-ai/grok-4.7";
+  const FALLBACK_PROVIDER = "nous";
+  const FALLBACK_MODEL = "x-ai/grok-4.7";
+
+  let selectedProvider = FALLBACK_PROVIDER;
+  let selectedModel = FALLBACK_MODEL;
   let apiKey = "";
   let userMessage = "";
   let responses = [];
@@ -14,8 +17,19 @@
     const prefs = localStorage.getItem("vahalla-prefs");
     if (prefs) {
       const { defaultProvider, defaultModel } = JSON.parse(prefs);
-      selectedProvider = defaultProvider;
-      selectedModel = defaultModel;
+      // A previously-saved provider can disappear from the catalog (e.g. the
+      // GitHub Copilot removal). Falling back here instead of trusting the
+      // stored value keeps the model dropdown from silently rendering empty
+      // and callLLM() from failing with "Unknown provider" on every send.
+      if (defaultProvider && providers[defaultProvider]) {
+        selectedProvider = defaultProvider;
+        selectedModel = providers[defaultProvider].models.includes(defaultModel)
+          ? defaultModel
+          : providers[defaultProvider].models[0];
+      } else {
+        selectedProvider = FALLBACK_PROVIDER;
+        selectedModel = FALLBACK_MODEL;
+      }
     }
   });
 
