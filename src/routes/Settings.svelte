@@ -258,12 +258,21 @@
     }
   }
 
-  $: if (defaultProvider) {
-    // Auto-select first model of the new provider
+  // Reset the model only when the provider actually CHANGES, and only when the
+  // current model does not belong to the new one.
+  //
+  // This used to assign models[0] on every run of the reactive, which includes
+  // the initial load -- so a saved default model was overwritten the moment the
+  // page mounted, and FALLBACK_MODEL never survived either. With the default
+  // now being Claude DirectSDK, that bug would have silently promoted the
+  // picker from haiku to claude-opus-5, the most expensive model in the list.
+  let lastProvider: LLMProvider | null = null;
+  $: if (defaultProvider && defaultProvider !== lastProvider) {
     const models = PROVIDERS[defaultProvider]?.models || [];
-    if (models.length > 0) {
+    if (models.length > 0 && !models.includes(defaultModel)) {
       defaultModel = models[0];
     }
+    lastProvider = defaultProvider;
   }
 </script>
 

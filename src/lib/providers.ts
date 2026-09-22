@@ -68,6 +68,11 @@ export const PROVIDERS: Record<LLMProvider, ProviderEntry> = {
     name: "ChatGPT or Codex Subscription",
     models: ["gpt-4-turbo", "gpt-4o", "gpt-3.5-turbo"],
   },
+  // Ordered newest/most-capable first per CONTRIBUTING, which puts
+  // claude-haiku-4-5-20251001 last even though it is FALLBACK_MODEL. That is
+  // fine: the default is chosen by name, not by position. Nothing should take
+  // models[0] as "the default" -- see the provider-change handler in
+  // Settings.svelte.
   claude_directsdk: {
     name: "Claude Subscription DirectSDK",
     models: [
@@ -117,7 +122,6 @@ export const PROVIDERS: Record<LLMProvider, ProviderEntry> = {
     // 18 slugs matched. The Qwen coder entry had been
     // qwen/qwen3-coder-480b-a35b; the live id for the model named
     // "Qwen3 Coder 480B A35B" is qwen/qwen3-coder.
-    // x-ai/grok-4.7 stays first: it is FALLBACK_MODEL below.
     name: "Nous Portal",
     models: [
       "x-ai/grok-4.7",
@@ -217,5 +221,10 @@ export const PROVIDER_ENTRIES: [LLMProvider, ProviderEntry][] = Object.entries(P
   ProviderEntry
 ][];
 
-export const FALLBACK_PROVIDER: LLMProvider = "nous";
-export const FALLBACK_MODEL = "x-ai/grok-4.7";
+// Claude Subscription DirectSDK on Haiku is the default deliberately: it runs
+// the `claude` CLI on the Pro/Max login and never touches ANTHROPIC_API_KEY, so
+// the out-of-the-box path costs nothing per token. Haiku rather than Opus for
+// the same reason -- a default should be the cheap, fast one, and anyone who
+// wants Opus can pick it.
+export const FALLBACK_PROVIDER: LLMProvider = "claude_directsdk";
+export const FALLBACK_MODEL = "claude-haiku-4-5-20251001";
