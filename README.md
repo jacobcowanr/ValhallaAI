@@ -14,36 +14,43 @@
 
 ## Quick start (local dev)
 
-The frontend build is verified working (`npx vite build` succeeds, `npx tsc --noEmit` is clean) as of 2026-09-21 — that wasn't always true; see [CONTRIBUTING.md](./CONTRIBUTING.md#known-open-issues) if curious what was broken before then. `npm run tauri-dev` additionally needs the Rust toolchain (`rustup`) installed.
+The desktop app is what reads `.env`. A plain browser tab cannot. `npm run tauri-dev` needs the Rust toolchain (`rustup`).
 
 ```bash
-# Install dependencies
 npm install
+cp env.example .env
+# Fill values as NAME=value. No labels on their own line. See env.example.
 
-# Start Tauri dev server
 npm run tauri-dev
-
-# In another terminal, start Docker agents
-docker-compose -f docker-compose.local.yml up
-
-# Vault syncs to your private GitHub repo (optional)
-# configure VAULT_REPO env var when ready
 ```
 
-First run: open **Settings**, pick your default provider and model — nothing is hardcoded, see [ARCHITECTURE.md §4.2](./ARCHITECTURE.md#42-settings-srcroutessettingssvelte).
+Run one agent at a time. Do not start the stack with `docker compose up`: `claude-agent` makes one paid call and exits, and a restart policy is not what you want on that container. Hermes does not run inside its image.
+
+```bash
+scripts/run_agent.sh hermes-agent    # host Hermes CLI, one shot
+scripts/run_agent.sh claude-agent    # needs ANTHROPIC_API_KEY, one paid call
+scripts/run_agent.sh grok-agent      # needs XAI_API_KEY and enabled: true
+```
+
+The same three buttons are on **Agent Control** inside the desktop app. **Settings** shows which chat keys came from `.env`. Nous Portal does not use a key in that file; it uses the local Hermes proxy (`hermes proxy start` on `127.0.0.1:8645`).
+
+`VAULT_REPO` is optional and unused until you want the vault relay to push. The relay's push path has not been run against this repo.
 
 ## Project structure
 
 ```
 ValhallaAI/
-├─ ARCHITECTURE.md       Design of record — read first
-├─ POSITIONING.md        Why this exists, differentiation
-├─ CONTRIBUTING.md        Conventions, known issues
-├─ src/                  Svelte frontend (Tauri desktop app)
-│  ├─ routes/             Settings, ModelPicker, VaultBrowser, AgentControl
-│  └─ lib/llm-router.ts   Single abstraction over all 18 providers (src/lib/providers.ts is the count to trust)
-├─ agents/                Docker agent runtimes (Claude, Hermes, Grok, custom)
-├─ vault/                 Coordination log template (AGENT_SYNC.md pattern)
+├─ ARCHITECTURE.md           Design of record — read first
+├─ POSITIONING.md            Why this exists, differentiation
+├─ CONTRIBUTING.md           Conventions, known issues
+├─ env.example               .env template (copy to .env; never commit .env)
+├─ src/                      Svelte frontend (Tauri desktop app)
+│  ├─ routes/                Models & Chat, Sessions, Vault, Agents, Settings
+│  └─ lib/                   llm-router.ts, providers.ts, provider-keys.ts, sessions.ts
+├─ src-tauri/src/main.rs     Tauri commands: run_agent, provider_keys, vault_status
+├─ scripts/run_agent.sh      One-shot runner the UI and the terminal share
+├─ agents/                   Claude and Grok containers; Hermes runs on the host
+├─ vault/                    AGENT_SYNC.md and agents-config.json
 └─ docker-compose.local.yml
 ```
 

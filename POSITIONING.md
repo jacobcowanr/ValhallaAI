@@ -2,7 +2,7 @@
 
 **Purpose of this document:** state plainly what problem ValhallaAI solves, who else is trying to solve it, and exactly where ValhallaAI is different. This gets rewritten as the field moves — it is not a marketing artifact to write once and forget.
 
-**Last substantive rewrite: 2026-09-21**, after a verification pass (two independent agents cross-checking this doc against actual code) found several rows overstating what's built. Comparison claims decay fastest — re-verify this table before trusting it if it's been a while since that date.
+**Last substantive rewrite: 2026-09-22**, after Agent Control, the vault screen, and `.env` key loading were wired. Comparison claims decay fastest — re-verify this table against the code if it's been a while since that date.
 
 ## 1. The problem
 
@@ -20,13 +20,13 @@ Nobody occupies: **self-hosted, multi-provider, multi-agent, with a plain-text c
 | | ValhallaAI | Hermes Agent | Open WebUI / LibreChat | LangChain / CrewAI | Modal / E2B |
 |---|---|---|---|---|---|
 | Multi-provider chat | ✅ 18 providers (17 chat LLM + Replicate for image/video/audio) — verified buildable 2026-09-21 | ✅ (provider plugins) | ✅ | Depends on code | ❌ (compute, not models) |
-| Multi-**agent** coordination | **Designed, not yet demonstrated** — the relay mechanism is implemented (`scripts/vault_relay.sh`) but no agent has produced real coordination content through it yet | ✅ **proven** — four agents, daily real use, this exact `AGENT_SYNC.md` pattern | Partial — LibreChat ships an Agents feature, Open WebUI has pipelines/functions; neither is vault-based cross-agent coordination | ✅ (in-code only, no shared human-readable log) | ❌ |
-| Human-readable coordination log | ✅ git + markdown (mechanism built, unproven at scale — see row above) | ✅ proven (`AGENT_SYNC.md` pattern, daily use) | ❌ | ❌ | ❌ |
-| Desktop app (not just a library) | ✅ Tauri — local dev build verified working 2026-09-21 (`npx vite build` succeeds); the Agent Control and Vault Browser panels are UI mocks pending Tauri IPC wiring, not yet functional — see [ARCHITECTURE.md §4.4–4.5](./ARCHITECTURE.md#44-agent-control-srcroutesagentcontrolsvelte--ui-mock-not-wired-up) | ✅ | ✅ (usually web) | ❌ (code only) | ❌ |
+| Multi-**agent** coordination | **Partly exercised.** Each agent can be run once and writes an outbox. The relay can fold and commit; that was proven on a throwaway repo, not as a daily loop in this repo, and it has not pushed | ✅ **proven** — four agents, daily real use, this exact `AGENT_SYNC.md` pattern | Partial — LibreChat ships an Agents feature, Open WebUI has pipelines/functions; neither is vault-based cross-agent coordination | ✅ (in-code only, no shared human-readable log) | ❌ |
+| Human-readable coordination log | ✅ git + markdown. Outboxes are gitignored until the relay folds them. This repo's log is still written by hand and by agents appending entries directly | ✅ proven (`AGENT_SYNC.md` pattern, daily use) | ❌ | ❌ | ❌ |
+| Desktop app (not just a library) | ✅ Tauri. Agent Control runs an agent. Vault Browser lists files and git status and does not pull or push. Chat keys for five providers load from `.env` inside the desktop app. See [ARCHITECTURE.md §4](./ARCHITECTURE.md#4-component-responsibilities) | ✅ | ✅ (usually web) | ❌ (code only) | ❌ |
 | Self-hosted, user-owned cloud | (planned) — not yet built, see [ARCHITECTURE.md §9](./ARCHITECTURE.md#9-deployment-path-future) | Local-only | Self-hosted option | You build it | ❌ vendor-hosted |
 | Local/offline model support | ✅ Ollama | ✅ | ✅ | Depends | ❌ |
 | Open source | (planned) — see [CONTRIBUTING.md's gate](./CONTRIBUTING.md#why-local-first) | ✅ | ✅ | ✅ | E2B's core SDK: Apache-2.0. Modal: not open source. Don't collapse these two into one cell — verify per-vendor if this matters to your decision. |
-| Audit trail = git history | Partial — true for hand-made commits; no code path commits automatically yet (the relay script does when run, but hasn't been run against real agent output) | ✅ proven | ❌ | ❌ | ❌ |
+| Audit trail = git history | Partial — commits in this repo are real. The relay commits when it is run; that was tested on a throwaway repo. It has not pushed this repo, and the live log is not produced by that relay yet | ✅ proven | ❌ | ❌ | ❌ |
 
 ## 3. What's actually novel
 
@@ -39,7 +39,7 @@ This isn't a limitation dressed up as a feature — it's a deliberate trade:
 - **You lose:** real-time coordination, high write throughput, complex queries
 - **You gain:** a coordination log that is human-readable without tooling, diffable, mergeable with standard git conflict resolution, and portable to any git host (or none — it works with zero remote)
 
-No mainstream agent framework treats "an ops engineer can `cat` the entire coordination history and understand it in five minutes" as a first-class design goal. ValhallaAI does. **Caveat, stated plainly:** "novel" here describes the design goal and the mechanism, which is built. It does not yet describe *proven at scale within ValhallaAI itself* — that credit currently belongs to Hermes's own use of the same pattern, not to ValhallaAI's still-unexercised copy of it.
+No mainstream agent framework treats "an ops engineer can `cat` the entire coordination history and understand it in five minutes" as a first-class design goal. ValhallaAI does. **Caveat, stated plainly:** "novel" here describes the design goal and the mechanism. Hermes already runs this pattern every day. ValhallaAI's copy can run one agent and write an outbox. It is not yet the daily multi-agent loop Hermes already is.
 
 ### 3.2 Genuinely novel (for this category): breadth of provider catalog behind one interface
 An earlier version of this section claimed each of ValhallaAI's providers gets "its own request/response shape" as the differentiator, contrasted against rivals who supposedly take a "generic OpenAI-compatible shim" shortcut. That claim didn't survive contact with the actual code: **9 of ValhallaAI's 18 providers (OpenRouter, ChatGPT, Grok, Nous, Fireworks, Groq, OpenClaw, Perplexity, Together) share exactly that kind of shim** — a single `callOpenAICompatible()` helper in `llm-router.ts`, because their APIs genuinely are OpenAI-compatible and reimplementing the same dialect nine times would just be nine copies of the same bug waiting to diverge.
@@ -50,7 +50,7 @@ The honest differentiator is narrower and more defensible: **breadth of catalog,
 Building the tool for yourself first, using it daily, and only then deciding what to open source is not a new idea (it's how most good developer tools get built). ValhallaAI is explicit about it as policy — see [CONTRIBUTING.md](./CONTRIBUTING.md#why-local-first) — rather than an accident of how development happened to unfold. That policy also caught the compile-breaking bugs described in §2 before anyone but the developer ever saw them — which is the actual point of it, not just a stated intention.
 
 ### 3.4 Not novel: the desktop app itself
-Tauri + Svelte + a model picker is not a differentiator. Open WebUI, LM Studio, and a dozen others already do "nice UI over multiple LLMs" well. ValhallaAI doesn't try to out-UI them — the UI exists to make the agent orchestration and vault coordination usable, not as the product itself. As of this writing that UI's chat/model-picker half works; its agent-control/vault-sync half is still a mock (§2, row 4).
+Tauri + Svelte + a model picker is not a differentiator. Open WebUI, LM Studio, and a dozen others already do "nice UI over multiple LLMs" well. ValhallaAI doesn't try to out-UI them — the UI exists to make the agent orchestration and vault coordination usable, not as the product itself. Chat, Settings, Agent Control, and the vault file list all run inside the desktop app. The vault screen does not sync to a remote (§2).
 
 ## 4. Where ValhallaAI is deliberately *not* competing
 

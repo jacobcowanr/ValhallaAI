@@ -6,9 +6,9 @@
 
 ValhallaAI is a **desktop-first, multi-provider AI orchestration platform**. One app, three jobs:
 
-1. **Talk to any model** — 18 providers behind one router, one chat UI. This one is real and verified (`npx vite build` succeeds, `npx tsc --noEmit` is clean).
-2. **Run agents** — Docker-based agent runtimes (Claude, Hermes, Grok, custom) that do work autonomously. The containers themselves work via `docker-compose up` directly; the **desktop UI's Agent Control panel does not yet trigger them** — see §4.4.
-3. **Coordinate them** — a git-synced markdown vault is the shared memory/log, not a database. The relay mechanism (`scripts/vault_relay.sh`) is implemented and folds outboxes into `AGENT_SYNC.md`, but **no agent has produced real outbox content in anger yet** — this is designed and buildable, not yet demonstrated at scale. See [CONTRIBUTING.md's gate criteria](./CONTRIBUTING.md#why-local-first).
+1. **Talk to any model** — 18 providers behind one router, one chat UI. In the desktop app, Anthropic, OpenAI, OpenRouter, Google, and xAI keys are read from the project `.env`. Nous Portal goes through the local Hermes proxy and does not take a pasted key.
+2. **Run agents** — Agent Control calls `scripts/run_agent.sh`. Hermes is the host CLI. Claude and Grok are one-shot Docker containers. See §4.4 and §4.6.
+3. **Coordinate them** — a git-synced markdown vault is the shared memory/log, not a database. Agents append gitignored outboxes. `scripts/vault_relay.sh` can fold those into `AGENT_SYNC.md` and commit; that path was run on a throwaway repo. It has not pushed this repo. Vault Browser lists files and git status. It does not pull or push. See [CONTRIBUTING.md's gate criteria](./CONTRIBUTING.md#why-local-first).
 
 It is built to be **self-hosted and user-owned**: you run it on your Mac today, and later deploy the same stack to your own cloud account. Nobody else's server ever holds your keys or your coordination log by default.
 
@@ -20,8 +20,8 @@ graph TB
         UI[Svelte UI]
         Settings[Settings<br/>provider + model prefs]
         ModelPicker[Model Picker<br/>chat interface]
-        VaultBrowser[Vault Browser<br/>sync status]
-        AgentControl[Agent Control<br/>start/stop/logs]
+        VaultBrowser[Vault Browser<br/>file list]
+        AgentControl[Agent Control<br/>run once]
         Router[LLM Router<br/>llm-router.ts]
     end
 
@@ -125,7 +125,7 @@ User picks a **default provider + model**, saved to `localStorage`. Nothing is h
 Loads the saved default on mount, lets the user override per-conversation, sends through the router, renders responses with token usage.
 
 ### 4.4 Agent Control (`src/routes/AgentControl.svelte`)
-Run starts one agent and waits for it to exit. The button calls the Tauri command `run_agent`, which runs `scripts/run_agent.sh` with an allowlisted name (`claude-agent`, `hermes-agent`, `grok-agent`). Hermes is the host CLI (`hermes chat --oneshot`). Claude and Grok are `docker compose run --rm` one-shot containers. The same script is what you run from a terminal. Vault Browser is still a mock (§4.5).
+Run starts one agent and waits for it to exit. The button calls the Tauri command `run_agent`, which runs `scripts/run_agent.sh` with an allowlisted name (`claude-agent`, `hermes-agent`, `grok-agent`). Hermes is the host CLI (`hermes chat --oneshot`). Claude and Grok are `docker compose run --rm` one-shot containers. The same script is what you run from a terminal.
 
 ### 4.5 Vault Browser (`src/routes/VaultBrowser.svelte`)
 Refresh calls the Tauri command `vault_status`. It lists the files under `vault/` and runs `git status --short -- vault` in the project. It does not pull or push. The screen does not take a path from the user.
@@ -137,7 +137,7 @@ Each agent is one-shot:
 3. Appends a result to `vault/AGENT_OUTBOX_<agent>.md` (gitignored; the relay folds it)
 4. Exits
 
-Hermes runs on the host because the installed CLI is a macOS virtualenv under `~/.hermes`. A Linux container cannot execute that binary, and installing a second Hermes that shares the same home would race the proxy that is already running. Claude and Grok stay as Docker containers. Claude exits with an error if `ANTHROPIC_API_KEY` is unset, instead of calling the API and then exiting 0.
+Hermes runs on the host because the installed CLI is a macOS virtualenv under `~/.hermes`. A Linux container cannot execute that binary, and installing a second Hermes that shares the same home would race the proxy that is already running. Claude and Grok stay as Docker containers. Claude exits with an error if `ANTHROPIC_API_KEY` is unset, instead of calling the API and then exiting 0. Grok calls `api.x.ai` directly. It exits with an error when `agents-config.json` has `"enabled": false` or when `XAI_API_KEY` is unset. It does not use the Hermes proxy. Grok models in chat go through Nous Portal (`x-ai/grok-4.7` and the other `x-ai/*` ids), which is a different path and does not need that key.
 
 ## 5. Data flow: sending a chat message
 
@@ -149,7 +149,7 @@ sequenceDiagram
     participant P as Provider API
 
     U->>MP: types message, hits send
-    MP->>MP: read selectedProvider/selectedModel<br/>(from Settings via localStorage)
+    MP->>MP: read provider, model, and key<br/>(.env via the desktop app, else Settings)
     MP->>R: callLLM(config, messages)
     R->>R: switch(provider) → route to<br/>provider-specific function
     R->>P: fetch(endpoint, {model, messages, ...})
@@ -167,7 +167,7 @@ sequenceDiagram
     participant V as Vault (local filesystem)
     participant G as User's Git Remote
 
-    AC->>D: docker-compose up <agent>
+    AC->>D: scripts/run_agent.sh<br/>(Hermes: host CLI.<br/>Claude and Grok: docker compose run)
     D->>V: read agents-config.json
     D->>D: run task (call LLM, do work)
     D->>V: append result to<br/>AGENT_OUTBOX_<agent>.md
@@ -181,7 +181,7 @@ sequenceDiagram
 
 **Why outbox-per-agent instead of concurrent writes to one file:** git merge conflicts on a single shared log are the failure mode we design out from day one. Each agent only ever appends to its *own* file; a single relay step folds everything into the shared log sequentially. This is the same pattern already proven with Hermes's `AGENT_SYNC.md` bridge (`HERMES_OUTBOX.md` → relay → shared log).
 
-**Current reality vs. this diagram:** the relay half (`V->>V` through `G-->>V`) is real — `scripts/vault_relay.sh` implements exactly this fold/commit/push cycle. The trigger half (`AC->>D: docker-compose up <agent>`) is not — Agent Control is a UI mock (§4.4), so today a human runs `docker-compose up <agent>` by hand, not the UI. The diagram shows the intended full loop; only the vault-relay side of it is built.
+**Current reality vs. this diagram:** Agent Control does start the run (`run_agent` → `scripts/run_agent.sh`). Hermes is not the Docker service in that path. Claude and Grok are. Each writes `vault/AGENT_OUTBOX_<agent>.md`, which is gitignored. The relay script folds outboxes, commits, and can push. Fold and commit were run on a throwaway repo. Push, and a fold of this repo's own outboxes, have not been run. `VAULT_REPO` empty means the relay does not push.
 
 ## 7. What the vault is — and isn't
 
