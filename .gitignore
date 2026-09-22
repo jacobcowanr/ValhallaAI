@@ -1,0 +1,17 @@
+node_modules/
+dist/
+build/
+.env
+.env.local
+.DS_Store
+.vscode/
+*.swp
+*.swo
+target/
+src-tauri/target/
+.tauri/
+pnpm-lock.yaml
+package-lock.json
+*.log
+vault/.git
+.vault-cache/
