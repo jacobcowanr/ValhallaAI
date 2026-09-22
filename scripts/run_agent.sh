@@ -121,30 +121,54 @@ run_claude() {
     prompt="You are the ValhallaAI claude-agent. Reply with exactly two lines and then stop. Line 1: Status: OK. Line 2: one sentence naming which model provider answered. Do not use tools. Do not read or write files."
   fi
 
-  local raw status billing
+  local status billing body out_text err_text
   if claude_subscription_available; then
     billing="subscription"
-    raw="$(env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL \
+    # stdout and stderr are kept APART until the outcome is known.
+    #
+    # The claude CLI emits its own hook diagnostics on stderr, and those are
+    # noise, not the agent's answer. Capturing `2>&1` here meant a successful
+    # run recorded a node MODULE_NOT_FOUND stack trace into the outbox as if
+    # the agent had said it (seen in a real run on 2026-09-22). But dropping
+    # stderr outright would lose the error text on a failure, which is the one
+    # case where it matters. So: stdout on success, both on failure.
+    local tmp_out tmp_err
+    tmp_out="$(mktemp)"
+    tmp_err="$(mktemp)"
+    env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL \
       -u ANTHROPIC_FOUNDRY_API_KEY -u CLAUDE_CODE_USE_BEDROCK -u CLAUDE_CODE_USE_VERTEX \
       -u CLAUDE_CODE_USE_FOUNDRY CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \
-      claude -p "$prompt" 2>&1)"
+      claude -p "$prompt" >"$tmp_out" 2>"$tmp_err"
     status=$?
+    out_text="$(cat "$tmp_out")"
+    err_text="$(cat "$tmp_err")"
+    rm -f "$tmp_out" "$tmp_err"
   else
     # No subscription login (or no CLI). The container is the paid path.
     billing="paid-key"
-    raw="$(run_container claude-agent 2>&1)"
+    out_text="$(run_container claude-agent 2>&1)"
     status=$?
+    err_text=""
   fi
 
-  raw="$(printf '%s\n' "$raw" | redact)"
+  # On success the agent's answer is stdout alone. On failure, keep the error
+  # text too, or the outbox records a failure with no reason.
+  if [ "$status" -eq 0 ]; then
+    body="$out_text"
+  else
+    body="${out_text}
+${err_text}"
+  fi
+
+  body="$(printf '%s\n' "$body" | redact)"
   local flat
-  flat="$(printf '%s' "$raw" | tr '\n' ' ' | sed -E 's/[[:space:]]+/ /g' | cut -c1-2000)"
+  flat="$(printf '%s' "$body" | tr '\n' ' ' | sed -E 's/[[:space:]]+/ /g' | cut -c1-2000)"
   if [ "$status" -eq 0 ]; then
     write_outbox "$out" "OK (${billing})" "$flat"
   else
     write_outbox "$out" "ERROR (${billing})" "$flat"
   fi
-  printf '%s\n' "$raw"
+  printf '%s\n' "$body"
   return "$status"
 }
 

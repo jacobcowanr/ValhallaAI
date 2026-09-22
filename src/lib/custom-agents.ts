@@ -41,9 +41,9 @@ export function isAgentRuntime(value: string): value is AgentRuntime {
 /** What each runtime actually does, so the picker describes the choice
  *  rather than just naming it. */
 export const RUNTIME_BLURB: Record<AgentRuntime, string> = {
-  "hermes-agent": "Runs the Hermes CLI on this Mac. No API key, no per-token cost.",
-  "claude-agent": "One-shot Docker container. Needs ANTHROPIC_API_KEY and bills per token.",
-  "grok-agent": "One-shot Docker container. Needs XAI_API_KEY and bills per token.",
+  "hermes-agent": "Runs the Hermes CLI on this Mac on your Portal login. No per-token cost.",
+  "claude-agent": "Subscription first via `claude auth login`; falls back to the Docker container on the paid key only when there is no login.",
+  "grok-agent": "One-shot Docker container. Needs XAI_API_KEY and bills per token. xAI has no subscription login.",
 };
 
 function coerce(value: unknown): CustomAgent | null {

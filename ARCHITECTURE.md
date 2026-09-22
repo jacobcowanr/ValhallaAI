@@ -182,7 +182,13 @@ predates it, which is the opposite of what was asked.
 Loads the saved default on mount, lets the user override per-conversation, sends through the router, renders responses with token usage.
 
 ### 4.4 Agent Control (`src/routes/AgentControl.svelte`)
-Run starts one agent and waits for it to exit. The button calls the Tauri command `run_agent`, which runs `scripts/run_agent.sh` with an allowlisted name (`claude-agent`, `hermes-agent`, `grok-agent`). Hermes is the host CLI (`hermes chat --oneshot`). Claude and Grok are `docker compose run --rm` one-shot containers. The same script is what you run from a terminal. The cards read real state via `agent_status`: enabled flags come from `vault/agents-config.json`, and last-run time plus OK/ERROR are recovered from each `AGENT_OUTBOX_<agent>.md`. Nothing about run history lives in component state, which is why it survives a relaunch.
+Run starts one agent and waits for it to exit. The button calls the Tauri command `run_agent`, which runs `scripts/run_agent.sh` with an allowlisted name (`claude-agent`, `hermes-agent`, `grok-agent`). Hermes is the host CLI (`hermes chat --oneshot`). Claude prefers the host `claude` CLI on the `claude auth login` subscription and falls back to the Docker container on the paid key only when there is no login — the container is the fallback, not the default. Grok is a `docker compose run --rm` one-shot container and has no subscription path. The same script is what you run from a terminal. A user-defined agent is a display name bound to one of those three runtimes; the name never reaches the shell (see §4.4b). The cards read real state via `agent_status`: enabled flags come from `vault/agents-config.json`, and last-run time plus OK/ERROR are recovered from each `AGENT_OUTBOX_<agent>.md`. Nothing about run history lives in component state, which is why it survives a relaunch.
+
+### 4.4b Custom agents (`src/lib/custom-agents.ts`, Agent Control → "Add an agent")
+
+A display name bound to one of the three runtimes above, added from Agent Control and stored in `localStorage` under `valhallaai-custom-agents`. `run_agent` takes an optional `runtime`; the Rust side re-checks it against the same allowlist and passes the allowlisted value to the script, never the display name. A custom agent therefore cannot run anything the three built-in agents cannot already run.
+
+That is also its limit, stated on the card: it runs the same prompt and writes the same outbox as the runtime it is bound to. It is a second entry point, not an agent with its own behaviour. Behaviour that differs per agent lives in `vault/agent-tasks.json`, keyed by the runtime name, which is shared.
 
 ### 4.5 Vault Browser (`src/routes/VaultBrowser.svelte`)
 Refresh calls the Tauri command `vault_status`. It lists the files under `vault/`, runs `git status --short -- vault`, and reports the last commit touching `AGENT_SYNC.md`. It does not pull or push.
