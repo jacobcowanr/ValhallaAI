@@ -65,7 +65,7 @@ ValhallaAI/
 ├─ CONTRIBUTING.md           Conventions, known issues
 ├─ env.example               .env template (copy to .env; never commit .env)
 ├─ src/                      Svelte frontend (Tauri desktop app)
-│  ├─ routes/                Models & Chat, Sessions, Vault, Agents, Settings
+│  ├─ routes/                Models & Chat, Sessions, Vault, Agents, Profile, Settings
 │  └─ lib/                   llm-router.ts, providers.ts, provider-keys.ts, sessions.ts
 ├─ src-tauri/src/main.rs     Tauri commands: run_agent, provider_keys, vault_status
 ├─ scripts/valhallaai       Launcher symlinked onto PATH

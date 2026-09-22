@@ -121,6 +121,23 @@ Single abstraction (`callLLM(config, messages)`) that fans out to 16 provider-sp
 ### 4.2 Settings (`src/routes/Settings.svelte`)
 User picks a **default provider + model**, saved to `localStorage`. Nothing is hardcoded as "the" default — every user configures their own, mirroring how Hermes's own provider/account settings work. Provider API keys come from the project `.env` when that file has one (`provider_keys` in the desktop app: Anthropic, OpenAI, OpenRouter, Google, xAI). A key saved in Settings is used only for a provider the file does not cover. Nous Portal does not use a pasted key.
 
+### 4.2b Profile (`src/routes/Profile.svelte`)
+Split out of Settings.svelte on 2026-09-22 — identity (who is signed in) and
+app configuration (which provider/model/keys) were sharing one page for no
+reason but history. Reached from the sidebar's profile chip, not from the
+`sections` array or the Settings gear.
+
+Owns profile management (create, rename, delete, switch — the mechanics live
+in `src/lib/profiles.ts`, see [CONTRIBUTING.md](./CONTRIBUTING.md#profiles-and-per-profile-storage))
+and Google sign-in (see [CONTRIBUTING.md](./CONTRIBUTING.md#sign-in-with-google)).
+Also owns the per-profile `ignoreEnvKeys` toggle, since that is a property of
+the profile, not of any one provider.
+
+Deliberately does not import anything from Settings.svelte or vice versa —
+the only shared dependency is the `profiles` store itself. A profile knowing
+nothing about *which* provider you picked, and Settings knowing nothing about
+*who* you are, is what makes the split real rather than cosmetic.
+
 ### 4.3 Model Picker (`src/routes/ModelPicker.svelte`)
 Loads the saved default on mount, lets the user override per-conversation, sends through the router, renders responses with token usage.
 

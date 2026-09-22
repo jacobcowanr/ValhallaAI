@@ -75,6 +75,13 @@ ValhallaAI/
 A profile is a **namespace over `localStorage`**, not an account. There is no
 server, so there is nothing to log in to and nothing syncs anywhere.
 
+The UI for this — identity, sign-in, rename/create/delete, the
+`ignoreEnvKeys` toggle — is `src/routes/Profile.svelte`, reached from the
+sidebar's profile chip and deliberately separate from `Settings.svelte`
+(provider defaults, API keys, Ollama). Split 2026-09-22: they were one page
+sharing nothing but a section heading. See
+[ARCHITECTURE.md §4.2b](./ARCHITECTURE.md#42b-profile-srcroutesprofilesvelte).
+
 `src/lib/profiles.ts` is the single source of truth. Anything per-user goes
 through `scopedKey(base)`, which prefixes with `vai:<profileId>:`.
 
