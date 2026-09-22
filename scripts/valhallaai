@@ -28,6 +28,23 @@ done
 PROJECT_DIR=$(cd "$(dirname "$self")/.." && pwd)
 
 COMPOSE="docker compose -f $PROJECT_DIR/docker-compose.local.yml"
+
+# Record where the checkout is, for the bundled .app.
+#
+# A release .app lives outside the project and, when double-clicked, has "/" as
+# its working directory -- it cannot find .env, vault/, or the agent scripts on
+# its own. macOS `open` does not forward environment variables either, so an
+# export here would not reach it. A pointer file does. Rewritten every run, so
+# moving the checkout and launching once is enough to correct it.
+POINTER_DIR="$HOME/Library/Application Support/com.jacobcowan.valhallaai"
+if mkdir -p "$POINTER_DIR" 2>/dev/null; then
+    printf '%s\n' "$PROJECT_DIR" > "$POINTER_DIR/project_dir" 2>/dev/null || true
+fi
+
+# Still exported for the paths that DO inherit it (dev builds, terminal runs),
+# where it takes precedence over the pointer file.
+VALHALLAAI_PROJECT_DIR=$PROJECT_DIR
+export VALHALLAAI_PROJECT_DIR
 APP_BUNDLE="$PROJECT_DIR/src-tauri/target/release/bundle/macos/valhallaai.app"
 
 die() {
