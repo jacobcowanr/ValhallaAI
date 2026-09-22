@@ -6,6 +6,7 @@
     type LLMProvider,
   } from "../lib/llm-router";
   import { PROVIDERS, PROVIDER_ENTRIES, FALLBACK_PROVIDER, FALLBACK_MODEL } from "../lib/providers";
+  import { loadEnvProviderKeys, resolveApiKey } from "../lib/provider-keys";
   import { sessions, activeSessionId, createSession, appendToSession } from "../lib/sessions";
 
   // Passed down from App.svelte rather than imported directly here, so
@@ -40,9 +41,10 @@
   }
 
   function loadApiKeyFor(providerId: LLMProvider): void {
-    // Read-only here — the API key field itself lives in Settings now, not
-    // on this screen. Still needed so sendMessage() has a key to send.
-    apiKey = localStorage.getItem(apiKeyStorageKey(providerId)) || "";
+    // .env wins when the desktop app can read it. A key saved in Settings
+    // is the fallback for providers that file does not cover.
+    const stored = localStorage.getItem(apiKeyStorageKey(providerId)) || "";
+    apiKey = resolveApiKey(providerId, stored);
   }
 
   function loadGlobalDefaultProviderModel(): { provider: LLMProvider; model: string } {
@@ -90,7 +92,8 @@
     loadApiKeyFor(selectedProvider);
   }
 
-  onMount(() => {
+  onMount(async () => {
+    await loadEnvProviderKeys();
     syncProviderModelToActiveSession();
   });
 

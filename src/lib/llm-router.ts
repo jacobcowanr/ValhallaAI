@@ -2,8 +2,9 @@
  * LLM Router
  * Abstraction layer for multiple LLM providers.
  *
- * Credentials come from `config.apiKey` (user-supplied via the Settings
- * UI / localStorage) — never from `process.env`. This file runs in the
+ * Credentials come from `config.apiKey`. The desktop app fills that from
+ * the project .env for the providers that have a key there, and from
+ * Settings otherwise. This file never reads `process.env`. It runs in the
  * browser (Vite-bundled, inside the Tauri webview), where `process` does
  * not exist unless polyfilled; referencing `process.env.X` here was a real
  * bug (not just a style choice) — it throws at call time for every provider
