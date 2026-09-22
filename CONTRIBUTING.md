@@ -223,6 +223,38 @@ mounted `HOST_SSH_DIR` only helps an `ssh://` remote. Push is gated behind
 relay folds and commits locally without crash-looping. Switch `origin` to SSH
 or add a token helper before expecting push to work.
 
+### Model lists rot, and silently
+
+Model ids in `providers.ts` are hand-written and go stale without any signal:
+a retired id only fails when someone actually sends to it, and a provider
+nobody has used lately can sit broken for months.
+
+**Audited 2026-09-22 against live endpoints.** Eight dead ids across three
+providers — Google's entire list was gone, so that provider 404'd on every
+send.
+
+| Provider | How to check | Result |
+|---|---|---|
+| `google` | `GET generativelanguage.googleapis.com/v1beta/models?key=` | 3/3 dead, replaced |
+| `openrouter` | `GET openrouter.ai/api/v1/models` (public, no key) | 4/19 dead, replaced |
+| `anthropic` | `GET api.anthropic.com/v1/models` + `x-api-key` | 1/5 dead, removed |
+| `nous` | `GET 127.0.0.1:8645/v1/models` (Hermes proxy) | 19/19 live |
+| `huggingface` | `GET huggingface.co/api/models/<id>` (public) | 2/2 live |
+| `claude_directsdk` | `claude -p --model <id>` | 4/4 valid |
+
+**Not verifiable on this machine**, and stated rather than assumed:
+`chatgpt` and `xai_grok` (keys blank in `.env`); `fireworks`, `groq`,
+`together`, `perplexity`, `minimax`, `qwen`, `replicate`, `openclaw` (no key
+at all, and none expose a public list); `ollama` (**not installed here** —
+the catalog offers 7 local models against a runtime that is absent).
+
+Distinguish a dead id from a quota error. `claude-fable-5-1` returns "You're
+out of usage credits" through the CLI — the id is valid, the subscription is
+exhausted. Removing it on that evidence would be wrong.
+
+When adding or editing a provider's models, check against its endpoint rather
+than writing ids from memory. Gemini retires them fastest.
+
 ### Before claiming something works
 Actually run it — all three of these, not just the first one:
 
