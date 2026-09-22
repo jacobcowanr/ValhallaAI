@@ -40,7 +40,7 @@ export interface Profile {
    * "never signed in", not "unverified"; check isSignedIn() first. */
   emailVerified?: boolean;
   avatarUrl?: string;
-  authProvider?: "google" | "github";
+  authProvider?: "google" | "github" | "local";
   /** When true this profile ignores .env and uses only its own keys. */
   ignoreEnvKeys?: boolean;
   /** Set once the first-launch welcome prompt has been shown and dismissed
@@ -203,6 +203,32 @@ initProfiles();
  * sign-in can look like a successful one. One function, both call sites. */
 export function isSignedIn(profile: Profile | null | undefined): boolean {
   return Boolean(profile?.authProvider && profile?.email);
+}
+
+/** The gate's test: may this profile open the app?
+ *
+ * Deliberately wider than isSignedIn(). Sign-in supplies identity only -- a
+ * name, an email, an avatar -- and nothing in the app depends on it: there is
+ * no server, nothing syncs, and no feature is gated behind an account. So
+ * requiring it would block the one user this repo most expects, someone who
+ * cloned it and has provider keys but has not registered OAuth apps, which
+ * they would otherwise have to do twice before seeing a single screen.
+ *
+ * Anything that *displays* identity keeps asking isSignedIn(): a local profile
+ * is not signed in, and a chip that claimed otherwise would be lying.
+ */
+export function hasPassedGate(profile: Profile | null | undefined): boolean {
+  return isSignedIn(profile) || profile?.authProvider === "local";
+}
+
+/** Mark a profile as deliberately local-only: no account, no email, no network.
+ *
+ * Sets `authProvider: "local"` so the gate opens. Leaves `email` unset on
+ * purpose -- `isSignedIn()` stays false, because this profile really is not
+ * signed in. Signing in later overwrites the provider and adds the identity.
+ */
+export function continueWithoutAccount(profileId: string): void {
+  updateProfile(profileId, { authProvider: "local", onboarded: true });
 }
 
 export function getActiveProfile(): Profile | null {
@@ -373,10 +399,4 @@ export function signOutProfile(profileId: string): void {
     avatarUrl: undefined,
     authProvider: undefined,
   });
-}
-
-/** Marks onboarding complete without signing in. Used by the "Continue
- * without an account" path on the first-launch prompt. */
-export function completeOnboardingLocally(profileId: string): void {
-  updateProfile(profileId, { onboarded: true });
 }

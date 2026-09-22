@@ -7,24 +7,31 @@
     googleClientId,
     signInProfileWithGoogle,
     signInProfileWithGithub,
-    isSignedIn,
+    hasPassedGate,
+    continueWithoutAccount,
   } from "../lib/profiles";
 
-  // A gate, not a welcome screen. Jacob reversed the earlier "skippable"
-  // decision on 2026-09-22: the app must not be usable until a profile exists
-  // with a verified email. The only verification this app can perform is
-  // Google's — there is no server to send a confirmation mail from — so
-  // "verified" means signed in with Google and carrying an email. A typed
-  // name cannot satisfy that, so there is no local path.
+  // A gate, not a welcome screen -- but one you can walk through without an
+  // account.
   //
-  // Keyed off isSignedIn() rather than the `onboarded` flag. That flag is
+  // Decision history, because this has now flipped twice in one day: the gate
+  // was skippable, then made mandatory on 2026-09-22 (a profile had to carry a
+  // verified email before the app would open), then made optional again later
+  // the same day. The reason for the last reversal is distribution, not UX.
+  // Sign-in here uses credentials from the *user's* own .env, so a mandatory
+  // gate means every new user must register a Google Cloud OAuth client AND a
+  // GitHub OAuth app before they can see anything at all -- unreasonable for a
+  // tool people are meant to clone and run, and impossible to explain in a
+  // download page. So "continue without an account" is back. Sign-in still
+  // supplies a name, verified email and avatar, and is identity only.
+  //
+  // Keyed off hasPassedGate() rather than the `onboarded` flag. That flag is
   // backfilled true for every profile that predates this screen, which would
-  // hide the gate from exactly the installs it now has to cover. isSignedIn
-  // requires both an auth provider and an email, so a profile that is already
-  // signed in -- via EITHER provider below -- passes through and never sees
-  // this again.
+  // hide the gate from exactly the installs it now has to cover. The flag is
+  // set by signing in OR by choosing the local path; hasPassedGate() checks
+  // the provider, so a stale `onboarded` cannot open the gate on its own.
   $: activeProfile = $profiles.find((p) => p.id === $activeProfileId) ?? null;
-  $: visible = activeProfile !== null && !isSignedIn(activeProfile);
+  $: visible = activeProfile !== null && !hasPassedGate(activeProfile);
 
   // Same reasoning as googleClientId(): GITHUB_CLIENT_ID is never sent to the
   // frontend (see github_sign_in's own comment in main.rs), so knowing
@@ -49,8 +56,8 @@
     signInError = "";
     try {
       await signInProfileWithGoogle(activeProfile.id);
-      // Either sign-in sets authProvider and email together, so isSignedIn()
-      // flips true and `visible` clears on its own.
+      // Either sign-in sets authProvider and email together, so
+      // hasPassedGate() flips true and `visible` clears on its own.
     } catch (err) {
       signInError = typeof err === "string" ? err : err instanceof Error ? err.message : "Sign-in failed.";
     } finally {
@@ -71,14 +78,23 @@
     }
   }
 
+  // The local path: no account, no email, no network call. Always available,
+  // including when both providers are configured -- a developer who cloned this
+  // repo should not have to register two OAuth apps to open what they just
+  // built, and a user with keys needs no identity to use them.
+  function continueLocal(): void {
+    if (!activeProfile) return;
+    continueWithoutAccount(activeProfile.id);
+  }
+
   // Per-button readiness, not one shared flag: if only one provider is
   // configured, that button should still work rather than both going dark
   // because the other one's env vars are missing.
   $: googleReady = inTauri() && !!googleClientId();
   $: githubReady = inTauri() && githubConfigured;
-  // Neither path can succeed and there is no local fallback -- the gate
-  // would be permanently stuck. Say so plainly instead of presenting two
-  // buttons that both fail.
+  // Neither sign-in path can succeed here. That is no longer a dead end --
+  // continueLocal() always works -- so the hint below informs rather than
+  // warns, and says where the local path leaves you.
   $: bothUnavailable = !inTauri() || (!googleClientId() && !githubConfigured);
 </script>
 
@@ -88,11 +104,12 @@
   <div class="backdrop" role="dialog" aria-modal="true" aria-labelledby="onboarding-title">
     <div class="card">
       <h2 id="onboarding-title">Create your profile</h2>
-      <p class="lede">Sign in with Google or GitHub to use ValhallaAI.</p>
+      <p class="lede">Sign in, or continue without an account.</p>
       <p>
-        Either account supplies the name, verified email, and avatar for this
+        Google or GitHub supplies the name, verified email, and avatar for this
         profile. That's identity only — there is no server here, nothing syncs,
-        and no data leaves this machine.
+        and no data leaves this machine. Sign-in is optional: no feature,
+        setting, or key depends on it.
       </p>
 
       <div class="actions">
@@ -136,17 +153,27 @@
           </span>
           {signingInProvider === "github" ? "Waiting for your browser…" : "Sign in with GitHub"}
         </button>
+        <button class="primary-btn local-btn" on:click={continueLocal}>
+          Continue without an account
+        </button>
       </div>
+
+      <p class="hint">
+        The local option needs no network and no configuration — you get a profile
+        with no email attached, and can sign in later from your profile if you want
+        one. Nothing is withheld either way.
+      </p>
 
       {#if bothUnavailable}
         <p class="hint">
           {#if !inTauri()}
-            Sign-in only runs in the desktop app — the local port it needs isn't available here, so this
-            screen can't be completed in a browser tab.
+            Sign-in only runs in the desktop app — the local port it needs isn't available in a
+            browser tab. Continuing without an account works everywhere.
           {:else}
-            Neither provider is configured. Set <code>VITE_GOOGLE_CLIENT_ID</code>, or
-            <code>GITHUB_CLIENT_ID</code> + <code>GITHUB_CLIENT_SECRET</code>, in <code>.env</code>, then
-            restart the app.
+            Neither provider is configured, so sign-in is unavailable. That needs
+            <code>VITE_GOOGLE_CLIENT_ID</code>, or <code>GITHUB_CLIENT_ID</code> +
+            <code>GITHUB_CLIENT_SECRET</code>, in <code>.env</code> and a restart —
+            continuing without an account needs none of it.
           {/if}
         </p>
       {/if}
@@ -237,6 +264,15 @@
   .primary-btn:disabled {
     opacity: 0.55;
     cursor: not-allowed;
+  }
+
+  /* The local path is always available, so it is styled as the quieter,
+     always-open door rather than a disabled-looking third option. */
+  .local-btn {
+    border-style: dashed;
+    background: transparent;
+    color: var(--text-secondary);
+    font-weight: 500;
   }
 
   .g-mark {
