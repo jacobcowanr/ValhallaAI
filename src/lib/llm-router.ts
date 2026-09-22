@@ -264,8 +264,27 @@ async function callOpenAI(
 }
 
 /**
+ * Anthropic rejects a `system` role inside `messages`, and it rejects an
+ * empty turn. The chat history stores those anyway when a previous reply
+ * had no text.
+ */
+function toAnthropicMessages(messages: LLMMessage[]): { role: "user" | "assistant"; content: string }[] {
+  return messages
+    .filter((message) => message.role === "user" || message.role === "assistant")
+    .filter((message) => message.content.trim().length > 0)
+    .map((message) => ({
+      role: message.role as "user" | "assistant",
+      content: message.content,
+    }));
+}
+
+/**
  * Anthropic (Claude): direct API (not OpenAI-compatible — different
  * request/response shape, so it stays a standalone implementation).
+ *
+ * A request from the webview sends an Origin header. Without
+ * `anthropic-dangerous-direct-browser-access`, Anthropic answers 401 and
+ * omits CORS headers, so the app sees a failed fetch and no reply.
  */
 async function callAnthropic(
   config: LLMConfig,
@@ -279,28 +298,41 @@ async function callAnthropic(
     headers: {
       "x-api-key": config.apiKey as string,
       "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true",
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
       model: config.model,
       max_tokens: config.maxTokens ?? 2048,
       temperature: config.temperature ?? 0.7,
-      messages: messages,
+      messages: toAnthropicMessages(messages),
     }),
   });
 
   if (!response.ok) {
-    const error = await response.json();
+    const error = await response.json().catch(() => null);
     return {
       success: false,
-      error: error.error?.message || `HTTP ${response.status}`,
+      error: error?.error?.message || `HTTP ${response.status}`,
     };
   }
 
   const data = await response.json();
+  const blocks = Array.isArray(data.content) ? data.content : [];
+  const content = blocks
+    .map((block: { type?: string; text?: string }) => (typeof block?.text === "string" ? block.text : ""))
+    .filter(Boolean)
+    .join("\n");
+  if (!content) {
+    const types = blocks.map((block: { type?: string }) => block?.type).filter(Boolean).join(", ") || "none";
+    return {
+      success: false,
+      error: `Anthropic returned no text (blocks: ${types})`,
+    };
+  }
   return {
     success: true,
-    content: data.content[0]?.text,
+    content,
     usage: {
       inputTokens: data.usage?.input_tokens || 0,
       outputTokens: data.usage?.output_tokens || 0,
