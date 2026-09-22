@@ -5,6 +5,7 @@
   import AgentControl from "./routes/AgentControl.svelte";
   import Sessions from "./routes/Sessions.svelte";
   import Settings from "./routes/Settings.svelte";
+  import Profile from "./routes/Profile.svelte";
   import logoWordmark from "./assets/ValhallaAI_Logo.png";
   import norseFontUrl from "./assets/fonts/Norse.otf";
   import norseBoldFontUrl from "./assets/fonts/Norse-Bold.otf";
@@ -17,9 +18,11 @@
   import type { LLMProvider } from "./lib/llm-router";
 
   // "settings" deliberately excluded from this list — it's pinned to the
-  // bottom of the sidebar separately (see the markup below), reserving
-  // that spot for a future sign-in/profile area next to it, same
-  // placement convention as Gemini/most chat apps use.
+  // bottom of the sidebar separately (see the markup below), alongside the
+  // profile chip. Clicking the chip opens its own "profile" tab (identity,
+  // sign-in, per-profile keys), kept separate from "settings" (provider
+  // defaults, Ollama, API keys) -- same split Gemini/most chat apps use
+  // between an account page and an app-settings page.
   const sections = [
     { id: "models", label: "Models & Chat", icon: "💬" },
     { id: "sessions", label: "Sessions", icon: "🕘" },
@@ -131,9 +134,9 @@
 
         <button
           class="profile-chip"
-          class:active={activeTab === "settings"}
-          on:click={() => (activeTab = "settings")}
-          title={signedIn ? "Manage profiles in Settings" : "Sign in from Settings"}
+          class:active={activeTab === "profile"}
+          on:click={() => (activeTab = "profile")}
+          title={signedIn ? "Manage your profile" : "Sign in"}
         >
           {#if activeProfile?.avatarUrl}
             <img class="avatar" src={activeProfile.avatarUrl} alt="" />
@@ -180,6 +183,8 @@
         <VaultBrowser />
       {:else if activeTab === "agents"}
         <AgentControl />
+      {:else if activeTab === "profile"}
+        <Profile />
       {:else if activeTab === "settings"}
         <Settings />
       {/if}
