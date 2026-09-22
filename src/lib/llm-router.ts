@@ -22,7 +22,7 @@
 import { invoke } from "@tauri-apps/api/tauri";
 import { inTauri } from "./provider-keys";
 
-export type LLMProvider = "anthropic" | "anthropic_oauth" | "chatgpt" | "claude_directsdk" | "fireworks" | "google" | "groq" | "huggingface" | "minimax" | "nous" | "ollama" | "openclaw" | "openrouter" | "perplexity" | "qwen" | "replicate" | "together" | "xai_grok";
+export type LLMProvider = "anthropic" | "chatgpt" | "claude_directsdk" | "fireworks" | "google" | "groq" | "huggingface" | "minimax" | "nous" | "ollama" | "openclaw" | "openrouter" | "perplexity" | "qwen" | "replicate" | "together" | "xai_grok";
 
 export interface LLMConfig {
   provider: LLMProvider;
@@ -87,7 +87,6 @@ export async function callLLM(
   try {
     switch (config.provider) {
       case "anthropic":
-      case "anthropic_oauth":
         return await callAnthropic(config, messages);
       case "chatgpt":
         return await callOpenAI(config, messages);
@@ -370,7 +369,7 @@ async function callAnthropic(
  *
  * Spawns the official `claude` CLI, which is already logged in to the
  * Pro/Max subscription. The paid `ANTHROPIC_API_KEY` is stripped from that
- * process. `anthropic` and `anthropic_oauth` still use the API key.
+ * process. `anthropic` still uses the paid API key.
  */
 async function callClaudeDirectSDK(
   config: LLMConfig,
