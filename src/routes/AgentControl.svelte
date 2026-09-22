@@ -57,10 +57,12 @@
       output: "",
     },
     {
-      name: "grok-agent",
-      // No longer claims to be disabled: that is read from agents-config.json
-      // and shown as a badge, because the file can change without this text.
-      blurb: "One-shot Docker container. Calls api.x.ai directly and needs XAI_API_KEY in .env.",
+      name: "grok-build",
+      // Was grok-agent, a one-shot Docker container billed against
+      // XAI_API_KEY -- which is empty on this machine, so it could not run.
+      // The host Grok Build CLI (`grok`, logged in via grok.com) is now the
+      // preferred path, which is why the name changed: this is Grok Build.
+      blurb: "Subscription first via the host Grok Build CLI on your grok.com login. Falls back to the Docker container on XAI_API_KEY only when there is no login.",
       status: "stopped",
       lastRun: null,
       lastResult: "",

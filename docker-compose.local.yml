@@ -49,8 +49,10 @@ services:
     # restart policy would have looped that failure forever too.
     restart: "no"
 
-  # Agent Runtime for Grok (optional, disabled by default in agents-config.json)
-  grok-agent:
+  # Agent Runtime for Grok Build (optional). This is the PAID fallback path --
+  # the host Grok Build CLI on its subscription login is preferred by
+  # scripts/run_agent.sh, and this container only runs when there is no login.
+  grok-build:
     build:
       context: ./agents
       dockerfile: grok/Dockerfile
@@ -60,7 +62,7 @@ services:
     environment:
       - XAI_API_KEY=${XAI_API_KEY}
       - VAULT_PATH=/vault
-      - AGENT_NAME=grok-agent
+      - AGENT_NAME=grok-build
     networks:
       - valhallaai
     profiles:

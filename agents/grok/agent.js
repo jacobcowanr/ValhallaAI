@@ -17,7 +17,7 @@ const path = require("path");
 const { buildPrompt } = require("./task.cjs");
 
 const VAULT_PATH = process.env.VAULT_PATH || "/vault";
-const AGENT_NAME = process.env.AGENT_NAME || "grok-agent";
+const AGENT_NAME = process.env.AGENT_NAME || "grok-build";
 const OUTBOX_FILE = path.join(VAULT_PATH, `AGENT_OUTBOX_${AGENT_NAME}.md`);
 const XAI_API_KEY = process.env.XAI_API_KEY;
 
@@ -86,7 +86,7 @@ async function runAgent() {
 
   const config = readConfig();
   if (!config || !config.enabled) {
-    const message = "grok-agent is disabled in vault/agents-config.json, and XAI_API_KEY is not set. Enable it and add the key before running.";
+    const message = "grok-build is disabled in vault/agents-config.json, and XAI_API_KEY is not set. Enable it and add the key before running.";
     console.error(`[${AGENT_NAME}] ${message}`);
     appendOutbox(`## [${new Date().toISOString()}] ${AGENT_NAME}\n- Status: ERROR\n- Error: ${message}\n`);
     process.exitCode = 1;
