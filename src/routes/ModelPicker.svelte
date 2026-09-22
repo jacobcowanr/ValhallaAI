@@ -237,6 +237,11 @@
               Nous Portal uses the local Hermes proxy. Run <code>hermes portal</code> once, then leave
               <code>hermes proxy start</code> running. No API key.
             </p>
+          {:else if selectedProvider === "claude_directsdk"}
+            <p class="hint">
+              Uses your Claude subscription through the <code>claude</code> CLI
+              (<code>claude auth login</code>). Does not use the paid API key.
+            </p>
           {:else if !apiKey && selectedProvider !== "ollama"}
             <p class="hint">
               No API key set for {PROVIDERS[selectedProvider]?.name} yet — add one in

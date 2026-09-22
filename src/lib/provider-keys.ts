@@ -23,7 +23,6 @@ export async function loadEnvProviderKeys(): Promise<void> {
     }
     if (next.anthropic) {
       next.anthropic_oauth = next.anthropic;
-      next.claude_directsdk = next.anthropic;
     }
     cache = next;
   } catch {
