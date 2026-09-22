@@ -34,13 +34,15 @@ ValhallaAI/
 ├─ svelte.config.js        — Svelte preprocessor config
 ├─ src/
 │  ├─ main.js              — mounts App.svelte into index.html's #app
-│  ├─ App.svelte           — sidebar shell (Models & Chat, Sessions, Vault, Agents, Settings)
+│  ├─ App.svelte           — sidebar shell (Models & Chat, Recent, Projects, Sessions, Vault, Agents, Profile, Settings)
 │  ├─ routes/              — those screens
 │  └─ lib/
 │     ├─ llm-router.ts     — the ONLY place that talks to provider APIs
 │     ├─ providers.ts      — the ONLY provider catalog
 │     ├─ provider-keys.ts  — loads the allowlisted .env keys through Tauri
-│     └─ sessions.ts       — chat sessions in localStorage
+│     ├─ sessions.ts       — chat sessions in localStorage; project is a label, not a container
+│     ├─ custom-providers.ts — user-defined providers, registered at startup
+│     └─ custom-agents.ts  — user-defined agents, bound to an allowlisted runtime
 ├─ src-tauri/src/main.rs   — run_agent, provider_keys, vault_status
 ├─ agents/                 — Claude and Grok images. Hermes runs on the host
 ├─ scripts/run_agent.sh    — one-shot runner shared by the UI and the terminal

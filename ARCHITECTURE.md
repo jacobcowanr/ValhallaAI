@@ -134,7 +134,7 @@ User picks a **default provider + model**, saved to `localStorage`. Nothing is h
 Split out of Settings.svelte on 2026-09-22 — identity (who is signed in) and
 app configuration (which provider/model/keys) were sharing one page for no
 reason but history. Reached from the **profile card at the top of the
-sidebar** (above "New Session" — see §4.7 for the full layout), not from the
+sidebar** (above the nav — see §4.7 for the full layout), not from the
 `sections` array or the Settings gear.
 
 Owns profile management (create, rename, delete, switch — the mechanics live
