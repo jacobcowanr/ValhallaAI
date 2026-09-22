@@ -368,21 +368,31 @@ async function callAnthropic(
 /**
  * Claude Subscription DirectSDK.
  *
- * NOT YET IMPLEMENTED as a distinct path — this currently aliases straight
- * to callAnthropic() with a plain x-api-key, same as `anthropic` and
- * `anthropic_oauth`. All three provider ids are listed separately because
- * they're distinct *products* (a plain API key vs. Claude.ai OAuth vs.
- * the Hermes DirectSDK plugin that spawns the local `claude` CLI against a
- * Pro/Max subscription — see the Obsidian vault's Hermes — Local Setup.md
- * for how that actually works today in Hermes itself), but ValhallaAI doesn't
- * yet implement the OAuth or CLI-spawn flows — only the API-key path is
- * real. Flagged honestly rather than left to look implemented.
+ * Spawns the official `claude` CLI, which is already logged in to the
+ * Pro/Max subscription. The paid `ANTHROPIC_API_KEY` is stripped from that
+ * process. `anthropic` and `anthropic_oauth` still use the API key.
  */
 async function callClaudeDirectSDK(
   config: LLMConfig,
   messages: LLMMessage[]
 ): Promise<LLMResponse> {
-  return await callAnthropic(config, messages);
+  if (!inTauri()) {
+    return {
+      success: false,
+      error: "Claude Subscription DirectSDK only runs inside the desktop app. It uses `claude auth login`, not the API key.",
+    };
+  }
+  try {
+    return await invoke<LLMResponse>("claude_subscription", {
+      request: {
+        model: config.model,
+        messages: toAnthropicMessages(messages),
+      },
+    });
+  } catch (error) {
+    const message = typeof error === "string" ? error : error instanceof Error ? error.message : "Claude CLI request failed";
+    return { success: false, error: message };
+  }
 }
 
 /**

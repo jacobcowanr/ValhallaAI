@@ -19,7 +19,7 @@
   // Ollama is local and unauthenticated. Nous Portal goes through the
   // Hermes subscription proxy, which attaches its own credential, so a
   // pasted key is not sent.
-  const KEYLESS_PROVIDERS = new Set<LLMProvider>(["ollama", "nous"]);
+  const KEYLESS_PROVIDERS = new Set<LLMProvider>(["ollama", "nous", "claude_directsdk"]);
   const KEY_EDITABLE_PROVIDERS = PROVIDER_ENTRIES.filter(([id]) => !KEYLESS_PROVIDERS.has(id));
 
   function defaultKeyProvider(preferred: LLMProvider): LLMProvider {
@@ -225,7 +225,8 @@
       <h3>API Keys</h3>
       <p class="section-description">
         A provider with a key in the project .env uses that key. Otherwise a key saved here is stored in this
-        app only and sent only to that provider. Ollama and Nous Portal need no key.
+        app only and sent only to that provider. Ollama, Nous Portal, and Claude Subscription DirectSDK need no key.
+        DirectSDK uses the Claude CLI login.
       </p>
 
       <div class="field">

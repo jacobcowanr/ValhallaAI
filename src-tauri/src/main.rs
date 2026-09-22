@@ -105,6 +105,190 @@ struct ChatReply {
     usage: Option<TokenUsage>,
 }
 
+fn subscription_env() -> std::collections::HashMap<String, String> {
+    let mut env: std::collections::HashMap<String, String> = std::env::vars().collect();
+    for key in [
+        "ANTHROPIC_API_KEY",
+        "ANTHROPIC_AUTH_TOKEN",
+        "ANTHROPIC_BASE_URL",
+        "ANTHROPIC_FOUNDRY_API_KEY",
+        "CLAUDE_CODE_EXTRA_BODY",
+        "CLAUDE_CODE_USE_BEDROCK",
+        "CLAUDE_CODE_USE_VERTEX",
+        "CLAUDE_CODE_USE_FOUNDRY",
+    ] {
+        env.remove(key);
+    }
+    env.insert("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC".into(), "1".into());
+    env
+}
+
+fn claude_bin() -> String {
+    std::env::var("CLAUDE_SUBSCRIPTION_DIRECTSDK_COMMAND").unwrap_or_else(|_| "claude".to_string())
+}
+
+/// Claude Pro/Max via the official `claude` CLI. The paid API key is removed
+/// from the child environment so this cannot silently bill `ANTHROPIC_API_KEY`.
+#[tauri::command]
+fn claude_subscription(request: AnthropicRequest) -> ChatReply {
+    let bin = claude_bin();
+    let auth = Command::new(&bin)
+        .args(["auth", "status"])
+        .env_clear()
+        .envs(subscription_env())
+        .output();
+    let auth_output = match auth {
+        Ok(output) => output,
+        Err(err) => {
+            return ChatReply {
+                success: false,
+                content: None,
+                error: Some(format!(
+                    "Claude CLI is not installed ({err}). Install it with npm install -g @anthropic-ai/claude-code, then run claude auth login."
+                )),
+                usage: None,
+            };
+        }
+    };
+    let auth_text = String::from_utf8_lossy(&auth_output.stdout);
+    let logged_in = serde_json::from_str::<serde_json::Value>(&auth_text)
+        .ok()
+        .and_then(|value| value.get("loggedIn").and_then(|flag| flag.as_bool()))
+        .unwrap_or(false);
+    if !logged_in {
+        return ChatReply {
+            success: false,
+            content: None,
+            error: Some(
+                "Claude CLI is not logged in. Run `claude auth login` in a terminal, then try again. This does not use the API key."
+                    .to_string(),
+            ),
+            usage: None,
+        };
+    }
+
+    let mut prompt = String::from(
+        "You are answering inside ValhallaAI. Reply to the latest user message. Do not use tools.\n\n",
+    );
+    for turn in &request.messages {
+        let speaker = if turn.role == "assistant" { "Assistant" } else { "User" };
+        prompt.push_str(speaker);
+        prompt.push_str(": ");
+        prompt.push_str(&turn.content);
+        prompt.push_str("\n\n");
+    }
+
+    let dir = std::env::temp_dir().join(format!(
+        "valhallaai-claude-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    ));
+    if let Err(err) = fs::create_dir_all(&dir) {
+        return ChatReply {
+            success: false,
+            content: None,
+            error: Some(format!("Could not create a private working directory: {err}")),
+            usage: None,
+        };
+    }
+
+    let mut child = match Command::new(&bin)
+        .args([
+            "-p",
+            "--model",
+            &request.model,
+            "--output-format",
+            "text",
+            "--permission-mode",
+            "dontAsk",
+            "--permission-prompts",
+            "none",
+            "--no-session-persistence",
+            "--disable-slash-commands",
+            "--setting-sources",
+            "",
+        ])
+        .current_dir(&dir)
+        .env_clear()
+        .envs(subscription_env())
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+    {
+        Ok(child) => child,
+        Err(err) => {
+            let _ = fs::remove_dir_all(&dir);
+            return ChatReply {
+                success: false,
+                content: None,
+                error: Some(format!("Could not start the Claude CLI: {err}")),
+                usage: None,
+            };
+        }
+    };
+
+    if let Some(mut stdin) = child.stdin.take() {
+        use std::io::Write;
+        let _ = stdin.write_all(prompt.as_bytes());
+    }
+    let finished = std::thread::spawn(move || child.wait_with_output());
+    let output = match finished.join() {
+        Ok(Ok(output)) => output,
+        Ok(Err(err)) => {
+            let _ = fs::remove_dir_all(&dir);
+            return ChatReply {
+                success: false,
+                content: None,
+                error: Some(format!("Claude CLI failed: {err}")),
+                usage: None,
+            };
+        }
+        Err(_) => {
+            let _ = fs::remove_dir_all(&dir);
+            return ChatReply {
+                success: false,
+                content: None,
+                error: Some("Claude CLI thread failed".to_string()),
+                usage: None,
+            };
+        }
+    };
+    let _ = fs::remove_dir_all(&dir);
+
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    if !output.status.success() {
+        let detail = if stderr.is_empty() { stdout } else { stderr };
+        return ChatReply {
+            success: false,
+            content: None,
+            error: Some(if detail.is_empty() {
+                format!("Claude CLI exited {}", output.status)
+            } else {
+                detail.chars().take(500).collect()
+            }),
+            usage: None,
+        };
+    }
+    if stdout.is_empty() {
+        return ChatReply {
+            success: false,
+            content: None,
+            error: Some("Claude CLI returned no text".to_string()),
+            usage: None,
+        };
+    }
+    ChatReply {
+        success: true,
+        content: Some(stdout),
+        error: None,
+        usage: None,
+    }
+}
+
 /// Anthropic calls go out from this process. The webview's own fetch is
 /// rejected ("Load failed") because the window sends an Origin header.
 #[tauri::command]
@@ -262,7 +446,8 @@ fn main() {
             run_agent,
             provider_keys,
             vault_status,
-            anthropic_messages
+            anthropic_messages,
+            claude_subscription
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
