@@ -500,6 +500,12 @@ struct GoogleIdentity {
     email: String,
     name: String,
     avatar_url: String,
+    /// From the id_token's `email_verified` claim. Google sets this false
+    /// only in edge cases (e.g. some unverified Workspace setups), so it is
+    /// surfaced rather than enforced -- refusing sign-in on it would risk
+    /// locking out the account's real owner over a claim this app did not
+    /// ask Google to guarantee.
+    email_verified: bool,
 }
 
 fn b64url(bytes: &[u8]) -> String {
@@ -790,6 +796,16 @@ fn google_sign_in(client_id: String) -> Result<GoogleIdentity, String> {
             .to_string()
     };
 
+    // Google sends this as a native JSON boolean. Some OIDC providers send
+    // the string "true"/"false" instead, which is why both shapes are
+    // handled here even though only the Google endpoint is ever the caller
+    // today -- a provider-shape assumption that only holds for one provider
+    // is the kind of thing that breaks quietly later.
+    let email_verified = claims
+        .get("email_verified")
+        .map(|v| v.as_bool().unwrap_or_else(|| v.as_str() == Some("true")))
+        .unwrap_or(false);
+
     // Without an email claim there is nothing to show and nothing that proves
     // who signed in, so this fails loudly rather than returning empty strings
     // and leaving the UI in a half-signed-in state that looks like a no-op.
@@ -805,6 +821,7 @@ fn google_sign_in(client_id: String) -> Result<GoogleIdentity, String> {
         email,
         name: claim("name"),
         avatar_url: claim("picture"),
+        email_verified,
     })
 }
 

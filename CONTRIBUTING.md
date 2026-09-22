@@ -160,6 +160,43 @@ against and nothing syncs. The only network traffic is the handshake.
   keeps its name. Signing out clears the identity fields only — sessions, keys,
   and prefs belong to the machine, not the Google account.
 
+### First-launch onboarding and email verification
+
+Added 2026-09-22, alongside splitting Profile out of Settings (see
+[ARCHITECTURE.md §4.2c](./ARCHITECTURE.md#42c-onboarding-srcroutesonboardingsvelte)
+and [§4.2b](./ARCHITECTURE.md#42b-profile-srcroutesprofilesvelte)).
+
+- **`Onboarding.svelte` is skippable, not a gate.** Jacob explicitly chose
+  "identity on a profile" over "lock the app behind sign-in" the first time
+  Google sign-in came up this session, specifically because a mandatory
+  account requirement contradicts the local-first, no-backend premise
+  ValhallaAI is built on. A "verified email at startup" request later in the
+  same session reads, in isolation, like it could mean a hard gate — it was
+  built as a skippable welcome prompt instead, consistent with the earlier
+  explicit decision, and that reasoning is written into the component's own
+  comment so a later edit does not silently reverse it without noticing the
+  tension.
+- **`Profile.emailVerified`** comes from the id_token's `email_verified`
+  claim, captured once at sign-in and never re-checked (there is nothing to
+  re-check against — no token is retained). It is **surfaced, not enforced**:
+  Google sets it false only in edge cases (some unverified Workspace setups),
+  and refusing sign-in on it would risk locking out the account's real owner
+  over a claim this app never asked Google to guarantee. Shown as a
+  Verified/Unverified badge on the Profile page.
+- **`signInProfileWithGoogle()` / `signOutProfile()` / `completeOnboardingLocally()`
+  live in `profiles.ts`**, not in either route component. `Profile.svelte` and
+  `Onboarding.svelte` both need the identical OAuth call; duplicating it in
+  two components would repeat the exact mistake the provider catalog already
+  made once this session (see "Model lists rot, and silently" above).
+- **Existing profiles are grandfathered in.** `initProfiles()` backfills
+  `onboarded: true` for any profile with no `onboarded` field at all, on
+  first load after this shipped — a profile already in daily use has
+  definitely had a "first run," even though nothing ever recorded it. Only
+  `createProfile()`-made profiles see the prompt, because that function
+  deliberately leaves the field unset. Verified in a browser: a profile
+  carrying a real sign-in and no `onboarded` field does not see the overlay
+  once the backfill runs on load.
+
 ### Finding the project from a bundled app
 
 Every backend command needs the checkout: `.env`, `vault/`, `scripts/`, and

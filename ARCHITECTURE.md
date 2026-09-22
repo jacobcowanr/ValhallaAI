@@ -124,19 +124,52 @@ User picks a **default provider + model**, saved to `localStorage`. Nothing is h
 ### 4.2b Profile (`src/routes/Profile.svelte`)
 Split out of Settings.svelte on 2026-09-22 — identity (who is signed in) and
 app configuration (which provider/model/keys) were sharing one page for no
-reason but history. Reached from the sidebar's profile chip, not from the
+reason but history. Reached from the **profile card at the top of the
+sidebar** (above "New Session" — see §4.7 for the full layout), not from the
 `sections` array or the Settings gear.
 
 Owns profile management (create, rename, delete, switch — the mechanics live
 in `src/lib/profiles.ts`, see [CONTRIBUTING.md](./CONTRIBUTING.md#profiles-and-per-profile-storage))
 and Google sign-in (see [CONTRIBUTING.md](./CONTRIBUTING.md#sign-in-with-google)).
 Also owns the per-profile `ignoreEnvKeys` toggle, since that is a property of
-the profile, not of any one provider.
+the profile, not of any one provider. Shows a **Verified**/**Unverified**
+badge next to the email, sourced from the id_token's `email_verified` claim
+captured at sign-in (`Profile.emailVerified` in `profiles.ts`) — not
+re-checked afterward, since no token is retained to re-check against.
 
 Deliberately does not import anything from Settings.svelte or vice versa —
 the only shared dependency is the `profiles` store itself. A profile knowing
 nothing about *which* provider you picked, and Settings knowing nothing about
-*who* you are, is what makes the split real rather than cosmetic.
+*who* you are, is what makes the split real rather than cosmetic. The actual
+Google OAuth call lives in `profiles.ts` (`signInProfileWithGoogle`), not in
+this file, because `Onboarding.svelte` (§4.2c) needs the identical call and
+duplicating it was the same mistake the provider catalog already made once.
+
+### 4.2c Onboarding (`src/routes/Onboarding.svelte`)
+A first-launch welcome overlay, mounted unconditionally at the top of
+`App.svelte` and self-hiding: `visible` is derived directly from
+`!activeProfile?.onboarded`, so there is no local open/close state to fall
+out of sync with the profile store. Offers **Sign in with Google** or
+**Continue without an account** — both are equally valid dismissals, there is
+no backdrop-click or Escape handler, because this is a welcome screen, not a
+gate.
+
+**Deliberately not mandatory.** Jacob chose "identity on a profile" over
+"lock the app behind sign-in" earlier in the same session that built Google
+sign-in (see the [2026-09-22 02:18] entry in `vault/AGENT_SYNC.md`) precisely
+because ValhallaAI has no backend and gating local, offline software behind
+an account contradicts §3's "self-hosted and user-owned" premise. This
+overlay surfaces the choice at the moment it is most relevant instead of
+requiring you to find Settings — it does not reverse that earlier decision.
+
+**Only a genuinely new profile sees this.** `initProfiles()` in `profiles.ts`
+backfills `onboarded: true` for every profile that existed before this field
+was introduced, on the reasoning that a profile already in use has definitely
+had a "first run," even though nothing ever set the flag. Only
+`createProfile()`-created profiles (deliberately, that function does not set
+the field) see the prompt. Verified in a browser: a profile carrying no
+`onboarded` field and an existing sign-in does **not** see the overlay after
+the backfill runs; a genuinely fresh install does.
 
 ### 4.3 Model Picker (`src/routes/ModelPicker.svelte`)
 Loads the saved default on mount, lets the user override per-conversation, sends through the router, renders responses with token usage.
@@ -181,6 +214,30 @@ Each agent is one-shot:
 4. Exits
 
 Hermes runs on the host because the installed CLI is a macOS virtualenv under `~/.hermes`. A Linux container cannot execute that binary, and installing a second Hermes that shares the same home would race the proxy that is already running. Claude and Grok stay as Docker containers. Claude exits with an error if `ANTHROPIC_API_KEY` is unset, instead of calling the API and then exiting 0. Grok calls `api.x.ai` directly. It exits with an error when `agents-config.json` has `"enabled": false` or when `XAI_API_KEY` is unset. It does not use the Hermes proxy. Grok models in chat go through Nous Portal (`x-ai/grok-4.7` and the other `x-ai/*` ids), which is a different path and does not need that key.
+
+### 4.7 App shell and sidebar (`src/App.svelte`)
+Top to bottom, as of 2026-09-22:
+
+1. **Profile card** — avatar, name, email (or "Sign in" if no identity is
+   attached). Clicking it opens Profile (§4.2b). At the very top of the
+   column, above New Session — identity is the first thing you see, mirroring
+   Settings' gear being the last.
+2. **Profile switcher** — a `<select>`, only rendered when `$profiles.length
+   > 1`. Switching calls `switchProfile()`, which reloads the window (see
+   that function's comment in `profiles.ts` for why).
+3. **New Session**
+4. **`sections` nav** — Models & Chat, Sessions, Vault Browser, Agent
+   Control. `activeTab` is a plain string, not a router; each value maps to
+   one component in a single `{#if}/{:else if}` chain in the template.
+5. **`sidebar-bottom`** (`margin-top: auto` pins it) — Settings only.
+   Profile used to live here too, as a small chip; it moved to the top of the
+   list in the same pass that gave it its own page (§4.2b), so identity and
+   app-configuration now anchor opposite ends of the sidebar instead of
+   sharing one corner.
+
+`Onboarding.svelte` (§4.2c) is mounted once, unconditionally, above the
+`.shell` div — it is `position: fixed`, so its place in the DOM does not
+affect layout, only stacking order.
 
 ## 5. Data flow: sending a chat message
 

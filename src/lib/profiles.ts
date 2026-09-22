@@ -34,10 +34,20 @@ export interface Profile {
   name: string;
   /** Populated by Google sign-in. Absent on a local-only profile. */
   email?: string;
+  /** From the id_token's email_verified claim at the time of sign-in. Not
+   * re-checked afterward -- there is nothing to re-check against, since no
+   * token is kept (see CONTRIBUTING's "Sign in with Google"). Absent means
+   * "never signed in", not "unverified"; check isSignedIn() first. */
+  emailVerified?: boolean;
   avatarUrl?: string;
   authProvider?: "google" | "github";
   /** When true this profile ignores .env and uses only its own keys. */
   ignoreEnvKeys?: boolean;
+  /** Set once the first-launch welcome prompt has been shown and dismissed
+   * (by signing in OR by explicitly continuing without an account) for this
+   * profile. Missing/false means show it. Per-profile, not global: a new
+   * profile is a new identity and gets its own first-run moment. */
+  onboarded?: boolean;
   createdAt: number;
 }
 
@@ -161,8 +171,26 @@ function initProfiles(): void {
   // rather than leaving an empty namespace that reads as "no history".
   if (!active || !loaded.some((p) => p.id === active)) active = loaded[0].id;
 
+  // Grandfather in profiles that existed before the onboarding prompt shipped.
+  // "onboarded" means "has had a first-run moment" -- a profile that was
+  // already in daily use when this field was introduced has definitely had
+  // one, even though nothing ever set the flag. Without this, every existing
+  // user would see a "welcome, first time here?" prompt for an account they
+  // have used for days. Only a profile created AFTER this ships (via
+  // createProfile(), which deliberately does not set this field) is actually
+  // new and should see it.
+  let backfilled = false;
+  loaded = loaded.map((p) => {
+    if (p.onboarded === undefined) {
+      backfilled = true;
+      return { ...p, onboarded: true };
+    }
+    return p;
+  });
+
   profiles.set(loaded);
   activeProfileId.set(active);
+  if (backfilled) persistProfiles();
 }
 
 initProfiles();
@@ -243,4 +271,78 @@ export function switchProfile(id: string): void {
   activeProfileId.set(id);
   persistProfiles();
   if (typeof location !== "undefined") location.reload();
+}
+
+// ---------------------------------------------------------------------------
+// Google sign-in
+// ---------------------------------------------------------------------------
+//
+// Lives here, not in a route component, because two different UI surfaces
+// need it: Profile.svelte (sign in from the profile page) and the first-launch
+// onboarding prompt (sign in from the welcome screen). Duplicating the invoke
+// call and the patch-building logic in both was the exact mistake the
+// provider catalog already made once this session -- one copy, both callers.
+
+export interface GoogleIdentity {
+  email: string;
+  name: string;
+  avatarUrl: string;
+  emailVerified: boolean;
+}
+
+// Public by design: a Desktop-app client id ships inside the binary, and
+// PKCE -- not a secret -- is what protects the exchange. Read from .env only
+// so a different machine can use a different client without a code change.
+// There is no client secret anywhere in this app.
+export function googleClientId(): string {
+  return (import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined) ?? "";
+}
+
+// Names the app assigned, not ones the user chose. Signing in overwrites
+// these with the Google display name; a profile the user deliberately
+// renamed keeps its name.
+const AUTO_PROFILE_NAMES = new Set(["Local", "New profile"]);
+
+/**
+ * Sign a profile in with Google and patch it with the result.
+ *
+ * Throws on failure (network, denied consent, missing client id) -- callers
+ * are expected to catch and display `err.message`, since the Rust side
+ * already produces a specific, actionable message per failure case (see
+ * CONTRIBUTING's "Sign in with Google").
+ */
+export async function signInProfileWithGoogle(profileId: string): Promise<void> {
+  const { invoke } = await import("@tauri-apps/api/tauri");
+  const identity = await invoke<GoogleIdentity>("google_sign_in", {
+    clientId: googleClientId(),
+  });
+  const profile = get(profiles).find((p) => p.id === profileId);
+  const patch: Partial<Profile> = {
+    email: identity.email,
+    emailVerified: identity.emailVerified,
+    avatarUrl: identity.avatarUrl,
+    authProvider: "google",
+    onboarded: true,
+  };
+  if (identity.name && profile && AUTO_PROFILE_NAMES.has(profile.name)) {
+    patch.name = identity.name;
+  }
+  updateProfile(profileId, patch);
+}
+
+/** Clears identity only -- sessions, keys, and prefs belong to the machine,
+ * not the Google account, so they are untouched. */
+export function signOutProfile(profileId: string): void {
+  updateProfile(profileId, {
+    email: undefined,
+    emailVerified: undefined,
+    avatarUrl: undefined,
+    authProvider: undefined,
+  });
+}
+
+/** Marks onboarding complete without signing in. Used by the "Continue
+ * without an account" path on the first-launch prompt. */
+export function completeOnboardingLocally(profileId: string): void {
+  updateProfile(profileId, { onboarded: true });
 }

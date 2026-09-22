@@ -6,6 +6,7 @@
   import Sessions from "./routes/Sessions.svelte";
   import Settings from "./routes/Settings.svelte";
   import Profile from "./routes/Profile.svelte";
+  import Onboarding from "./routes/Onboarding.svelte";
   import logoWordmark from "./assets/ValhallaAI_Logo.png";
   import norseFontUrl from "./assets/fonts/Norse.otf";
   import norseBoldFontUrl from "./assets/fonts/Norse-Bold.otf";
@@ -18,11 +19,13 @@
   import type { LLMProvider } from "./lib/llm-router";
 
   // "settings" deliberately excluded from this list — it's pinned to the
-  // bottom of the sidebar separately (see the markup below), alongside the
-  // profile chip. Clicking the chip opens its own "profile" tab (identity,
-  // sign-in, per-profile keys), kept separate from "settings" (provider
-  // defaults, Ollama, API keys) -- same split Gemini/most chat apps use
-  // between an account page and an app-settings page.
+  // bottom of the sidebar separately (see the markup below). The profile
+  // card lives at the TOP of the sidebar instead, above "New Session" --
+  // identity is the first thing in the column, app config (Settings) is
+  // the last. Clicking the profile card opens its own "profile" tab,
+  // still fully separate from "settings" (provider defaults, Ollama, API
+  // keys) -- same split Gemini/most chat apps use between an account
+  // surface and an app-settings page.
   const sections = [
     { id: "models", label: "Models & Chat", icon: "💬" },
     { id: "sessions", label: "Sessions", icon: "🕘" },
@@ -97,9 +100,57 @@
   }
 </script>
 
+<Onboarding />
+
 <div class="shell">
   {#if sidebarOpen}
     <aside class="sidebar">
+      <!-- Identity first, at the very top of the column -- above New
+           Session, which used to be the first thing here. Settings
+           (app config) stays pinned at the bottom via .sidebar-bottom;
+           this is the account-surface counterpart at the opposite end. -->
+      <button
+        class="profile-card"
+        class:active={activeTab === "profile"}
+        on:click={() => (activeTab = "profile")}
+        title={signedIn ? "Manage your profile" : "Sign in"}
+      >
+        {#if activeProfile?.avatarUrl}
+          <img class="avatar" src={activeProfile.avatarUrl} alt="" />
+        {:else}
+          <span class="avatar avatar-initial">{profileInitial}</span>
+        {/if}
+        <!-- Signed out, the top line is the call to action and the profile
+             name drops underneath -- the profile is still worth showing
+             (it says which namespace you're in) but "Sign in" is the thing
+             worth reading first. Signed in, that inverts: who you are on
+             top, the account underneath. -->
+        <span class="profile-text">
+          {#if signedIn}
+            <span class="profile-name">{activeProfile?.name}</span>
+            <span class="profile-sub">{activeProfile?.email}</span>
+          {:else}
+            <span class="profile-name">Sign in</span>
+            <span class="profile-sub">{activeProfile?.name ?? "Local"}</span>
+          {/if}
+        </span>
+      </button>
+
+      {#if $profiles.length > 1}
+        <div class="profile-switch">
+          <label class="profile-switch-label" for="profile-select">Switch profile</label>
+          <select
+            id="profile-select"
+            value={$activeProfileId}
+            on:change={handleProfileChange}
+          >
+            {#each $profiles as profile}
+              <option value={profile.id}>{profile.name}</option>
+            {/each}
+          </select>
+        </div>
+      {/if}
+
       <button class="new-session-btn" on:click={startNewSession}>
         <span class="icon">+</span> New Session
       </button>
@@ -113,52 +164,8 @@
         {/each}
       </nav>
 
-      <!-- Pinned to the bottom via margin-top: auto on .sidebar-bottom.
-           The profile switcher now occupies the space reserved for it
-           alongside Settings. -->
+      <!-- Pinned to the bottom via margin-top: auto on .sidebar-bottom. -->
       <div class="sidebar-bottom">
-        {#if $profiles.length > 1}
-          <div class="profile-switch">
-            <label class="profile-switch-label" for="profile-select">Profile</label>
-            <select
-              id="profile-select"
-              value={$activeProfileId}
-              on:change={handleProfileChange}
-            >
-              {#each $profiles as profile}
-                <option value={profile.id}>{profile.name}</option>
-              {/each}
-            </select>
-          </div>
-        {/if}
-
-        <button
-          class="profile-chip"
-          class:active={activeTab === "profile"}
-          on:click={() => (activeTab = "profile")}
-          title={signedIn ? "Manage your profile" : "Sign in"}
-        >
-          {#if activeProfile?.avatarUrl}
-            <img class="avatar" src={activeProfile.avatarUrl} alt="" />
-          {:else}
-            <span class="avatar avatar-initial">{profileInitial}</span>
-          {/if}
-          <!-- Signed out, the top line is the call to action and the profile
-               name drops underneath -- the profile is still worth showing
-               (it says which namespace you're in) but "Sign in" is the thing
-               worth reading first. Signed in, that inverts: who you are on
-               top, the account underneath. -->
-          <span class="profile-text">
-            {#if signedIn}
-              <span class="profile-name">{activeProfile?.name}</span>
-              <span class="profile-sub">{activeProfile?.email}</span>
-            {:else}
-              <span class="profile-name">Sign in</span>
-              <span class="profile-sub">{activeProfile?.name ?? "Local"}</span>
-            {/if}
-          </span>
-        </button>
-
         <button class:active={activeTab === "settings"} on:click={() => (activeTab = "settings")}>
           <span class="icon">⚙</span>
           Settings
@@ -255,6 +262,91 @@
     display: flex;
     flex-direction: column;
     padding: 1.5rem 1rem;
+  }
+
+  .profile-card {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    width: 100%;
+    padding: 0.6rem 0.65rem;
+    margin-bottom: 0.5rem;
+    text-align: left;
+    border-radius: 8px;
+  }
+
+  .avatar {
+    flex-shrink: 0;
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    object-fit: cover;
+  }
+
+  .avatar-initial {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--accent);
+    color: var(--accent-text);
+    font-size: 0.95rem;
+    font-weight: 600;
+  }
+
+  /* min-width:0 lets the ellipsis actually engage inside a flex child. */
+  .profile-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    line-height: 1.3;
+  }
+
+  .profile-name,
+  .profile-sub {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .profile-name {
+    color: var(--text-primary);
+    letter-spacing: 0.05em;
+  }
+
+  /* An email address is data, not branding -- it has no business in a
+     display face. Norse renders it in caps with angular strokes, which is
+     unreadable at this size. Body font, no opacity dimming, and normal
+     tracking: 3.36:1 -> 7.1:1, and it renders in real lowercase. */
+  .profile-sub {
+    font-family: var(--font-body);
+    font-size: 0.78rem;
+    letter-spacing: 0;
+    color: var(--text-secondary);
+    text-transform: none;
+  }
+
+  .profile-switch {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    padding: 0 0.15rem 0.9rem;
+  }
+
+  .profile-switch-label {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    opacity: 0.6;
+  }
+
+  .profile-switch select {
+    font-family: inherit;
+    font-size: 0.85rem;
+    padding: 0.35rem 0.4rem;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-surface);
+    color: var(--text-primary);
   }
 
   .new-session-btn {
@@ -381,87 +473,6 @@
   .sidebar-toggle:hover {
     color: var(--text-primary);
     background: var(--bg-surface-hover);
-  }
-
-  .profile-switch {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-    padding: 0 0.5rem 0.5rem;
-  }
-
-  .profile-switch-label {
-    font-size: 0.7rem;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    opacity: 0.6;
-  }
-
-  .profile-switch select {
-    font-family: inherit;
-    font-size: 0.85rem;
-    padding: 0.35rem 0.4rem;
-    border-radius: 6px;
-    border: 1px solid var(--border-color);
-    background: var(--bg-surface);
-    color: var(--text-primary);
-  }
-
-  .profile-chip {
-    display: flex;
-    align-items: center;
-    gap: 0.6rem;
-    text-align: left;
-  }
-
-  .avatar {
-    flex-shrink: 0;
-    width: 26px;
-    height: 26px;
-    border-radius: 50%;
-    object-fit: cover;
-  }
-
-  .avatar-initial {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    background: var(--accent);
-    color: var(--accent-text);
-    font-size: 0.8rem;
-    font-weight: 600;
-  }
-
-  /* min-width:0 lets the ellipsis actually engage inside a flex child. */
-  .profile-text {
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-    line-height: 1.25;
-  }
-
-  .profile-name,
-  .profile-sub {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .profile-name {
-    color: var(--text-primary);
-    letter-spacing: 0.05em;
-  }
-
-  /* An email address is data, not branding -- it has no business in a
-     display face. Norse renders it in caps with angular strokes, which is
-     unreadable at this size. Body font, no opacity dimming, and normal
-     tracking: 3.36:1 -> 7.1:1, and it renders in real lowercase. */
-  .profile-sub {
-    font-family: var(--font-body);
-    font-size: 0.75rem;
-    letter-spacing: 0;
-    color: var(--text-secondary);
-    text-transform: none;
   }
 
   .content {
