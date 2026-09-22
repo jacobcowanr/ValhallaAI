@@ -672,7 +672,7 @@
   }
 
   .empty-logo {
-    height: 72px;
+    height: 168px;
     width: auto;
     margin-bottom: 1.25rem;
   }
