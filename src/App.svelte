@@ -13,6 +13,7 @@
   // there on why an onMount call here was the wrong place for it).
   import { createSession } from "./lib/sessions";
   import { FALLBACK_PROVIDER, FALLBACK_MODEL } from "./lib/providers";
+  import { scopedKey, profiles, activeProfileId, switchProfile, isSignedIn } from "./lib/profiles";
   import type { LLMProvider } from "./lib/llm-router";
 
   // "settings" deliberately excluded from this list — it's pinned to the
@@ -34,7 +35,7 @@
     // Settings.svelte and ModelPicker.svelte already read from.
     let provider: LLMProvider = FALLBACK_PROVIDER;
     let model = FALLBACK_MODEL;
-    const prefs = localStorage.getItem("valhallaai-prefs");
+    const prefs = localStorage.getItem(scopedKey("valhallaai-prefs"));
     if (prefs) {
       try {
         const parsed = JSON.parse(prefs) as { defaultProvider?: LLMProvider; defaultModel?: string };
@@ -46,6 +47,19 @@
     }
     createSession(provider, model);
     activeTab = "models";
+  }
+
+  // The chip shows who the active profile is. Reactive on $profiles too,
+  // not just $activeProfileId, so a rename in Settings updates it without
+  // needing a switch.
+  $: activeProfile = $profiles.find((p) => p.id === $activeProfileId) ?? null;
+  $: profileInitial = (activeProfile?.name ?? "L").trim().charAt(0).toUpperCase() || "L";
+  $: signedIn = isSignedIn(activeProfile);
+
+  // switchProfile() reloads the window (see its comment in profiles.ts),
+  // so nothing after this call runs -- no local state needs updating here.
+  function handleProfileChange(e: Event): void {
+    switchProfile((e.currentTarget as HTMLSelectElement).value);
   }
 
   // Sidebar can be hidden entirely — persisted so it stays hidden/shown
@@ -97,9 +111,51 @@
       </nav>
 
       <!-- Pinned to the bottom via margin-top: auto on .sidebar-bottom.
-           Reserved space for a future sign-in/profile area alongside
-           Settings — not built yet, just the layout accommodating it. -->
+           The profile switcher now occupies the space reserved for it
+           alongside Settings. -->
       <div class="sidebar-bottom">
+        {#if $profiles.length > 1}
+          <div class="profile-switch">
+            <label class="profile-switch-label" for="profile-select">Profile</label>
+            <select
+              id="profile-select"
+              value={$activeProfileId}
+              on:change={handleProfileChange}
+            >
+              {#each $profiles as profile}
+                <option value={profile.id}>{profile.name}</option>
+              {/each}
+            </select>
+          </div>
+        {/if}
+
+        <button
+          class="profile-chip"
+          class:active={activeTab === "settings"}
+          on:click={() => (activeTab = "settings")}
+          title={signedIn ? "Manage profiles in Settings" : "Sign in from Settings"}
+        >
+          {#if activeProfile?.avatarUrl}
+            <img class="avatar" src={activeProfile.avatarUrl} alt="" />
+          {:else}
+            <span class="avatar avatar-initial">{profileInitial}</span>
+          {/if}
+          <!-- Signed out, the top line is the call to action and the profile
+               name drops underneath -- the profile is still worth showing
+               (it says which namespace you're in) but "Sign in" is the thing
+               worth reading first. Signed in, that inverts: who you are on
+               top, the account underneath. -->
+          <span class="profile-text">
+            {#if signedIn}
+              <span class="profile-name">{activeProfile?.name}</span>
+              <span class="profile-sub">{activeProfile?.email}</span>
+            {:else}
+              <span class="profile-name">Sign in</span>
+              <span class="profile-sub">{activeProfile?.name ?? "Local"}</span>
+            {/if}
+          </span>
+        </button>
+
         <button class:active={activeTab === "settings"} on:click={() => (activeTab = "settings")}>
           <span class="icon">⚙</span>
           Settings
@@ -302,6 +358,75 @@
   .sidebar-toggle:hover {
     color: var(--text-primary);
     background: var(--bg-surface-hover);
+  }
+
+  .profile-switch {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    padding: 0 0.5rem 0.5rem;
+  }
+
+  .profile-switch-label {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    opacity: 0.6;
+  }
+
+  .profile-switch select {
+    font-family: inherit;
+    font-size: 0.85rem;
+    padding: 0.35rem 0.4rem;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-surface);
+    color: var(--text-primary);
+  }
+
+  .profile-chip {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    text-align: left;
+  }
+
+  .avatar {
+    flex-shrink: 0;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    object-fit: cover;
+  }
+
+  .avatar-initial {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--accent);
+    color: var(--accent-text);
+    font-size: 0.8rem;
+    font-weight: 600;
+  }
+
+  /* min-width:0 lets the ellipsis actually engage inside a flex child. */
+  .profile-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    line-height: 1.25;
+  }
+
+  .profile-name,
+  .profile-sub {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .profile-sub {
+    font-size: 0.72rem;
+    opacity: 0.6;
   }
 
   .content {
