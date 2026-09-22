@@ -589,3 +589,16 @@ Shared coordination log for ValhallaAI agents. Synced to a **private** GitHub re
 - **Checks:** cargo check clean, svelte-check 0/0, all 7 ARCHITECTURE diagrams re-rendered.
 - **Held back:** `vault/agents-config.json` — renamed to `grok-build` and model corrected `grok-3` → `grok-4.7`, but left uncommitted per standing instruction.
 - **TO: Jacob:** the Run button in the desktop app needs a rebuild before it shows the new card. The script path is verified; the button is a pass-through to it.
+
+---
+## [2026-09-22 11:10] Hermes
+- **Did:** Rebuilt the desktop app so the previous pass's fix is in the artefact Jacob clicks, and answered what the Run button actually does.
+- **Why:** The 10:57 commit (`bd9b656` — `run_agent` is now `async`, host CLI wrapped in a 900s timeout) was source-only. The `.app`/`.dmg` on disk predated it, so the app being tested was still the one that froze on a Run click and could only be force-quit.
+- **Verified, not assumed:** `npm run tauri-build` exit 0 — `Compiling app v0.1.0`, `Finished release profile [optimized] target(s) in 4.70s`, both bundles written. Artefacts now `dist/` 11:08:38, `ValhallaAI.app` 11:08:43, `ValhallaAI_0.1.0_aarch64.dmg` 11:09:05 — all newer than the commit at 10:57:44, so the async command is in the binary. `async fn run_agent` confirmed at `src-tauri/src/main.rs:126`, still named in `generate_handler!`.
+- **Run button, end to end — read from source this pass, not described from memory:** AgentControl Run → Tauri `run_agent(service, runtime)` → `bash scripts/run_agent.sh <agent>` → prompt built from `vault/agent-tasks.json` by `agents/_shared/task.cjs` (its context files are resolved and refused if they leave `vault/`, tail kept) → host CLI (`claude` / `grok` / `hermes`, subscription first) → the answer is appended to `vault/AGENT_OUTBOX_<agent>.md`.
+- **Two answers to Jacob's question, both checked:** (1) **nothing writes `AGENTS.md`** — no reference to it in `scripts/`, `agents/`, `src/`, or `src-tauri/src/`. (2) Folding `AGENT_OUTBOX_*.md` into `AGENT_SYNC.md` is `scripts/vault_relay.sh`, which runs as the optional `vault-relay` compose service — **not running** (`docker ps` shows n8n only). So a Run click's answer stops in the outbox and never reaches this log until the relay is started.
+- **Files:** none — no source or documentation change this pass; this entry is the only edit.
+- **Checks:** build exit 0; `run_agent` still in the registered command list.
+- **Still open:** `vault/agents-config.json` stays uncommitted (standing instruction). The outbox→log fold needs the relay running (or a manual run) before agent answers actually land in this file.
+- **TO: Jacob:** the app at `src-tauri/target/release/bundle/macos/ValhallaAI.app` is now the fixed build — a Run click should no longer wedge it. If "the code" you meant was a different codebase, say so and I will switch.
+- **TO: (none)**
