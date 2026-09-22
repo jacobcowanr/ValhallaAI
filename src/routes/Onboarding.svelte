@@ -19,19 +19,19 @@
   // verified email before the app would open), then made optional again later
   // the same day.
   //
-  // PROVENANCE, because it is the part that matters: the mandatory gate was
-  // Jacob's explicit instruction. The flip back to optional was proposed by an
-  // agent -- no request for it appears in any session -- and he has not been
-  // asked. So this file currently implements a proposal, not a decision. Do
-  // not cite the local path as his choice, and do not treat it as settled
-  // until he answers; reverting the commit that introduced it restores the
-  // mandatory gate. The argument for it is distribution, not UX: sign-in here
-  // uses credentials from the *user's* own .env, so a mandatory gate means
-  // every new user must register a Google Cloud OAuth client AND a GitHub
-  // OAuth app before they can see anything at all -- unreasonable for a tool
-  // people are meant to clone and run, and impossible to explain in a download
-  // page. Sign-in still supplies a name, verified email and avatar, and is
-  // identity only.
+  // PROVENANCE, because it is the part that nearly went wrong: the mandatory
+  // gate was Jacob's explicit instruction. The flip back to optional began as
+  // an agent proposal -- no request for it appears in any session -- and was
+  // marked UNRATIFIED until he was asked. He was then asked directly and chose
+  // the local path, in the same decision pass that chose MIT for the licence,
+  // so this file now implements a decision rather than a proposal. If it is
+  // ever reversed, do it by asking him -- not by citing this comment. The
+  // argument for it is distribution, not UX: sign-in here uses credentials from
+  // the *user's* own .env, so a mandatory gate means every new user must
+  // register a Google Cloud OAuth client AND a GitHub OAuth app before they can
+  // see anything at all -- unreasonable for a tool people are meant to clone
+  // and run, and impossible to explain in a download page. Sign-in still
+  // supplies a name, verified email and avatar, and is identity only.
   //
   // Keyed off hasPassedGate() rather than the `onboarded` flag. That flag is
   // backfilled true for every profile that predates this screen, which would
