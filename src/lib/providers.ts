@@ -83,8 +83,42 @@ export const PROVIDERS: Record<LLMProvider, ProviderEntry> = {
     ],
   },
   fireworks: {
+    // Verified 2026-09-22 against Fireworks' live Serverless list
+    // (fireworks.ai/models?modelTypes=Serverless, rendered in a browser —
+    // the filter is client-side, so a plain fetch returns the full library
+    // of 316 and tells you nothing about what is callable). Every id below
+    // was then confirmed from that model's own page, which prints its
+    // callable path. The path is always accounts/fireworks/models/<slug>
+    // even when the page URL says a different publisher
+    // (deepseek-ai/deepseek-v4p1-flash -> accounts/fireworks/models/...).
+    //
+    // The previous list (llama-v3p1-405b, mixtral-8x22b) was from the
+    // platform's launch era and matched neither the serverless set nor the
+    // id format the endpoint expects.
+    //
+    // Two serverless entries are deliberately absent: qwen3-reranker-8b and
+    // qwen3-embedding-8b. Fireworks' page labels them LLM, but they are not
+    // chat-completions models and would fail on send.
     name: "Fireworks AI",
-    models: ["llama-v3p1-405b", "mixtral-8x22b"],
+    models: [
+      "accounts/fireworks/models/deepseek-v4p1-flash",
+      "accounts/fireworks/models/glm-5p3-flash",
+      "accounts/fireworks/models/glm-5p3",
+      "accounts/fireworks/models/kimi-k3",
+      "accounts/fireworks/models/deepseek-v4-pro-0813",
+      "accounts/fireworks/models/qwen3p8-max",
+      "accounts/fireworks/models/muse-glimmer-30b",
+      "accounts/fireworks/models/deepseek-v4-flash-0731",
+      "accounts/fireworks/models/glm-5p2",
+      "accounts/fireworks/models/kimi-k2p7-code",
+      "accounts/fireworks/models/minimax-m3",
+      "accounts/fireworks/models/gpt-oss-120b",
+      "accounts/fireworks/models/nemotron-3-ultra-nvfp4",
+      "accounts/fireworks/models/deepseek-v4-flash-vision-exp",
+      "accounts/fireworks/models/nemotron-lightning-3p5-30b-a3b",
+      "accounts/fireworks/models/inkling",
+      "accounts/fireworks/models/kimi-k2p6",
+    ],
   },
   google: {
     // Verified 2026-09-22 against GET /v1beta/models with the live key: every
