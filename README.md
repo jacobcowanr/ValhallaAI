@@ -1,6 +1,6 @@
 # ValhallaAI
 
-**Multi-provider AI orchestration, self-hosted.** One app to talk to 16 LLM providers, run agents against them, and coordinate those agents through a git-synced markdown vault instead of a database.
+**Multi-provider AI orchestration, self-hosted.** One app to talk to 15 LLM providers, run agents against them, and coordinate those agents through a git-synced markdown vault instead of a database.
 
 **Status:** Local development. Not public yet — see [CONTRIBUTING.md](./CONTRIBUTING.md#why-local-first) for why.
 

@@ -1,31 +1,61 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import type { LLMProvider } from "../lib/llm-router";
-  import { PROVIDERS, PROVIDER_ENTRIES, FALLBACK_PROVIDER, FALLBACK_MODEL } from "../lib/providers";
+  import {
+    FALLBACK_PROVIDER,
+    FALLBACK_MODEL,
+    allProviderEntries,
+    isKnownProvider,
+    providerModels,
+    providerName,
+  } from "../lib/providers";
+  import {
+    addCustomProvider,
+    buildCustomProvider,
+    initCustomProviders,
+    isCustomProviderId,
+    removeCustomProvider,
+    type CustomProvider,
+  } from "../lib/custom-providers";
   import { envKeyFor, loadEnvProviderKeys, resolveApiKey } from "../lib/provider-keys";
   import { scopedKey } from "../lib/profiles";
 
-  let defaultProvider: LLMProvider = FALLBACK_PROVIDER;
+  // Provider ids are plain strings here rather than the LLMProvider union:
+  // a custom provider's id is created at runtime. The union still types the
+  // built-in half — see allProviderEntries() in providers.ts.
+  let defaultProvider: string = FALLBACK_PROVIDER;
   let defaultModel: string = FALLBACK_MODEL;
   let apiKeys: Record<string, string> = {};
   let envKeys: Record<string, boolean> = {};
   let saved = false;
   let ollamaEndpoint = "";
 
+  // --- Custom providers (add-your-own, for providers not in the catalog) ---
+  let customProviders: CustomProvider[] = [];
+  let cpName = "";
+  let cpEndpoint = "";
+  let cpModels = "";
+  let cpError = "";
+  let cpSaved = false;
+
   // Which provider's key the dropdown below is currently showing/editing.
   // Was previously every non-Ollama provider's key field shown at once —
   // a wall of 17 inputs. One at a time, picked via dropdown, like the
   // Default Provider & Model section above it.
-  let apiKeyProvider: LLMProvider = FALLBACK_PROVIDER;
+  let apiKeyProvider: string = FALLBACK_PROVIDER;
   // Ollama is local and unauthenticated. Nous Portal goes through the
   // Hermes subscription proxy, which attaches its own credential, so a
   // pasted key is not sent.
-  const KEYLESS_PROVIDERS = new Set<LLMProvider>(["ollama", "nous", "claude_directsdk"]);
-  const KEY_EDITABLE_PROVIDERS = PROVIDER_ENTRIES.filter(([id]) => !KEYLESS_PROVIDERS.has(id));
+  const KEYLESS_PROVIDERS = new Set<string>(["ollama", "nous", "claude_directsdk"]);
+  // Reactive so a provider added below appears in the key dropdown without a
+  // reload. Depends on customProviders explicitly: allProviderEntries() reads
+  // localStorage, which Svelte cannot observe.
+  $: keyEditableProviders = allProviderEntries(customProviders).filter(
+    ([id]) => !KEYLESS_PROVIDERS.has(id)
+  );
 
-  function defaultKeyProvider(preferred: LLMProvider): LLMProvider {
+  function defaultKeyProvider(preferred: string): string {
     if (!KEYLESS_PROVIDERS.has(preferred)) return preferred;
-    return KEY_EDITABLE_PROVIDERS[0][0];
+    return keyEditableProviders[0][0];
   }
 
   // Was: the masked password field sat there permanently, always visible
@@ -43,11 +73,11 @@
   // the template can stay a plain function reference instead of an
   // inline arrow function with a cast, which fails to parse there.
   function handleApiKeyProviderChange(e: Event): void {
-    const value = (e.currentTarget as HTMLSelectElement).value as LLMProvider;
+    const value = (e.currentTarget as HTMLSelectElement).value;
     selectApiKeyProvider(value);
   }
 
-  function selectApiKeyProvider(providerId: LLMProvider): void {
+  function selectApiKeyProvider(providerId: string): void {
     apiKeyProvider = providerId;
     // Existing key -> show the saved confirmation. No key yet -> go
     // straight to the input so there's no extra click for a first-time setup.
@@ -69,28 +99,36 @@
     editingKey = !apiKeys[apiKeyProvider]; // stay in edit mode only if it was cleared (delete), not a real key
   }
 
-  function apiKeyStorageKey(providerId: LLMProvider): string {
+  function apiKeyStorageKey(providerId: string): string {
     return scopedKey(`valhallaai-apikey-${providerId}`);
   }
 
   onMount(async () => {
     await loadEnvProviderKeys();
+
+    // Register stored custom providers with the router before anything is
+    // rendered, so one saved in a previous session is routable immediately
+    // rather than only after this page is opened.
+    customProviders = initCustomProviders();
+
     // Load saved preferences
     const savedPrefs = localStorage.getItem(scopedKey("valhallaai-prefs"));
     if (savedPrefs) {
       const prefs = JSON.parse(savedPrefs) as {
-        defaultProvider?: LLMProvider;
+        defaultProvider?: string;
         defaultModel?: string;
       };
       // A previously-saved provider can disappear from the catalog (e.g. the
-      // GitHub Copilot removal). Falling back here instead of trusting the
-      // stored value keeps the model dropdown from silently rendering empty.
-      if (prefs.defaultProvider && PROVIDERS[prefs.defaultProvider]) {
+      // GitHub Copilot removal, or a custom provider the user deleted).
+      // Falling back here instead of trusting the stored value keeps the
+      // model dropdown from silently rendering empty.
+      if (prefs.defaultProvider && isKnownProvider(prefs.defaultProvider)) {
+        const models = providerModels(prefs.defaultProvider);
         defaultProvider = prefs.defaultProvider;
         defaultModel =
-          prefs.defaultModel && PROVIDERS[prefs.defaultProvider].models.includes(prefs.defaultModel)
+          prefs.defaultModel && models.includes(prefs.defaultModel)
             ? prefs.defaultModel
-            : PROVIDERS[prefs.defaultProvider].models[0];
+            : models[0];
       } else {
         defaultProvider = FALLBACK_PROVIDER;
         defaultModel = FALLBACK_MODEL;
@@ -101,11 +139,14 @@
     ollamaEndpoint = localStorage.getItem("ollama-endpoint") || "";
 
     // Load any previously-saved per-provider API keys. Keyless providers
-    // (Ollama, Nous Portal) are excluded — there is nothing to paste.
-    for (const providerId of Object.keys(PROVIDERS) as LLMProvider[]) {
+    // (Ollama, Nous Portal) are excluded — there is nothing to paste. Custom
+    // providers are included: their endpoint is a real API and takes a key.
+    for (const [providerId] of allProviderEntries()) {
       if (KEYLESS_PROVIDERS.has(providerId)) continue;
       const stored = localStorage.getItem(apiKeyStorageKey(providerId)) || "";
-      envKeys[providerId] = Boolean(envKeyFor(providerId));
+      // .env is read through the Rust side, whose provider table only knows
+      // the built-in ids — a custom provider can never have an entry there.
+      envKeys[providerId] = isCustomProviderId(providerId) ? false : Boolean(envKeyFor(providerId));
       apiKeys[providerId] = resolveApiKey(providerId, stored);
     }
 
@@ -128,7 +169,7 @@
     }, 2000);
   }
 
-  function saveApiKey(providerId: LLMProvider, value: string): void {
+  function saveApiKey(providerId: string, value: string): void {
     // Uses the SAME localStorage key ModelPicker reads from
     // (valhallaai-apikey-<providerId>), so a key saved here actually shows up
     // there. Previously these were two disconnected storage schemes.
@@ -148,13 +189,59 @@
   // page mounted, and FALLBACK_MODEL never survived either. With the default
   // now being Claude DirectSDK, that bug would have silently promoted the
   // picker from haiku to claude-opus-5, the most expensive model in the list.
-  let lastProvider: LLMProvider | null = null;
+  let lastProvider: string | null = null;
   $: if (defaultProvider && defaultProvider !== lastProvider) {
-    const models = PROVIDERS[defaultProvider]?.models || [];
+    const models = providerModels(defaultProvider);
     if (models.length > 0 && !models.includes(defaultModel)) {
       defaultModel = models[0];
     }
     lastProvider = defaultProvider;
+  }
+
+  // One list for both dropdowns, re-derived when the custom list changes.
+  $: providerEntries = allProviderEntries(customProviders);
+
+  function submitCustomProvider(): void {
+    const draft = buildCustomProvider(
+      { name: cpName, endpoint: cpEndpoint, models: cpModels },
+      customProviders
+    );
+    if (draft.error || !draft.provider) {
+      cpError = draft.error ?? "Could not save that provider.";
+      return;
+    }
+    customProviders = addCustomProvider(draft.provider, customProviders);
+
+    // Seed a key slot so the provider shows up in the API Keys dropdown
+    // without a reload — most people add one because they have a key for it.
+    if (!KEYLESS_PROVIDERS.has(draft.provider.id)) {
+      apiKeys = { ...apiKeys, [draft.provider.id]: apiKeys[draft.provider.id] ?? "" };
+    }
+
+    cpName = "";
+    cpEndpoint = "";
+    cpModels = "";
+    cpError = "";
+    cpSaved = true;
+    setTimeout(() => {
+      cpSaved = false;
+    }, 2000);
+  }
+
+  function deleteCustomProvider(id: string): void {
+    // Removing a provider the app is currently pointed at would leave the
+    // picker on an id that no longer routes, so fall back to the default.
+    if (defaultProvider === id) {
+      defaultProvider = FALLBACK_PROVIDER;
+      defaultModel = FALLBACK_MODEL;
+    }
+    if (apiKeyProvider === id) {
+      selectApiKeyProvider(defaultKeyProvider(FALLBACK_PROVIDER));
+    }
+    // The saved key is deliberately left in place: re-adding the provider
+    // under the same name restores it, and deleting a provider should not
+    // silently destroy a credential the user may still need elsewhere.
+    customProviders = removeCustomProvider(id, customProviders);
   }
 </script>
 
@@ -169,7 +256,7 @@
       <div class="field">
         <label for="default-provider">Provider:</label>
         <select id="default-provider" bind:value={defaultProvider}>
-          {#each PROVIDER_ENTRIES as [key, { name }]}
+          {#each providerEntries as [key, { name }]}
             <option value={key}>{name}</option>
           {/each}
         </select>
@@ -178,7 +265,7 @@
       <div class="field">
         <label for="default-model">Model:</label>
         <select id="default-model" bind:value={defaultModel}>
-          {#each PROVIDERS[defaultProvider]?.models || [] as model}
+          {#each providerModels(defaultProvider) as model}
             <option value={model}>{model}</option>
           {/each}
         </select>
@@ -246,7 +333,7 @@
           value={apiKeyProvider}
           on:change={handleApiKeyProviderChange}
         >
-          {#each KEY_EDITABLE_PROVIDERS as [providerId, { name }]}
+          {#each keyEditableProviders as [providerId, { name }]}
             <option value={providerId}>{name}{apiKeys[providerId] ? " ✓" : ""}</option>
           {/each}
         </select>
@@ -254,10 +341,10 @@
 
       {#key apiKeyProvider}
         {#if envKeys[apiKeyProvider]}
-          <p class="key-saved-status">✓ {PROVIDERS[apiKeyProvider]?.name} key loaded from .env</p>
+          <p class="key-saved-status">✓ {providerName(apiKeyProvider)} key loaded from .env</p>
         {:else if editingKey}
           <div class="field">
-            <label for="apikey-value">{PROVIDERS[apiKeyProvider]?.name} API Key:</label>
+            <label for="apikey-value">{providerName(apiKeyProvider)} API Key:</label>
             <div class="key-edit-row">
               <input
                 id="apikey-value"
@@ -271,12 +358,83 @@
           </div>
         {:else}
           <div class="field key-saved-row">
-            <span class="key-saved-status">✓ {PROVIDERS[apiKeyProvider]?.name} key saved</span>
+            <span class="key-saved-status">✓ {providerName(apiKeyProvider)} key saved</span>
             <button class="edit-key-btn" on:click={startEditingKey}>Edit</button>
           </div>
         {/if}
       {/key}
       <small>✓ next to a provider means a key is available, from .env or saved in the app.</small>
+    </section>
+
+    <section class="section">
+      <h3>Custom Providers</h3>
+      <p class="section-description">
+        Add a provider that is not in the list above — no source change needed. It has to speak the
+        OpenAI chat-completions dialect, which is what the seven built-in OpenAI-compatible providers
+        use and the only shape this app can call without new code. That covers LiteLLM, vLLM,
+        llama.cpp's server, LM Studio, and most internal gateways.
+      </p>
+
+      <div class="field">
+        <label for="cp-name">Name:</label>
+        <input id="cp-name" type="text" bind:value={cpName} placeholder="My Gateway" />
+      </div>
+
+      <div class="field">
+        <label for="cp-endpoint">Chat completions URL:</label>
+        <input
+          id="cp-endpoint"
+          type="text"
+          bind:value={cpEndpoint}
+          placeholder="https://api.example.com/v1/chat/completions"
+        />
+        <small>The full endpoint, not just the base URL — this is what gets POSTed to.</small>
+      </div>
+
+      <div class="field">
+        <label for="cp-models">Models:</label>
+        <textarea
+          id="cp-models"
+          rows="4"
+          bind:value={cpModels}
+          placeholder={"one-model-id-per-line"}
+        ></textarea>
+        <small>One model id per line. The first is selected when you pick this provider.</small>
+      </div>
+
+      {#if cpError}
+        <p class="cp-error">{cpError}</p>
+      {/if}
+
+      <button class="save-btn" on:click={submitCustomProvider}>
+        {cpSaved ? "✓ Added" : "Add Provider"}
+      </button>
+
+      {#if customProviders.length > 0}
+        <ul class="cp-list">
+          {#each customProviders as provider (provider.id)}
+            <li>
+              <div class="cp-meta">
+                <strong>{provider.name}</strong>
+                <span class="cp-endpoint-url">{provider.endpoint}</span>
+                <span class="cp-count">
+                  {provider.models.length} model{provider.models.length === 1 ? "" : "s"} · key {apiKeys[
+                    provider.id
+                  ]
+                    ? "saved"
+                    : "not set"}
+                </span>
+              </div>
+              <button class="edit-key-btn" on:click={() => deleteCustomProvider(provider.id)}>
+                Remove
+              </button>
+            </li>
+          {/each}
+        </ul>
+        <small>
+          A custom provider's key is set under API Keys above, the same way as a built-in one.
+        </small>
+      {/if}
     </section>
 
     <section class="section">
@@ -491,5 +649,76 @@
     font-size: 0.8rem;
     color: var(--text-muted);
     margin-top: 0.25rem;
+  }
+
+  textarea {
+    padding: 0.75rem;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    font-size: 0.9rem;
+    font-family: monospace;
+    background: var(--bg-surface-raised);
+    color: var(--text-primary);
+    resize: vertical;
+  }
+
+  textarea:hover {
+    border-color: var(--text-muted);
+  }
+
+  textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-soft-bg);
+  }
+
+  .cp-error {
+    color: var(--danger);
+    font-size: 0.9rem;
+    margin: 0 0 0.5rem 0;
+  }
+
+  .cp-list {
+    list-style: none;
+    margin: 1rem 0 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .cp-list li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    background: var(--bg-surface-raised);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 0.75rem 1rem;
+  }
+
+  .cp-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-width: 0;
+  }
+
+  .cp-meta strong {
+    color: var(--text-primary);
+    font-size: 0.9rem;
+  }
+
+  .cp-endpoint-url {
+    color: var(--text-secondary);
+    font-family: monospace;
+    font-size: 0.8rem;
+    overflow-wrap: anywhere;
+  }
+
+  .cp-count {
+    color: var(--text-muted);
+    font-size: 0.8rem;
   }
 </style>

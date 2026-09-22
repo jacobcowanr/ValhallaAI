@@ -22,10 +22,17 @@
 import { invoke } from "@tauri-apps/api/tauri";
 import { inTauri } from "./provider-keys";
 
-export type LLMProvider = "anthropic" | "chatgpt" | "claude_directsdk" | "fireworks" | "google" | "groq" | "huggingface" | "minimax" | "nous" | "ollama" | "openrouter" | "perplexity" | "qwen" | "replicate" | "together" | "xai_grok";
+/** The built-in provider set. The catalog (providers.ts) is keyed by this,
+ *  and it is what the compile-time-known code paths switch on.
+ *
+ *  It is deliberately NOT the type of a provider id in flight: a
+ *  user-defined provider's id is created at runtime, so LLMConfig.provider
+ *  and the UI state are plain strings that this set is a subset of. */
+export type LLMProvider = "anthropic" | "chatgpt" | "claude_directsdk" | "fireworks" | "google" | "groq" | "huggingface" | "minimax" | "nous" | "ollama" | "openrouter" | "perplexity" | "qwen" | "replicate" | "xai_grok";
 
 export interface LLMConfig {
-  provider: LLMProvider;
+  /** A built-in id or a `custom:<slug>` id registered at runtime. */
+  provider: string;
   model: string;
   apiKey?: string;
   baseURL?: string;
@@ -59,11 +66,44 @@ const IMAGE_CAPABLE_PROVIDERS: ReadonlySet<LLMProvider> = new Set([
   "fireworks",
   "groq",
   "perplexity",
-  "together",
 ]);
 
-export function providerSupportsImages(provider: LLMProvider): boolean {
-  return IMAGE_CAPABLE_PROVIDERS.has(provider);
+/**
+ * User-defined providers, registered by lib/custom-providers.ts from
+ * localStorage. Kept here as a lookup rather than a second catalog so
+ * callLLM() stays the only place that decides which implementation runs.
+ *
+ * `LLMProvider` stays a closed union on purpose: the built-in set is
+ * compile-time known, and widening it to `string` would cost type safety
+ * at all ~40 reference sites to support a runtime-defined case. A custom
+ * provider is matched here by id instead, at the one place that needs it.
+ */
+interface CustomEndpoint {
+  name: string;
+  endpoint: string;
+}
+
+const customEndpoints = new Map<string, CustomEndpoint>();
+
+export function registerCustomProviders(
+  list: { id: string; name: string; endpoint: string }[]
+): void {
+  customEndpoints.clear();
+  for (const provider of list) {
+    customEndpoints.set(provider.id, { name: provider.name, endpoint: provider.endpoint });
+  }
+}
+
+export function resolveCustomEndpoint(provider: string): CustomEndpoint | undefined {
+  return customEndpoints.get(provider);
+}
+
+export function providerSupportsImages(provider: LLMProvider | string): boolean {
+  // A custom provider goes through callOpenAICompatible and inherits its
+  // multimodal handling, so it can be offered the same attachment UI as the
+  // built-ins that share that helper.
+  if (customEndpoints.has(provider)) return true;
+  return IMAGE_CAPABLE_PROVIDERS.has(provider as LLMProvider);
 }
 
 export interface LLMResponse {
@@ -113,15 +153,24 @@ export async function callLLM(
         return await callQwen(config, messages);
       case "replicate":
         return await callReplicate(config, messages);
-      case "together":
-        return await callTogether(config, messages);
       case "xai_grok":
         return await callGrok(config, messages);
-      default:
+      default: {
+        // A user-defined provider (Settings → Custom Providers). It speaks
+        // the OpenAI dialect by definition, so it goes through the same
+        // helper as the seven built-ins that do, not a second code path.
+        const custom = resolveCustomEndpoint(config.provider);
+        if (custom) {
+          return await callOpenAICompatible(config, messages, {
+            endpoint: custom.endpoint,
+            authHeader: bearerIfPresent,
+          });
+        }
         return {
           success: false,
           error: `Unknown provider: ${config.provider}`,
         };
+      }
     }
   } catch (error) {
     return {
@@ -185,8 +234,16 @@ async function callOpenAICompatible(
   messages: LLMMessage[],
   opts: OpenAICompatibleOptions
 ): Promise<LLMResponse> {
-  const missingKey = requireApiKey(config);
-  if (missingKey) return missingKey;
+  // A user-defined provider is allowed to be keyless. A self-hosted gateway
+  // (LiteLLM, vLLM, llama.cpp, LM Studio) usually sits on localhost with no
+  // auth at all, and refusing client-side would make exactly the case this
+  // feature exists for unusable. We cannot know either way for an arbitrary
+  // URL, so the request goes out and the endpoint's own 401 is the error the
+  // user sees — which names the real problem better than a blanket refusal.
+  if (!resolveCustomEndpoint(config.provider)) {
+    const missingKey = requireApiKey(config);
+    if (missingKey) return missingKey;
+  }
 
   const response = await fetch(opts.endpoint, {
     method: "POST",
@@ -230,6 +287,12 @@ async function callOpenAICompatible(
 
 function bearer(key: string): Record<string, string> {
   return { Authorization: `Bearer ${key}` };
+}
+
+/** For a user-defined endpoint that may want no Authorization header at all:
+ *  send one when a key was configured, omit the header otherwise. */
+function bearerIfPresent(key: string): Record<string, string> {
+  return key ? bearer(key) : {};
 }
 
 // ---------------------------------------------------------------------------
@@ -480,19 +543,6 @@ async function callPerplexity(
 ): Promise<LLMResponse> {
   return callOpenAICompatible(config, messages, {
     endpoint: "https://api.perplexity.ai/chat/completions",
-    authHeader: bearer,
-  });
-}
-
-/**
- * Together AI
- */
-async function callTogether(
-  config: LLMConfig,
-  messages: LLMMessage[]
-): Promise<LLMResponse> {
-  return callOpenAICompatible(config, messages, {
-    endpoint: "https://api.together.xyz/v1/chat/completions",
     authHeader: bearer,
   });
 }

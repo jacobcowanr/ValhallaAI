@@ -15,8 +15,13 @@
   // there on why an onMount call here was the wrong place for it).
   import { createSession } from "./lib/sessions";
   import { FALLBACK_PROVIDER, FALLBACK_MODEL } from "./lib/providers";
+  // Register stored user-defined providers with the router at startup, so a
+  // custom provider is routable before Settings is ever opened. Without
+  // this, the first send after a restart would fail with "Unknown provider"
+  // while the picker happily displayed it.
+  import { initCustomProviders } from "./lib/custom-providers";
   import { scopedKey, profiles, activeProfileId, switchProfile, isSignedIn } from "./lib/profiles";
-  import type { LLMProvider } from "./lib/llm-router";
+  import { isKnownProvider } from "./lib/providers";
 
   // "settings" deliberately excluded from this list — it's pinned to the
   // bottom of the sidebar separately (see the markup below). The profile
@@ -39,13 +44,18 @@
     // Seed the new session with whatever provider/model the user has as
     // their default, not always the hardcoded fallback — same source
     // Settings.svelte and ModelPicker.svelte already read from.
-    let provider: LLMProvider = FALLBACK_PROVIDER;
+    let provider: string = FALLBACK_PROVIDER;
     let model = FALLBACK_MODEL;
     const prefs = localStorage.getItem(scopedKey("valhallaai-prefs"));
     if (prefs) {
       try {
-        const parsed = JSON.parse(prefs) as { defaultProvider?: LLMProvider; defaultModel?: string };
-        if (parsed.defaultProvider) provider = parsed.defaultProvider;
+        const parsed = JSON.parse(prefs) as { defaultProvider?: string; defaultModel?: string };
+        // Only trust a provider that still resolves — a custom provider the
+        // user deleted afterwards would otherwise seed a session that cannot
+        // route, and the session would fail on its first send.
+        if (parsed.defaultProvider && isKnownProvider(parsed.defaultProvider)) {
+          provider = parsed.defaultProvider;
+        }
         if (parsed.defaultModel) model = parsed.defaultModel;
       } catch {
         // Malformed prefs — fall back to the defaults above rather than crash.
@@ -73,6 +83,7 @@
   let sidebarOpen = true;
 
   onMount(() => {
+    initCustomProviders();
     const saved = localStorage.getItem("valhallaai-sidebar-open");
     if (saved !== null) sidebarOpen = saved === "true";
   });

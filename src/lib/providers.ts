@@ -16,6 +16,7 @@
  */
 
 import type { LLMProvider } from "./llm-router";
+import { customProvider, isCustomProviderId, loadCustomProviders, type CustomProvider } from "./custom-providers";
 
 export interface ProviderEntry {
   name: string;
@@ -240,10 +241,6 @@ export const PROVIDERS: Record<LLMProvider, ProviderEntry> = {
     name: "Replicate (image/video/audio models, not chat LLMs)",
     models: ["meta/llama-2-70b-chat", "mistralai/mistral-7b-instruct-v0.1"],
   },
-  together: {
-    name: "Together AI",
-    models: ["meta-llama/Llama-2-70b-chat-hf", "mistralai/Mistral-7B-Instruct-v0.1"],
-  },
   xai_grok: {
     // Verified 2026-09-22 against docs.x.ai/developers/models. xAI's own
     // guidance is to use grok-4.7 for everything including code; grok-3 and
@@ -274,3 +271,48 @@ export const PROVIDER_ENTRIES: [LLMProvider, ProviderEntry][] = Object.entries(P
 // wants Opus can pick it.
 export const FALLBACK_PROVIDER: LLMProvider = "claude_directsdk";
 export const FALLBACK_MODEL = "claude-haiku-4-5-20251001";
+
+// --- Built-in + user-defined providers, for the UI ------------------------
+//
+// Settings and the chat picker have to offer both as one list. These read
+// custom providers from localStorage on each call rather than caching them
+// in a module-level variable: a provider added in Settings must show up in
+// the picker without a reload, and a cache here would make it invisibly
+// stale. localStorage reads are cheap; this is not a hot path.
+
+function builtinEntry(id: string): ProviderEntry | undefined {
+  return (PROVIDERS as Record<string, ProviderEntry>)[id];
+}
+
+/** True for a catalog id or a stored custom provider id. Used to validate a
+ *  saved preference before trusting it (a provider can be removed between
+ *  sessions — see the load path in Settings.svelte). */
+export function isKnownProvider(id: string): boolean {
+  return Boolean(builtinEntry(id)) || Boolean(customProvider(id));
+}
+
+export function providerName(id: string): string {
+  return builtinEntry(id)?.name ?? customProvider(id)?.name ?? id;
+}
+
+export function providerModels(id: string): string[] {
+  return builtinEntry(id)?.models ?? customProvider(id)?.models ?? [];
+}
+
+/** Every selectable provider, built-ins first in catalog order, then custom
+ *  ones. Returns `string` ids rather than `LLMProvider` because the custom
+ *  half is runtime-defined.
+ *
+ *  Pass `custom` when the caller already holds the list in component state:
+ *  Settings must re-render when it changes, and Svelte cannot observe a
+ *  localStorage read, so the dependency has to be the caller's variable. */
+export function allProviderEntries(
+  custom: CustomProvider[] = loadCustomProviders()
+): [string, ProviderEntry][] {
+  return [
+    ...PROVIDER_ENTRIES,
+    ...custom.map((p) => [p.id, { name: p.name, models: p.models }] as [string, ProviderEntry]),
+  ];
+}
+
+export { isCustomProviderId };

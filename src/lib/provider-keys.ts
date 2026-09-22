@@ -29,24 +29,26 @@ export async function loadEnvProviderKeys(): Promise<void> {
   loaded = true;
 }
 
-export function envKeyFor(provider: LLMProvider): string {
+export function envKeyFor(provider: string): string {
   // A profile with ignoreEnvKeys set behaves as if .env were empty, so it
   // falls through to its own pasted keys. .env itself is machine-level and
   // stays shared -- scripts/run_agent.sh and docker-compose read the same
   // file with no notion of an active profile, so it cannot be per-profile
   // without breaking the agents. See the header of profiles.ts.
   if (getActiveProfile()?.ignoreEnvKeys) return "";
-  return cache[provider] ?? "";
+  return cache[provider as LLMProvider] ?? "";
 }
 
 /** True when .env supplied this key AND the active profile accepts it --
  * i.e. when the Settings badge should say the key came from the file. */
-export function hasEnvKey(provider: LLMProvider): boolean {
+export function hasEnvKey(provider: string): boolean {
   return envKeyFor(provider) !== "";
 }
 
 /** A key in .env wins over one saved in the browser, so a rotated file is
- * what the next chat uses. */
-export function resolveApiKey(provider: LLMProvider, stored: string): string {
+ * what the next chat uses. A custom provider has no .env entry -- the Rust
+ * side's provider table only knows the built-in ids -- so it always falls
+ * through to the stored key, which is the correct behaviour. */
+export function resolveApiKey(provider: string, stored: string): string {
   return envKeyFor(provider) || stored;
 }
