@@ -52,20 +52,25 @@
 
   h2 {
     margin-top: 0;
+    font-family: var(--font-display);
+    font-weight: 400;
+    letter-spacing: 0.02em;
+    color: var(--text-primary);
   }
 
   .mock-notice {
-    background: #fff4e6;
-    border: 1px solid #ffd8a8;
+    background: var(--warning-bg);
+    border: 1px solid var(--warning-border);
     border-radius: 6px;
     padding: 0.75rem 1rem;
     font-size: 0.85rem;
-    color: #8a5a00;
+    color: var(--warning-text);
     margin: 0 0 1rem 0;
   }
 
   .mock-notice code {
-    background: white;
+    background: var(--bg-surface-raised);
+    color: var(--text-primary);
     padding: 2px 4px;
     border-radius: 2px;
     font-family: monospace;
@@ -81,14 +86,16 @@
   input {
     flex: 1;
     padding: 0.5rem;
-    border: 1px solid #ddd;
+    border: 1px solid var(--border-color);
     border-radius: 4px;
+    background: var(--bg-surface-raised);
+    color: var(--text-primary);
   }
 
   button {
     padding: 0.5rem 1rem;
-    background: #667eea;
-    color: white;
+    background: var(--accent);
+    color: var(--accent-text);
     border: none;
     border-radius: 4px;
     cursor: pointer;
@@ -96,7 +103,7 @@
   }
 
   button:hover:not(:disabled) {
-    background: #764ba2;
+    background: var(--accent-hover);
   }
 
   button:disabled {
@@ -106,11 +113,12 @@
 
   .last-sync {
     font-size: 0.9rem;
-    color: #666;
+    color: var(--text-secondary);
   }
 
   .browser {
-    background: #f5f5f5;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-color);
     border-radius: 4px;
     padding: 2rem;
     min-height: 300px;
@@ -121,7 +129,7 @@
 
   .placeholder {
     text-align: center;
-    color: #999;
+    color: var(--text-muted);
   }
 
   .placeholder p {
