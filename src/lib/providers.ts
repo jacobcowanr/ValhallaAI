@@ -142,7 +142,18 @@ export const PROVIDERS: Record<LLMProvider, ProviderEntry> = {
     // deleting the entry — check again later. Cross-provider evidence that the
     // block is key-side capacity and not the id: the local Nous proxy serves
     // gemini-3.8-flash and genuinely answers ("PONG", 93 completion tokens)
-    // while this key is 503ing on it.
+    // while this key is 503ing on it. Confirmed again through the app's own
+    // Nous route — provider "Nous Portal" + model "google/gemini-3.8-flash",
+    // 49 in / 179 out, answered normally — so the workaround is real and not a
+    // curl artefact.
+    //
+    // It is a stopgap, and the arithmetic says so. The Portal wallet read $0.09
+    // remaining at 13:18, and a measured 30-in/508-out call cost $0.0019275 —
+    // with 488 of those 508 completion tokens being *reasoning* tokens, which is
+    // what actually drives the bill on a visible-word basis. That is on the
+    // order of 50 calls of that size before the wallet is empty. The free key
+    // route (3.6-flash) costs nothing, so prefer it for volume and keep the
+    // Portal for the times 3.8-flash specifically is wanted.
     //
     // On "callable": a 200 does not prove an answer. `content` can come back
     // null with finish_reason "stop" — on a 16-token cap that is what happens,
