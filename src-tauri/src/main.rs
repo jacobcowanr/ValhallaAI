@@ -114,8 +114,16 @@ VALHALLAAI_PROJECT_DIR to the checkout."
 /// same allowlist as `service`, and the allowlisted value -- not the name --
 /// is what reaches the script. A custom agent therefore cannot run anything
 /// the three built-in agents cannot already run.
+///
+/// `async` on purpose, and it is the difference between a working app and a
+/// frozen one. Tauri runs a *synchronous* command on the main thread, so the
+/// `.output()` below would block the webview for the entire agent run --
+/// measured at 3.5 minutes for a real `grok-build` task, during which the
+/// window could only be force-quit. An async command is handed to the async
+/// runtime instead, off the main thread, so the UI keeps painting and the
+/// card can show `running` while the agent works.
 #[tauri::command]
-fn run_agent(service: String, runtime: Option<String>) -> Result<String, String> {
+async fn run_agent(service: String, runtime: Option<String>) -> Result<String, String> {
     let known = |name: &str| matches!(name, "claude-agent" | "hermes-agent" | "grok-build");
 
     // What actually gets executed. A built-in agent runs itself; a custom
