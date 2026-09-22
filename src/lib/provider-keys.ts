@@ -21,9 +21,6 @@ export async function loadEnvProviderKeys(): Promise<void> {
     for (const [id, value] of Object.entries(raw)) {
       if (value) next[id as LLMProvider] = value;
     }
-    if (next.anthropic) {
-      next.anthropic_oauth = next.anthropic;
-    }
     cache = next;
   } catch {
     cache = {};

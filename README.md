@@ -1,6 +1,6 @@
 # ValhallaAI
 
-**Multi-provider AI orchestration, self-hosted.** One app to talk to 18 LLM providers, run agents against them, and coordinate those agents through a git-synced markdown vault instead of a database.
+**Multi-provider AI orchestration, self-hosted.** One app to talk to 17 LLM providers, run agents against them, and coordinate those agents through a git-synced markdown vault instead of a database.
 
 **Status:** Local development. Not public yet — see [CONTRIBUTING.md](./CONTRIBUTING.md#why-local-first) for why.
 
@@ -34,7 +34,7 @@ scripts/run_agent.sh grok-agent      # needs XAI_API_KEY and enabled: true
 
 The same three buttons are on **Agent Control** inside the desktop app. **Settings** shows which chat keys came from `.env`. Nous Portal does not use a key in that file; it uses the local Hermes proxy (`hermes proxy start`).
 
-**Claude Subscription DirectSDK** is selected in Models & Chat, not in Agent Control. It is supposed to use `claude auth login` and not the paid key. As of 2026-09-22 02:00 that call fails in the window with `missing field apiKey` before the CLI starts. The handoff is in `vault/AGENT_SYNC.md`.
+**Claude Subscription DirectSDK** is selected in Models & Chat, not in Agent Control. It uses `claude auth login`, not the paid key, and is working as of 2026-09-22. It is the only subscription-billed Claude path; `Anthropic (API key)` bills `ANTHROPIC_API_KEY`.
 
 `VAULT_REPO` is optional and unused until you want the vault relay to push. The relay's push path has not been run against this repo.
 
@@ -56,8 +56,8 @@ ValhallaAI/
 └─ docker-compose.local.yml
 ```
 
-## Providers (18, alphabetical)
+## Providers (17, alphabetical)
 
-Anthropic (API key & OAuth) · ChatGPT/Codex · Claude Subscription DirectSDK · Fireworks AI · Google Gemini · Groq · Hugging Face · MiniMax · Nous Portal · **Ollama** (local) · OpenClaw · OpenRouter · Perplexity · Qwen Code · Replicate · Together AI · xAI Grok
+Anthropic (API key) · ChatGPT/Codex · Claude Subscription DirectSDK · Fireworks AI · Google Gemini · Groq · Hugging Face · MiniMax · Nous Portal · **Ollama** (local) · OpenClaw · OpenRouter · Perplexity · Qwen Code · Replicate · Together AI · xAI Grok
 
 Full rationale for this list in [POSITIONING.md §2](./POSITIONING.md#2-comparison).

@@ -22,10 +22,19 @@ export interface ProviderEntry {
   models: string[];
 }
 
-// Claude model ids, current as of 2026-09-22. The three Claude providers do
+// Claude model ids, current as of 2026-09-22. The two Claude providers do
 // NOT share one vocabulary, which is why these lists differ on purpose:
 //
-//   anthropic / anthropic_oauth -> Anthropic Messages API via the
+// `anthropic_oauth` was REMOVED on 2026-09-22. It was labelled "Anthropic
+// OAuth (Usage Credits)" but provider-keys.ts copied the paid
+// ANTHROPIC_API_KEY into it and it routed to callAnthropic() — so picking it
+// billed the API key while telling the user it did not. Anthropic has no
+// third-party OAuth API flow to implement instead; the subscription login
+// that does exist is the `claude` CLI one, which claude_directsdk already
+// uses. A second entry that lied about billing was worse than one fewer
+// provider. Do not re-add it without a real auth flow behind it.
+//
+//   anthropic -> Anthropic Messages API via the
 //     `anthropic_messages` command. Needs ids the API itself accepts.
 //     `claude-sonnet-4-5` is kept because it was deliberately set in 335994f
 //     against the real account; `claude-sonnet-5` is listed above it rather
@@ -48,16 +57,6 @@ export interface ProviderEntry {
 export const PROVIDERS: Record<LLMProvider, ProviderEntry> = {
   anthropic: {
     name: "Anthropic API Key",
-    models: [
-      "claude-opus-5",
-      "claude-sonnet-5",
-      "claude-fable-5-1",
-      "claude-sonnet-4-5",
-      "claude-haiku-4-5-20251001",
-    ],
-  },
-  anthropic_oauth: {
-    name: "Anthropic OAuth (Usage Credits)",
     models: [
       "claude-opus-5",
       "claude-sonnet-5",
