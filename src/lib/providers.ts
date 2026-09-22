@@ -83,8 +83,22 @@ export const PROVIDERS: Record<LLMProvider, ProviderEntry> = {
     models: ["llama-v3p1-405b", "mixtral-8x22b"],
   },
   google: {
+    // Verified 2026-09-22 against GET /v1beta/models with the live key: every
+    // id below is present and reports generateContent support. The previous
+    // list (gemini-2.0-flash, gemini-1.5-pro, gemini-1.5-flash) was entirely
+    // dead -- none of the three existed any more, so every send on this
+    // provider 404'd. Check against that endpoint rather than writing ids
+    // from memory; Gemini retires them faster than any other provider here.
     name: "Google (Gemini)",
-    models: ["gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash"],
+    models: [
+      "gemini-3.8-flash",
+      "gemini-3.7-flash",
+      "gemini-3.6-flash",
+      "gemini-3.5-flash",
+      "gemini-2.5-pro",
+      "gemini-2.5-flash",
+      "gemini-2.5-flash-lite",
+    ],
   },
   groq: {
     name: "Groq (Fast Inference)",
