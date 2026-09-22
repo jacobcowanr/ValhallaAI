@@ -27,10 +27,10 @@
   // keys) -- same split Gemini/most chat apps use between an account
   // surface and an app-settings page.
   const sections = [
-    { id: "models", label: "Models & Chat", icon: "💬" },
-    { id: "sessions", label: "Sessions", icon: "🕘" },
-    { id: "vault", label: "Vault Browser", icon: "🗂" },
-    { id: "agents", label: "Agent Control", icon: "🤖" },
+    { id: "models", label: "Models & Chat" },
+    { id: "sessions", label: "Sessions" },
+    { id: "vault", label: "Vault Browser" },
+    { id: "agents", label: "Agent Control" },
   ];
 
   let activeTab = "models";
@@ -152,13 +152,12 @@
       {/if}
 
       <button class="new-session-btn" on:click={startNewSession}>
-        <span class="icon">+</span> New Session
+        New Session
       </button>
 
       <nav>
         {#each sections as section}
           <button class:active={activeTab === section.id} on:click={() => (activeTab = section.id)}>
-            <span class="icon">{section.icon}</span>
             {section.label}
           </button>
         {/each}
@@ -167,7 +166,6 @@
       <!-- Pinned to the bottom via margin-top: auto on .sidebar-bottom. -->
       <div class="sidebar-bottom">
         <button class:active={activeTab === "settings"} on:click={() => (activeTab = "settings")}>
-          <span class="icon">⚙</span>
           Settings
         </button>
       </div>
@@ -355,28 +353,24 @@
   .new-session-btn {
     display: flex;
     align-items: center;
-    justify-content: center;
-    gap: 0.5rem;
     width: 100%;
-    padding: 0.75rem;
-    margin-bottom: 1.25rem;
-    background: var(--accent);
-    color: var(--accent-text);
+    padding: 0.7rem 0.85rem;
+    margin-bottom: 0.25rem;
+    background: none;
+    color: var(--text-primary);
     border: none;
     border-radius: 8px;
     cursor: pointer;
-    font-size: 0.9rem;
-    font-weight: 600;
-    transition: background 0.15s;
+    font-family: var(--font-display);
+    font-size: 1.1rem;
+    font-weight: 400;
+    letter-spacing: 0.06em;
+    text-align: left;
+    transition: color 0.15s;
   }
 
   .new-session-btn:hover {
-    background: var(--accent-hover);
-  }
-
-  .new-session-btn .icon {
-    font-size: 1.1rem;
-    width: auto;
+    color: var(--accent);
   }
 
   nav {
@@ -399,7 +393,6 @@
   button {
     display: flex;
     align-items: center;
-    gap: 0.65rem;
     width: 100%;
     padding: 0.7rem 0.85rem;
     border: none;
@@ -422,32 +415,22 @@
     transition: all 0.15s;
   }
 
-  .icon {
-    font-size: 1rem;
-    width: 1.25rem;
-    text-align: center;
-    flex-shrink: 0;
-  }
-
   button:hover {
-    color: var(--text-primary);
-    background: var(--bg-surface-hover);
+    color: var(--accent);
+    background: none;
   }
 
-  /* Was accent-on-soft-bg: #a90303 text on #2a0e0e, which is 2.31:1 -- red on
-     red, well under the 4.5:1 AA floor. A solid accent fill with white text
-     is 7.77:1 and reads as the selected row at a glance. */
+  /* The selected row is marked by colour alone. A filled background was the
+     cream block Jacob asked removed — white text on the dark surface, with
+     the active item in the accent, is the whole distinction. */
   button.active {
-    color: var(--accent-text);
-    background: var(--accent);
+    color: var(--accent);
+    background: none;
   }
 
-  /* Without this the generic button:hover rule repaints the selected row with
-     the neutral surface colour, so hovering the active item made it look
-     deselected. Hover now deepens the same red instead. */
   button.active:hover {
-    color: var(--accent-text);
-    background: var(--accent-hover);
+    color: var(--accent-hover);
+    background: none;
   }
 
   main {
