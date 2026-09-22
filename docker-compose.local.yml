@@ -69,20 +69,27 @@ services:
   # `unless-stopped` here means "keep the loop alive across host reboots,"
   # not "restart on exit," which is the distinction that matters for the
   # agents above.
+  #
+  # Mounts the WHOLE repo, not just vault/ — a 2026-09-22 verification pass
+  # found `vault/` has no .git of its own (it's a tracked subfolder of this
+  # repo, same as every other file), so a plain `alpine:latest` image with
+  # only vault/ mounted had no git binary AND no .git to operate on. The
+  # relay commits are scoped to `vault/` (see vault_relay.sh's `git add
+  # vault/`) so this container still never touches unrelated app code.
   vault-relay:
-    image: alpine:latest
+    build:
+      context: ./scripts
+      dockerfile: vault_relay.Dockerfile
     container_name: valhallaai-relay
     volumes:
-      - ./vault:/vault
-      - ./scripts/vault_relay.sh:/vault_relay.sh:ro
+      - .:/repo
       # Same tilde caveat as above — set HOST_SSH_DIR in .env.
       - ${HOST_SSH_DIR}:/root/.ssh
     environment:
       - VAULT_REPO=${VAULT_REPO:-}
-      - VAULT_DIR=/vault
-      - GIT_AUTHOR_NAME=ValhallaAI
-      - GIT_AUTHOR_EMAIL=valhallaai@local
-    entrypoint: ["/bin/sh", "/vault_relay.sh"]
+      - REPO_DIR=/repo
+      - GIT_AUTHOR_NAME=ValhallaAI Relay
+      - GIT_AUTHOR_EMAIL=valhallaai-relay@local
     networks:
       - valhallaai
     profiles:
