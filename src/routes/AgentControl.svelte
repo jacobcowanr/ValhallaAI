@@ -1,17 +1,23 @@
-<script>
+<script lang="ts">
   // MOCK — toggleAgent() below only flips local component state. It does
   // NOT start or stop a Docker container. main.rs registers no Tauri
   // commands, so there is currently no IPC path from this UI to Docker or
   // git at all. Flagged by a 2026-09-21 verification pass; real wiring
   // (a Tauri command that shells out to `docker-compose up/down <service>`)
   // is tracked as open work in CONTRIBUTING.md, not implemented here yet.
-  let agents = [
+  interface AgentStatus {
+    name: string;
+    status: "running" | "stopped";
+    lastRun: string | null;
+  }
+
+  let agents: AgentStatus[] = [
     { name: "claude-agent", status: "stopped", lastRun: null },
     { name: "hermes-agent", status: "stopped", lastRun: null },
     { name: "grok-agent", status: "stopped", lastRun: null },
   ];
 
-  function toggleAgent(agent) {
+  function toggleAgent(agent: AgentStatus): void {
     if (agent.status === "running") {
       agent.status = "stopped";
     } else {

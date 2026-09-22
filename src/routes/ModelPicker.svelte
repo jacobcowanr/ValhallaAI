@@ -1,20 +1,26 @@
-<script>
+<script lang="ts">
   import { onMount } from "svelte";
-  import { callLLM } from "../lib/llm-router";
-  import { PROVIDERS, FALLBACK_PROVIDER, FALLBACK_MODEL } from "../lib/providers";
+  import { callLLM, type LLMProvider, type LLMResponse } from "../lib/llm-router";
+  import { PROVIDERS, PROVIDER_ENTRIES, FALLBACK_PROVIDER, FALLBACK_MODEL } from "../lib/providers";
 
-  let selectedProvider = FALLBACK_PROVIDER;
-  let selectedModel = FALLBACK_MODEL;
+  interface ChatMessage {
+    type: "user" | "assistant";
+    text: string;
+    usage?: LLMResponse["usage"];
+  }
+
+  let selectedProvider: LLMProvider = FALLBACK_PROVIDER;
+  let selectedModel: string = FALLBACK_MODEL;
   let apiKey = "";
   let userMessage = "";
-  let responses = [];
+  let responses: ChatMessage[] = [];
   let loading = false;
 
-  function apiKeyStorageKey(providerId) {
+  function apiKeyStorageKey(providerId: LLMProvider): string {
     return `valhallaai-apikey-${providerId}`;
   }
 
-  function loadApiKeyFor(providerId) {
+  function loadApiKeyFor(providerId: LLMProvider): void {
     apiKey = localStorage.getItem(apiKeyStorageKey(providerId)) || "";
   }
 
@@ -22,16 +28,20 @@
     // Load user's saved preferences
     const prefs = localStorage.getItem("valhallaai-prefs");
     if (prefs) {
-      const { defaultProvider, defaultModel } = JSON.parse(prefs);
+      const { defaultProvider, defaultModel } = JSON.parse(prefs) as {
+        defaultProvider?: LLMProvider;
+        defaultModel?: string;
+      };
       // A previously-saved provider can disappear from the catalog (e.g. the
       // GitHub Copilot removal). Falling back here instead of trusting the
       // stored value keeps the model dropdown from silently rendering empty
       // and callLLM() from failing with "Unknown provider" on every send.
       if (defaultProvider && PROVIDERS[defaultProvider]) {
         selectedProvider = defaultProvider;
-        selectedModel = PROVIDERS[defaultProvider].models.includes(defaultModel)
-          ? defaultModel
-          : PROVIDERS[defaultProvider].models[0];
+        selectedModel =
+          defaultModel && PROVIDERS[defaultProvider].models.includes(defaultModel)
+            ? defaultModel
+            : PROVIDERS[defaultProvider].models[0];
       } else {
         selectedProvider = FALLBACK_PROVIDER;
         selectedModel = FALLBACK_MODEL;
@@ -45,7 +55,7 @@
   // field (or silently send it to the wrong API).
   $: loadApiKeyFor(selectedProvider);
 
-  async function sendMessage() {
+  async function sendMessage(): Promise<void> {
     if (!userMessage.trim()) return;
 
     loading = true;
@@ -66,7 +76,7 @@
       },
       {
         type: "assistant",
-        text: response.success ? response.content : `Error: ${response.error}`,
+        text: response.success ? (response.content ?? "") : `Error: ${response.error}`,
         usage: response.usage,
       },
     ];
@@ -75,7 +85,7 @@
     loading = false;
   }
 
-  function saveApiKey() {
+  function saveApiKey(): void {
     if (apiKey) {
       localStorage.setItem(apiKeyStorageKey(selectedProvider), apiKey);
     } else {
@@ -89,7 +99,7 @@
     <div class="field">
       <label for="model-picker-provider">Provider:</label>
       <select id="model-picker-provider" bind:value={selectedProvider}>
-        {#each Object.entries(PROVIDERS) as [key, { name }]}
+        {#each PROVIDER_ENTRIES as [key, { name }]}
           <option value={key}>{name}</option>
         {/each}
       </select>

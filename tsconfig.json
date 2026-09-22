@@ -10,7 +10,8 @@
     "isolatedModules": true,
     "moduleResolution": "bundler",
     "skipLibCheck": true,
-    "strict": true
+    "strict": true,
+    "noEmit": true
   },
   "include": ["src/**/*.ts", "src/**/*.js", "src/**/*.svelte"],
   "references": [{ "path": "./tsconfig.node.json" }]

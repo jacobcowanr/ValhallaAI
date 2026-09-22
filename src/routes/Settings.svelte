@@ -1,14 +1,15 @@
-<script>
+<script lang="ts">
   import { onMount } from "svelte";
-  import { PROVIDERS, FALLBACK_PROVIDER, FALLBACK_MODEL } from "../lib/providers";
+  import type { LLMProvider } from "../lib/llm-router";
+  import { PROVIDERS, PROVIDER_ENTRIES, FALLBACK_PROVIDER, FALLBACK_MODEL } from "../lib/providers";
 
-  let defaultProvider = FALLBACK_PROVIDER;
-  let defaultModel = FALLBACK_MODEL;
-  let apiKeys = {};
+  let defaultProvider: LLMProvider = FALLBACK_PROVIDER;
+  let defaultModel: string = FALLBACK_MODEL;
+  let apiKeys: Record<string, string> = {};
   let saved = false;
   let ollamaEndpoint = "";
 
-  function apiKeyStorageKey(providerId) {
+  function apiKeyStorageKey(providerId: LLMProvider): string {
     return `valhallaai-apikey-${providerId}`;
   }
 
@@ -16,15 +17,19 @@
     // Load saved preferences
     const savedPrefs = localStorage.getItem("valhallaai-prefs");
     if (savedPrefs) {
-      const prefs = JSON.parse(savedPrefs);
+      const prefs = JSON.parse(savedPrefs) as {
+        defaultProvider?: LLMProvider;
+        defaultModel?: string;
+      };
       // A previously-saved provider can disappear from the catalog (e.g. the
       // GitHub Copilot removal). Falling back here instead of trusting the
       // stored value keeps the model dropdown from silently rendering empty.
       if (prefs.defaultProvider && PROVIDERS[prefs.defaultProvider]) {
         defaultProvider = prefs.defaultProvider;
-        defaultModel = PROVIDERS[prefs.defaultProvider].models.includes(prefs.defaultModel)
-          ? prefs.defaultModel
-          : PROVIDERS[prefs.defaultProvider].models[0];
+        defaultModel =
+          prefs.defaultModel && PROVIDERS[prefs.defaultProvider].models.includes(prefs.defaultModel)
+            ? prefs.defaultModel
+            : PROVIDERS[prefs.defaultProvider].models[0];
       } else {
         defaultProvider = FALLBACK_PROVIDER;
         defaultModel = FALLBACK_MODEL;
@@ -36,13 +41,13 @@
 
     // Load any previously-saved per-provider API keys. Ollama needs none
     // (local, no auth) so it's excluded from this list.
-    for (const providerId of Object.keys(PROVIDERS)) {
+    for (const providerId of Object.keys(PROVIDERS) as LLMProvider[]) {
       if (providerId === "ollama") continue;
       apiKeys[providerId] = localStorage.getItem(apiKeyStorageKey(providerId)) || "";
     }
   });
 
-  function savePreferences() {
+  function savePreferences(): void {
     const prefs = {
       defaultProvider,
       defaultModel,
@@ -54,7 +59,7 @@
     }, 2000);
   }
 
-  function saveApiKey(providerId) {
+  function saveApiKey(providerId: LLMProvider): void {
     // Uses the SAME localStorage key ModelPicker reads from
     // (valhallaai-apikey-<providerId>), so a key saved here actually shows up
     // there. Previously these were two disconnected storage schemes.
@@ -85,7 +90,7 @@
       <div class="field">
         <label for="default-provider">Provider:</label>
         <select id="default-provider" bind:value={defaultProvider}>
-          {#each Object.entries(PROVIDERS) as [key, { name }]}
+          {#each PROVIDER_ENTRIES as [key, { name }]}
             <option value={key}>{name}</option>
           {/each}
         </select>
@@ -141,7 +146,7 @@
       </p>
 
       <div class="api-keys">
-        {#each Object.entries(PROVIDERS) as [providerId, { name }]}
+        {#each PROVIDER_ENTRIES as [providerId, { name }]}
           {#if providerId !== "ollama"}
             <div class="field">
               <label for={`apikey-${providerId}`}>{name}</label>

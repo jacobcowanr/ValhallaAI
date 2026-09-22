@@ -99,5 +99,16 @@ export const PROVIDERS: Record<LLMProvider, ProviderEntry> = {
 
 export const PROVIDER_COUNT = Object.keys(PROVIDERS).length;
 
+// Object.entries() widens keys to `string` even when the source object is
+// typed Record<LLMProvider, ...> — every `{#each Object.entries(PROVIDERS)}`
+// in the Svelte components hit that widening once they were actually
+// typechecked (svelte-check had never run on them before 2026-09-22; tsc
+// alone silently skips .svelte files). Exporting the properly-typed tuple
+// list once here, instead of casting at every call site.
+export const PROVIDER_ENTRIES: [LLMProvider, ProviderEntry][] = Object.entries(PROVIDERS) as [
+  LLMProvider,
+  ProviderEntry
+][];
+
 export const FALLBACK_PROVIDER: LLMProvider = "nous";
 export const FALLBACK_MODEL = "x-ai/grok-4.7";

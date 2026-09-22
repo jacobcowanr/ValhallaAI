@@ -1,13 +1,13 @@
-<script>
+<script lang="ts">
   // MOCK — syncVault() below is a setTimeout stub, not a real git
   // operation. main.rs registers no Tauri commands, so there is no IPC
   // path from this UI to git at all yet. Same gap as AgentControl.svelte.
   // Use `git pull` / `git push` in vault/ directly for now.
   let vaultPath = "/vault";
-  let syncStatus = "idle";
-  let lastSync = null;
+  let syncStatus: "idle" | "syncing" = "idle";
+  let lastSync: string | null = null;
 
-  async function syncVault() {
+  async function syncVault(): Promise<void> {
     syncStatus = "syncing";
     // TODO: Implement git pull/push
     setTimeout(() => {
