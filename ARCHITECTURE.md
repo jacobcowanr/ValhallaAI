@@ -146,30 +146,23 @@ this file, because `Onboarding.svelte` (§4.2c) needs the identical call and
 duplicating it was the same mistake the provider catalog already made once.
 
 ### 4.2c Onboarding (`src/routes/Onboarding.svelte`)
-A first-launch welcome overlay, mounted unconditionally at the top of
-`App.svelte` and self-hiding: `visible` is derived directly from
-`!activeProfile?.onboarded`, so there is no local open/close state to fall
-out of sync with the profile store. Offers **Sign in with Google** or
-**Continue without an account** — both are equally valid dismissals, there is
-no backdrop-click or Escape handler, because this is a welcome screen, not a
-gate.
+A sign-in gate, mounted unconditionally at the top of `App.svelte`. `visible`
+is derived from `!isSignedIn(activeProfile)`, so there is no local open/close
+state to fall out of sync with the profile store, and no backdrop-click or
+Escape handler — the only way through is a Google sign-in.
 
-**Deliberately not mandatory.** Jacob chose "identity on a profile" over
-"lock the app behind sign-in" earlier in the same session that built Google
-sign-in (see the [2026-09-22 02:18] entry in `vault/AGENT_SYNC.md`) precisely
-because ValhallaAI has no backend and gating local, offline software behind
-an account contradicts §3's "self-hosted and user-owned" premise. This
-overlay surfaces the choice at the moment it is most relevant instead of
-requiring you to find Settings — it does not reverse that earlier decision.
+**Mandatory as of 2026-09-22.** Jacob reversed the earlier "identity on a
+profile, not a lock" decision and asked for the dialog to require a profile
+with a verified email. The only verification this app can perform is
+Google's — there is no server to send a confirmation mail from — so the gate
+is "signed in with Google and carrying an email." A typed name cannot satisfy
+that, so there is no local path. `isSignedIn()` requires both `authProvider`
+and `email`, which means a profile that is already signed in passes straight
+through and never sees the dialog.
 
-**Only a genuinely new profile sees this.** `initProfiles()` in `profiles.ts`
-backfills `onboarded: true` for every profile that existed before this field
-was introduced, on the reasoning that a profile already in use has definitely
-had a "first run," even though nothing ever set the flag. Only
-`createProfile()`-created profiles (deliberately, that function does not set
-the field) see the prompt. Verified in a browser: a profile carrying no
-`onboarded` field and an existing sign-in does **not** see the overlay after
-the backfill runs; a genuinely fresh install does.
+The `onboarded` flag and its backfill still exist but no longer control this
+screen. Keying the gate off that flag would hide it from every profile that
+predates it, which is the opposite of what was asked.
 
 ### 4.3 Model Picker (`src/routes/ModelPicker.svelte`)
 Loads the saved default on mount, lets the user override per-conversation, sends through the router, renders responses with token usage.

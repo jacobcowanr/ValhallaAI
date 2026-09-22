@@ -166,16 +166,14 @@ Added 2026-09-22, alongside splitting Profile out of Settings (see
 [ARCHITECTURE.md §4.2c](./ARCHITECTURE.md#42c-onboarding-srcroutesonboardingsvelte)
 and [§4.2b](./ARCHITECTURE.md#42b-profile-srcroutesprofilesvelte)).
 
-- **`Onboarding.svelte` is skippable, not a gate.** Jacob explicitly chose
-  "identity on a profile" over "lock the app behind sign-in" the first time
-  Google sign-in came up this session, specifically because a mandatory
-  account requirement contradicts the local-first, no-backend premise
-  ValhallaAI is built on. A "verified email at startup" request later in the
-  same session reads, in isolation, like it could mean a hard gate — it was
-  built as a skippable welcome prompt instead, consistent with the earlier
-  explicit decision, and that reasoning is written into the component's own
-  comment so a later edit does not silently reverse it without noticing the
-  tension.
+- **`Onboarding.svelte` is a gate.** Jacob reversed the earlier decision on
+  2026-09-22 and asked for the dialog to require a profile with a verified
+  email before the app is usable. The only verification available is
+  Google's, so the gate is `isSignedIn()` — an auth provider plus an email —
+  and there is no "continue without an account" path. A profile that is
+  already signed in never sees it. The `onboarded` flag is no longer what
+  shows or hides this screen; keying it off that flag would exempt every
+  pre-existing profile, which is what was asked *not* to happen.
 - **`Profile.emailVerified`** comes from the id_token's `email_verified`
   claim, captured once at sign-in and never re-checked (there is nothing to
   re-check against — no token is retained). It is **surfaced, not enforced**:
