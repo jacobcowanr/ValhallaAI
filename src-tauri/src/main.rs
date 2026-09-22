@@ -107,20 +107,31 @@ VALHALLAAI_PROJECT_DIR to the checkout."
     ))
 }
 
-/// Run one allowlisted agent once. The name is matched before it is passed
-/// to the script, so this cannot shell out to an arbitrary command.
+/// Run one allowlisted agent once.
+///
+/// `runtime` is optional and only used for a user-defined agent, whose
+/// display name is not one of the three built-ins. It is matched against the
+/// same allowlist as `service`, and the allowlisted value -- not the name --
+/// is what reaches the script. A custom agent therefore cannot run anything
+/// the three built-in agents cannot already run.
 #[tauri::command]
-fn run_agent(service: String) -> Result<String, String> {
-    match service.as_str() {
-        "claude-agent" | "hermes-agent" | "grok-agent" => {}
-        _ => return Err(format!("Unknown agent: {service}")),
-    }
+fn run_agent(service: String, runtime: Option<String>) -> Result<String, String> {
+    let known = |name: &str| matches!(name, "claude-agent" | "hermes-agent" | "grok-agent");
+
+    // What actually gets executed. A built-in agent runs itself; a custom
+    // agent runs the runtime it was bound to.
+    let target = match runtime.as_deref() {
+        Some(runtime) if known(runtime) => runtime.to_string(),
+        Some(runtime) => return Err(format!("Unknown agent runtime: {runtime}")),
+        None if known(&service) => service.clone(),
+        None => return Err(format!("Unknown agent: {service}")),
+    };
 
     let root = project_root()?;
     let script = root.join("scripts/run_agent.sh");
     let output = Command::new("bash")
         .arg(&script)
-        .arg(&service)
+        .arg(&target)
         .current_dir(&root)
         .output()
         .map_err(|err| format!("Failed to start {}: {err}", script.display()))?;
