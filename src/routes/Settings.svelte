@@ -2,10 +2,12 @@
   import { onMount } from "svelte";
   import type { LLMProvider } from "../lib/llm-router";
   import { PROVIDERS, PROVIDER_ENTRIES, FALLBACK_PROVIDER, FALLBACK_MODEL } from "../lib/providers";
+  import { envKeyFor, loadEnvProviderKeys, resolveApiKey } from "../lib/provider-keys";
 
   let defaultProvider: LLMProvider = FALLBACK_PROVIDER;
   let defaultModel: string = FALLBACK_MODEL;
   let apiKeys: Record<string, string> = {};
+  let envKeys: Record<string, boolean> = {};
   let saved = false;
   let ollamaEndpoint = "";
 
@@ -70,7 +72,8 @@
     return `valhallaai-apikey-${providerId}`;
   }
 
-  onMount(() => {
+  onMount(async () => {
+    await loadEnvProviderKeys();
     // Load saved preferences
     const savedPrefs = localStorage.getItem("valhallaai-prefs");
     if (savedPrefs) {
@@ -100,7 +103,9 @@
     // (Ollama, Nous Portal) are excluded — there is nothing to paste.
     for (const providerId of Object.keys(PROVIDERS) as LLMProvider[]) {
       if (KEYLESS_PROVIDERS.has(providerId)) continue;
-      apiKeys[providerId] = localStorage.getItem(apiKeyStorageKey(providerId)) || "";
+      const stored = localStorage.getItem(apiKeyStorageKey(providerId)) || "";
+      envKeys[providerId] = Boolean(envKeyFor(providerId));
+      apiKeys[providerId] = resolveApiKey(providerId, stored);
     }
 
     // Default the key-editor dropdown to the user's default provider when
@@ -219,9 +224,8 @@
     <section class="section">
       <h3>API Keys</h3>
       <p class="section-description">
-        Stored locally only (browser localStorage inside the Tauri webview) — never sent anywhere but the
-        provider's own API. Ollama and Nous Portal need no key. Leave a field blank to use that provider's manual
-        per-message key entry in Models &amp; Chat instead.
+        A provider with a key in the project .env uses that key. Otherwise a key saved here is stored in this
+        app only and sent only to that provider. Ollama and Nous Portal need no key.
       </p>
 
       <div class="field">
@@ -238,7 +242,9 @@
       </div>
 
       {#key apiKeyProvider}
-        {#if editingKey}
+        {#if envKeys[apiKeyProvider]}
+          <p class="key-saved-status">✓ {PROVIDERS[apiKeyProvider]?.name} key loaded from .env</p>
+        {:else if editingKey}
           <div class="field">
             <label for="apikey-value">{PROVIDERS[apiKeyProvider]?.name} API Key:</label>
             <div class="key-edit-row">
@@ -259,7 +265,7 @@
           </div>
         {/if}
       {/key}
-      <small>✓ next to a provider above means a key is already saved for it.</small>
+      <small>✓ next to a provider means a key is available, from .env or saved in the app.</small>
     </section>
 
     <section class="section">

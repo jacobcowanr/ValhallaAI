@@ -119,7 +119,7 @@ Both tracked in [CONTRIBUTING.md](./CONTRIBUTING.md#known-open-issues) until act
 Single abstraction (`callLLM(config, messages)`) that fans out to 18 provider-specific functions. The provider *catalog* (names, display names, model lists) lives separately in `src/lib/providers.ts` — the single source of truth `Settings.svelte` and `ModelPicker.svelte` both import from, so the count can't drift between files the way it did before that extraction (see [CONTRIBUTING.md](./CONTRIBUTING.md#known-open-issues)). Adding a provider means adding one function + one switch case in `llm-router.ts`, and one entry in `providers.ts` — nothing else in the app should need to change.
 
 ### 4.2 Settings (`src/routes/Settings.svelte`)
-User picks a **default provider + model**, saved to `localStorage`. Nothing is hardcoded as "the" default — every user configures their own, mirroring how Hermes's own provider/account settings work. Also holds per-provider API keys (`localStorage`, same keys `ModelPicker.svelte` reads).
+User picks a **default provider + model**, saved to `localStorage`. Nothing is hardcoded as "the" default — every user configures their own, mirroring how Hermes's own provider/account settings work. Provider API keys come from the project `.env` when that file has one (`provider_keys` in the desktop app: Anthropic, OpenAI, OpenRouter, Google, xAI). A key saved in Settings is used only for a provider the file does not cover. Nous Portal does not use a pasted key.
 
 ### 4.3 Model Picker (`src/routes/ModelPicker.svelte`)
 Loads the saved default on mount, lets the user override per-conversation, sends through the router, renders responses with token usage.
@@ -127,8 +127,8 @@ Loads the saved default on mount, lets the user override per-conversation, sends
 ### 4.4 Agent Control (`src/routes/AgentControl.svelte`)
 Run starts one agent and waits for it to exit. The button calls the Tauri command `run_agent`, which runs `scripts/run_agent.sh` with an allowlisted name (`claude-agent`, `hermes-agent`, `grok-agent`). Hermes is the host CLI (`hermes chat --oneshot`). Claude and Grok are `docker compose run --rm` one-shot containers. The same script is what you run from a terminal. Vault Browser is still a mock (§4.5).
 
-### 4.5 Vault Browser (`src/routes/VaultBrowser.svelte`) — UI mock, not wired up
-Intended to show vault sync status, last pull, recent entries. **As built, `syncVault()` is a `setTimeout` stub — it does not run git.** Same underlying gap as §4.4: no Tauri command exists to shell out to git. Shows the same visible notice.
+### 4.5 Vault Browser (`src/routes/VaultBrowser.svelte`)
+Refresh calls the Tauri command `vault_status`. It lists the files under `vault/` and runs `git status --short -- vault` in the project. It does not pull or push. The screen does not take a path from the user.
 
 ### 4.6 Agent Runtime (`agents/*`, `scripts/run_agent.sh`)
 Each agent is one-shot:

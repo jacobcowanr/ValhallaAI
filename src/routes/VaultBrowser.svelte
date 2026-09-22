@@ -1,47 +1,77 @@
 <script lang="ts">
-  // MOCK — syncVault() below is a setTimeout stub, not a real git
-  // operation. main.rs registers no Tauri commands, so there is no IPC
-  // path from this UI to git at all yet. Same gap as AgentControl.svelte.
-  // Use `git pull` / `git push` in vault/ directly for now.
-  let vaultPath = "/vault";
-  let syncStatus: "idle" | "syncing" = "idle";
-  let lastSync: string | null = null;
+  import { onMount } from "svelte";
+  import { invoke } from "@tauri-apps/api/tauri";
+  import { inTauri } from "../lib/provider-keys";
 
-  async function syncVault(): Promise<void> {
-    syncStatus = "syncing";
-    // TODO: Implement git pull/push
-    setTimeout(() => {
-      syncStatus = "idle";
-      lastSync = new Date().toLocaleString();
-    }, 1000);
+  interface VaultStatus {
+    files: string[];
+    git_status: string;
+    last_commit: string;
   }
+
+  let files: string[] = [];
+  let gitStatus = "";
+  let lastCommit = "";
+  let error = "";
+  let loading = false;
+
+  async function refresh(): Promise<void> {
+    if (!inTauri()) {
+      error = "Not inside the desktop app. The vault list is read from this project when you run npm run tauri-dev.";
+      return;
+    }
+    loading = true;
+    error = "";
+    try {
+      const status = await invoke<VaultStatus>("vault_status");
+      files = status.files;
+      gitStatus = status.git_status;
+      lastCommit = status.last_commit;
+    } catch (err) {
+      error = typeof err === "string" ? err : err instanceof Error ? err.message : "Could not read the vault";
+    }
+    loading = false;
+  }
+
+  onMount(() => {
+    void refresh();
+  });
 </script>
 
 <div class="container">
   <h2>Vault Browser</h2>
   <p class="mock-notice">
-    ⚠ Not wired up yet — "Sync Vault" doesn't actually run git. Use
-    <code>git -C vault pull</code> / <code>git -C vault push</code> directly for now.
+    Lists the files in <code>vault/</code> and the git status of that folder. It does not pull or push.
   </p>
 
   <div class="controls">
-    <input type="text" bind:value={vaultPath} placeholder="Vault path" />
-    <button on:click={syncVault} disabled={syncStatus === "syncing"}>
-      {syncStatus === "syncing" ? "Syncing..." : "Sync Vault"}
+    <button on:click={refresh} disabled={loading}>
+      {loading ? "Refreshing..." : "Refresh"}
     </button>
   </div>
 
-  {#if lastSync}
-    <p class="last-sync">Last sync: {lastSync}</p>
+  {#if error}
+    <p class="last-sync">{error}</p>
+  {/if}
+  {#if lastCommit}
+    <p class="last-sync">Last commit touching AGENT_SYNC.md: {lastCommit}</p>
+  {/if}
+  {#if gitStatus}
+    <pre class="status">{gitStatus}</pre>
   {/if}
 
   <div class="browser">
-    <div class="placeholder">
-      <p>📁 Vault browser will display here</p>
-      <p>- AGENT_SYNC.md (coordination log)</p>
-      <p>- agents/ (agent configs)</p>
-      <p>- skills/ (tool catalog)</p>
-    </div>
+    {#if files.length === 0}
+      <div class="placeholder">
+        <p>No vault files read yet.</p>
+      </div>
+    {:else}
+      <ul class="file-list">
+        {#each files as file}
+          <li>{file}</li>
+        {/each}
+      </ul>
+    {/if}
   </div>
 </div>
 
@@ -83,15 +113,6 @@
     margin-bottom: 1rem;
   }
 
-  input {
-    flex: 1;
-    padding: 0.5rem;
-    border: 1px solid var(--border-color);
-    border-radius: 4px;
-    background: var(--bg-surface-raised);
-    color: var(--text-primary);
-  }
-
   button {
     padding: 0.5rem 1rem;
     background: var(--accent);
@@ -116,15 +137,34 @@
     color: var(--text-secondary);
   }
 
+  .status {
+    margin: 0 0 1rem 0;
+    white-space: pre-wrap;
+    font-size: 0.8rem;
+    background: var(--bg-surface-raised);
+    color: var(--text-primary);
+    padding: 0.5rem;
+    border-radius: 4px;
+  }
+
   .browser {
     background: var(--bg-surface);
     border: 1px solid var(--border-color);
     border-radius: 4px;
-    padding: 2rem;
-    min-height: 300px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    padding: 1rem 1.5rem;
+    min-height: 200px;
+  }
+
+  .file-list {
+    margin: 0;
+    padding-left: 1.2rem;
+    color: var(--text-primary);
+  }
+
+  .file-list li {
+    margin: 0.25rem 0;
+    font-family: monospace;
+    font-size: 0.85rem;
   }
 
   .placeholder {
