@@ -18,39 +18,45 @@ It is built to be **self-hosted and user-owned**: you run it on your Mac today, 
 graph TB
     subgraph Desktop["ValhallaAI Desktop App (Tauri)"]
         UI[Svelte UI]
-        Settings[Settings<br/>provider + model prefs]
-        ModelPicker[Model Picker<br/>chat interface]
-        VaultBrowser[Vault Browser<br/>file list]
-        AgentControl[Agent Control<br/>run once]
+        Profile[Profile<br/>sign-in gate]
+        Settings[Settings<br/>keys, prefs, custom providers]
+        ModelPicker[Models and Chat<br/>drop / paste screenshots]
+        Sessions[Sessions<br/>history]
+        VaultBrowser[Vault Browser<br/>file list, read-only]
+        AgentControl[Agent Control<br/>run once + custom agents]
         Router[LLM Router<br/>llm-router.ts]
     end
 
-    subgraph Providers["16 LLM Providers"]
+    subgraph Providers["13 providers + user-defined"]
         direction LR
-        P1[Anthropic]
-        P2[OpenAI / ChatGPT]
+        P1[Anthropic<br/>API key]
+        P2[Claude Subscription<br/>DirectSDK]
         P3[Google Gemini]
-        P4[Nous Portal]
+        P4[Nous Portal<br/>via local proxy]
         P5[Ollama<br/>local]
-        P6[...12 more]
+        P6[7 more<br/>OpenAI-compatible]
+        P7[Custom providers<br/>added in Settings]
     end
 
-    subgraph Runtime["Agent Runtime (Docker Compose)"]
+    subgraph Runtime["Agent runtimes"]
         direction LR
-        A1[Claude Agent]
-        A2[Hermes Agent]
-        A3[Grok Agent]
-        A4[Custom Agents]
+        A1[claude-agent<br/>subscription first]
+        A2[hermes-agent<br/>host CLI]
+        A3[grok-agent<br/>Docker, paid key]
+        A4[Custom agents<br/>a name bound to one of the three]
     end
 
     subgraph Vault["Coordination Vault (git-synced Markdown)"]
-        Sync[AGENT_SYNC.md<br/>live log]
+        Sync[AGENT_SYNC.md<br/>append-only log]
         Config[agents-config.json]
-        Outbox[Per-agent outboxes]
+        Tasks[agent-tasks.json]
+        Outbox[Per-agent outboxes<br/>gitignored]
     end
 
+    UI --> Profile
     UI --> Settings
     UI --> ModelPicker
+    UI --> Sessions
     UI --> VaultBrowser
     UI --> AgentControl
 
@@ -60,9 +66,10 @@ graph TB
 
     AgentControl --> Runtime
     Runtime --> Outbox
+    Runtime --> Config
+    Runtime --> Tasks
     Outbox --> Sync
     VaultBrowser --> Sync
-    Runtime --> Config
 
     Vault -. git push/pull .-> RemoteGit[(User's own<br/>private Git remote)]
 
@@ -254,21 +261,57 @@ affect layout, only stacking order.
 
 ## 5. Data flow: sending a chat message
 
+A message is text, images, or both. Images arrive three ways — the file picker, a drag onto the chat, and a clipboard paste — and all three call the same `ingestImageFiles()`. The diagram shows the drop path; the other two differ only in how the `File` arrives.
+
 ```mermaid
 sequenceDiagram
     participant U as User
-    participant MP as ModelPicker
+    participant MP as Models and Chat
     participant R as LLM Router
     participant P as Provider API
 
-    U->>MP: types message, hits send
-    MP->>MP: read provider, model, and key<br/>(.env via the desktop app, else Settings)
-    MP->>R: callLLM(config, messages)
-    R->>R: switch(provider) → route to<br/>provider-specific function
-    R->>P: fetch(endpoint, {model, messages, ...})
-    P-->>R: response JSON
-    R-->>MP: {success, content, usage}
-    MP-->>U: render assistant message + token usage
+    U->>MP: drops a screenshot, types a caption, hits send
+    MP->>MP: ingestImageFiles() reads it as a data URL
+    alt provider cannot take images
+        MP-->>U: warning, Send disabled
+    else provider can take images
+        MP->>MP: read provider, model, and key<br/>(.env via the desktop app, else Settings)
+        MP->>R: callLLM(config, messages)<br/>message carries images[]
+        R->>R: switch(provider) and encode the image<br/>in that provider's own shape
+        R->>P: fetch(endpoint, {model, messages, ...})
+        P-->>R: response JSON
+        R-->>MP: {success, content, usage}
+        MP-->>U: render assistant message + token usage
+    end
+```
+
+**Why the encoding step exists.** There is no single image format. A data URL is `data:image/png;base64,...`, and each provider wants those two halves in a different field:
+
+| Family | Providers | Shape sent |
+|---|---|---|
+| OpenAI-compatible | OpenRouter, ChatGPT, Grok, Nous, Fireworks, Groq, Perplexity, MiniMax, Qwen | `[{type:"text"},{type:"image_url",image_url:{url}}]` — data URL kept whole |
+| Google Gemini | Google | `{inlineData:{mimeType,data}}` — camelCase, prefix stripped |
+| Anthropic | Anthropic (API key) | `{type:"image",source:{type:"base64",media_type,data}}` — prefix stripped |
+| Ollama | Ollama | a raw-base64 `images` array alongside the text |
+
+`parseDataUrl()` splits the URL once; each emitter below it only decides the field names. That split is the thing that is easy to get wrong per provider, so it lives in exactly one place.
+
+**The one provider that cannot take an image is the default.** Claude Subscription DirectSDK builds a single text prompt and pipes it to the `claude` CLI, so there is no field an image can travel in. It is deliberately absent from `IMAGE_CAPABLE_PROVIDERS`: the UI warns and disables Send rather than attaching the image and quietly never sending it. Making that path work means writing images to temp files and letting the CLI read them, which changes what tools the CLI is permitted to use — a decision recorded in [CONTRIBUTING.md](./CONTRIBUTING.md), not taken silently.
+
+**A screenshot with no caption is still a message.** `toAnthropicMessages()` used to drop any turn whose text was empty. A dropped screenshot often has no caption, so that filter would have discarded the image. A turn now survives if it has text *or* an image.
+
+**Errors carry the provider's own explanation.** A failed response used to surface as `HTTP 503` and nothing else, which is what made a transient Google capacity spike look like a broken API key — Google's body said "this model is currently experiencing high demand" and the app threw it away. `describeHttpError()` reads the body, so the bubble now reads `HTTP 503: This model is currently experiencing high demand.`
+
+```mermaid
+flowchart TD
+    Start[Provider returns a non-2xx response] --> Read[describeHttpError reads the body]
+    Read --> JSON{JSON with an error.message?}
+    JSON -->|yes| Show["Show: HTTP 503: the provider's own sentence"]
+    JSON -->|no, but text| Slice[Show the status plus the first 200 chars]
+    JSON -->|body unreadable| Status[Show the status code alone]
+    Show --> User[User can tell a bad key from a capacity spike from a retired model]
+    Slice --> User
+    Status --> User
 ```
 
 ## 6. Data flow: agent run → vault coordination
@@ -276,25 +319,41 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant AC as Agent Control (UI)
-    participant D as Docker Container
+    participant S as scripts/run_agent.sh
+    participant RT as Runtime
     participant V as Vault (local filesystem)
     participant G as User's Git Remote
 
-    AC->>D: scripts/run_agent.sh<br/>(Hermes: host CLI.<br/>Claude and Grok: docker compose run)
-    D->>V: read agents-config.json
-    D->>D: run task (call LLM, do work)
-    D->>V: append result to<br/>AGENT_OUTBOX_<agent>.md
-    D->>D: exit
+    AC->>S: run_agent(service, runtime)
+    Note over S: runtime is re-checked against the<br/>allowlist. The display name never<br/>reaches the shell.
+    alt claude-agent and a subscription login exists
+        S->>RT: host `claude` CLI, paid key stripped
+    else claude-agent, no login
+        S->>RT: docker compose run (paid key)
+    else hermes-agent
+        S->>RT: host `hermes` CLI
+    else grok-agent
+        S->>RT: docker compose run (paid key, no subscription path)
+    end
+    RT->>V: read agents-config.json and agent-tasks.json
+    RT->>RT: run the task
+    RT->>V: append result to AGENT_OUTBOX_agent.md
+    Note over V: stdout only. The CLI's own hook<br/>diagnostics stay on stderr and are<br/>not recorded as the agent's reply.
+    RT->>RT: exit
 
-    Note over V: Relay/merge step (manual or scheduled)
-    V->>V: fold outbox entries into<br/>AGENT_SYNC.md (sequential, no conflicts)
+    Note over V: Relay step (manual or scheduled)
+    V->>V: fold outbox entries into AGENT_SYNC.md
     V->>G: git add, commit, push
-    G-->>V: (other agents/devices pull on their own cycle)
+    G-->>V: other agents and devices pull on their own cycle
 ```
 
-**Why outbox-per-agent instead of concurrent writes to one file:** git merge conflicts on a single shared log are the failure mode we design out from day one. Each agent only ever appends to its *own* file; a single relay step folds everything into the shared log sequentially. This is the same pattern already proven with Hermes's `AGENT_SYNC.md` bridge (`HERMES_OUTBOX.md` → relay → shared log).
+**Subscription first, token billing second.** `claude-agent` probes `claude auth status` and runs the host `claude` CLI on the Pro/Max login, stripping `ANTHROPIC_API_KEY` from that process so "subscription" cannot silently mean "paid key". The Docker container is the fallback, used only when there is no login. `hermes-agent` already ran this way through the Hermes portal login. `grok-agent` cannot: xAI has no subscription login, so it is token-billed by nature and currently unrunnable without `XAI_API_KEY`.
 
-**Current reality vs. this diagram:** Agent Control does start the run (`run_agent` → `scripts/run_agent.sh`). Hermes is not the Docker service in that path. Claude and Grok are. Each writes `vault/AGENT_OUTBOX_<agent>.md`, which is gitignored. The relay script folds outboxes, commits, and can push. Fold and commit were run on a throwaway repo. Push, and a fold of this repo's own outboxes, have not been run. `VAULT_REPO` empty means the relay does not push.
+**A custom agent is a name, not a new runtime.** It is a display name bound to one of the three above, stored in `localStorage`, and the Rust side re-validates the runtime against the same allowlist before anything runs. The name never reaches the shell, which is what keeps "add your own agent" from becoming "run an arbitrary command". Per-agent behaviour still lives in `vault/agent-tasks.json`, keyed by the runtime, so a custom agent shares its runtime's task.
+
+**Why outbox-per-agent instead of concurrent writes to one file:** git merge conflicts on a single shared log are the failure mode this is designed to avoid. Each agent only ever appends to its *own* file; a single relay step folds everything into the shared log sequentially. This is the same pattern Hermes already runs daily.
+
+**Current reality vs. this diagram:** Agent Control does start the run (`run_agent` → `scripts/run_agent.sh`), and the subscription-first branch was verified by a real run that wrote `Status: OK (subscription)` to the outbox. Each agent writes `vault/AGENT_OUTBOX_<agent>.md`, which is gitignored. The relay script folds outboxes, commits, and can push. Fold and commit were run on a throwaway repo. Push, and a fold of this repo's own outboxes, have not been run. `VAULT_REPO` empty means the relay does not push.
 
 ## 7. What the vault is — and isn't
 
@@ -310,15 +369,54 @@ sequenceDiagram
 
 ## 8. Provider catalog
 
-13 providers today (`Object.keys(PROVIDERS).length` in `src/lib/providers.ts` — check there directly rather than trusting this number by hand), alphabetical, router-abstracted so the list can grow without touching the UI logic:
+13 providers (`Object.keys(PROVIDERS).length` in `src/lib/providers.ts` — check there directly rather than trusting this number by hand), router-abstracted so the list can grow without touching the UI logic. A provider that is not here can be added from Settings without editing the source — see §4.2d.
 
-Anthropic (API key) · ChatGPT/Codex · Claude Subscription DirectSDK · Fireworks AI · Google Gemini · Groq · MiniMax · Nous Portal · **Ollama** (sole local runtime — broadest local model catalog) · OpenRouter (aggregator) · Perplexity · Qwen Code · xAI Grok
+| Provider | How it authenticates | How it is called | Reads images |
+|---|---|---|---|
+| Anthropic (API key) | `ANTHROPIC_API_KEY`, bills per token | own request shape, via the desktop process | yes |
+| ChatGPT / Codex | `OPENAI_API_KEY` | OpenAI-compatible | yes |
+| Claude Subscription DirectSDK | `claude auth login`, flat-rate, the default | host `claude` CLI, text prompt only | **no** |
+| Fireworks AI | API key | OpenAI-compatible | yes |
+| Google Gemini | `GOOGLE_API_KEY` | own request shape (`generateContent`) | yes |
+| Groq | API key | OpenAI-compatible | yes |
+| MiniMax | API key | own endpoint, accepts the OpenAI content array | yes |
+| Nous Portal | Hermes portal login, no pasted key | local proxy at `127.0.0.1:8645` | yes |
+| Ollama | none — runs on this machine | local `/api/chat` | yes |
+| OpenRouter | API key | OpenAI-compatible | yes |
+| Perplexity | API key | OpenAI-compatible | yes |
+| Qwen Code | API key | own endpoint (DashScope), accepts the content array | yes |
+| xAI Grok | `XAI_API_KEY` | OpenAI-compatible | yes |
 
-Users can add a provider that is not in this list without editing the source — see §4.2d.
+"OpenAI-compatible" means the provider speaks `{model, messages, temperature, max_tokens}` and answers `{choices:[{message:{content}}]}`, so all of them share one implementation (`callOpenAICompatible`) instead of seven copies of it. The four that don't — Anthropic, Google, MiniMax, Qwen — each have a request or response shape different enough to need its own function. See [POSITIONING.md §3.2](./POSITIONING.md) for why that split is the design and not an accident.
 
-Nous Portal does not take a pasted API key. `callNous()` posts to the local Hermes subscription proxy at `http://127.0.0.1:8645/v1` (`hermes portal` once, then `hermes proxy start`), which attaches the Portal credential.
+```mermaid
+flowchart LR
+    Send[callLLM] --> Switch{provider}
+    Switch -->|7 providers| Shim[callOpenAICompatible<br/>one implementation]
+    Switch -->|Anthropic| A[callAnthropic<br/>content blocks]
+    Switch -->|Google| G[callGoogle<br/>contents and parts]
+    Switch -->|MiniMax| M[callMiniMax]
+    Switch -->|Qwen| Q[callQwen]
+    Switch -->|Ollama| O[callOllama<br/>local, no key]
+    Switch -->|Claude DirectSDK| C[callClaudeDirectSDK<br/>host CLI]
+    Switch -->|custom id| Custom[callOpenAICompatible<br/>user's own endpoint]
+    Shim --> Out[response]
+    A --> Out
+    G --> Out
+    M --> Out
+    Q --> Out
+    O --> Out
+    C --> Out
+    Custom --> Out
+```
 
-See [POSITIONING.md](./POSITIONING.md) for why this list is deliberately this shape.
+**Two providers were removed on 2026-09-22, and the reason is worth keeping.** Replicate and Hugging Face were both in the catalog, and neither could be verified on this machine — no key, no public model list. Worse, both were text-to-output endpoints, so an attached image had nowhere to go and would have been silently dropped. Removing them made the catalog's promise match its behaviour. The three places that must agree were re-counted afterwards: 13 catalog keys, 13 `callLLM` switch cases, 13 members of the `LLMProvider` union.
+
+**Nous Portal does not take a pasted API key.** `callNous()` posts to the local Hermes subscription proxy at `http://127.0.0.1:8645/v1` (`hermes portal` once, then `hermes proxy start`), which attaches the Portal credential. A direct call to `inference-api.nousresearch.com` 401s, because the portal login never produces a key you can paste.
+
+**A model id in the catalog is not proof the model answers.** Gemini's `GET /v1beta/models` lists `gemini-2.5-flash` and reports `generateContent` support for it, and a real request returns 404 "no longer available to new users". The catalog is checked by sending a request, not by reading the list. `gemini-3.6-flash` is first in Google's list on purpose: the picker selects `models[0]` when the provider changes, so first place is the default, and the newest model is not always the one that answers.
+
+**Billing preference, where a subscription exists.** Claude Subscription DirectSDK and Nous Portal run on a flat-rate login and never touch a per-token key. Anthropic (API key) and xAI Grok have no subscription path and bill per token. The chat defaults to Claude Subscription DirectSDK on Haiku for exactly this reason: the out-of-the-box path costs nothing per message.
 
 ## 9. Deployment path (future)
 

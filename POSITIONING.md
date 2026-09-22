@@ -28,6 +28,24 @@ Nobody occupies: **self-hosted, multi-provider, multi-agent, with a plain-text c
 | Open source | (planned) — see [CONTRIBUTING.md's gate](./CONTRIBUTING.md#why-local-first) | ✅ | ✅ | ✅ | E2B's core SDK: Apache-2.0. Modal: not open source. Don't collapse these two into one cell — verify per-vendor if this matters to your decision. |
 | Audit trail = git history | Partial — commits in this repo are real. The relay commits when it is run; that was tested on a throwaway repo. It has not pushed this repo, and the live log is not produced by that relay yet | ✅ proven | ❌ | ❌ | ❌ |
 
+Read left to right and the pattern is the point: ValhallaAI's column is the only one with a check in *both* "desktop app" and "human-readable coordination log". Everyone else has one or the other. The checks that say "partial" or "planned" are there on purpose — a comparison that marks those as done would be the document arguing against its own evidence.
+
+```mermaid
+quadrantChart
+    title Where each tool sits
+    x-axis "Library you build with" --> "App you open"
+    y-axis "Coordination lives in code" --> "Coordination you can read"
+    quadrant-1 "App, readable log"
+    quadrant-2 "Library, readable log"
+    quadrant-3 "Library, in code"
+    quadrant-4 "App, in code"
+    ValhallaAI: [0.78, 0.82]
+    Hermes: [0.62, 0.9]
+    LibreChat: [0.7, 0.3]
+    LangChain: [0.2, 0.15]
+    Modal: [0.85, 0.1]
+```
+
 ## 3. What's actually novel
 
 Being honest about what's genuinely new versus what's just "more of the same, packaged differently":
