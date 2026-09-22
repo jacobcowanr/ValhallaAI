@@ -8,6 +8,10 @@
   } from "../lib/llm-router";
   import { PROVIDERS, PROVIDER_ENTRIES, FALLBACK_PROVIDER, FALLBACK_MODEL } from "../lib/providers";
 
+  // Passed down from App.svelte rather than imported directly here, so
+  // there's one import of the logo asset, not one per place it's shown.
+  export let logoWordmark: string;
+
   interface ChatMessage {
     type: "user" | "assistant";
     text: string;
@@ -164,7 +168,9 @@
     <div class="messages-inner">
       {#if responses.length === 0}
         <div class="empty-state">
-          <p>Send a message to start chatting.</p>
+          <img class="empty-logo" src={logoWordmark} alt="ValhallaAI" />
+          <p class="tagline">Multi-agent orchestration • Model switching • Vault coordination</p>
+          <p class="hint-primary">Send a message to start chatting.</p>
           {#if !apiKey && selectedProvider !== "ollama"}
             <p class="hint">
               No API key set for {PROVIDERS[selectedProvider]?.name} yet — add one in
@@ -311,7 +317,24 @@
     justify-content: center;
     text-align: center;
     color: var(--text-secondary);
-    min-height: 200px;
+    min-height: 320px;
+  }
+
+  .empty-logo {
+    height: 72px;
+    width: auto;
+    margin-bottom: 1.25rem;
+  }
+
+  .empty-state .tagline {
+    margin: 0 0 2rem 0;
+    font-size: 0.95rem;
+    color: var(--text-secondary);
+  }
+
+  .empty-state .hint-primary {
+    margin: 0 0 0.25rem 0;
+    color: var(--text-primary);
   }
 
   .empty-state p {
