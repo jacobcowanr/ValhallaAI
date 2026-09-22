@@ -123,14 +123,33 @@ export const PROVIDERS: Record<LLMProvider, ProviderEntry> = {
     // Please update your code to use models/gemini-3.6-flash". Listing is not
     // the same as callable, so a key-verified models list is still not proof.
     //
-    // What a real request showed for this key:
-    //   gemini-3.6-flash   200, answered "PONG"
-    //   gemini-3.5-flash   200 (callable; returned empty text on a 64-token cap)
+    // What a real request showed for this key (re-probed 2026-09-22 13:18, after
+    // a user hit the 503 in the UI — a note from an hour earlier is not
+    // evidence about now):
+    //   gemini-3.6-flash   200
+    //   gemini-3.5-flash   200 (callable; see the empty-content note below)
     //   gemini-3.8-flash   503 UNAVAILABLE "currently experiencing high demand"
     //                      -- the model exists and the key is valid; the
     //                      capacity is Google-side and temporary
+    //   gemini-3.7-flash   503, the same message. The earlier note left this
+    //                      one unrequested; requesting it closes the gap, and
+    //                      the answer is the unfavourable one.
     //   gemini-2.5-flash   404, replaced by 3.6-flash per Google's own message
-    //   gemini-3.7-flash   present in the list, not individually requested
+    //
+    // Two of the four ids can be capacity-blocked *at once* while others answer
+    // normally, so a 503 here is a per-model, Google-side condition. Do not read
+    // it as a dead key, a dead id, or an app bug, and do not "fix" it by
+    // deleting the entry — check again later. Cross-provider evidence that the
+    // block is key-side capacity and not the id: the local Nous proxy serves
+    // gemini-3.8-flash and genuinely answers ("PONG", 93 completion tokens)
+    // while this key is 503ing on it.
+    //
+    // On "callable": a 200 does not prove an answer. `content` can come back
+    // null with finish_reason "stop" — on a 16-token cap that is what happens,
+    // because 91 of the model's completion tokens were *reasoning* tokens. The
+    // app's own default is 2048 (`config.maxTokens ?? 2048`), which leaves room,
+    // so this is a probing trap rather than a user-facing bug: do not conclude
+    // a model is broken, or fine, from a tiny-cap probe.
     //
     // gemini-3.6-flash is FIRST on purpose. The picker selects models[0] when
     // the provider changes, so first place is the de facto default, and an
