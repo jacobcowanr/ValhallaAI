@@ -94,6 +94,24 @@ With no release build, `valhallaai` falls back to `npm run tauri-dev` and holds 
 ln -sf "$PWD/scripts/valhallaai" ~/.local/bin/valhallaai
 ```
 
+## Signing in
+
+The first launch shows a sign-in gate. There is no "skip" — that is deliberate, and it is the only thing standing between a fresh install and the app.
+
+**Google or GitHub, either one.** Both are identity only:
+
+- **What is stored:** a display name, email, avatar and which provider you used — on the profile, in this machine's local storage. Your chats, keys and preferences are separate and belong to the machine, not the account.
+- **Nothing syncs.** There is no backend, so there is nothing to authorize against and no data leaves this machine except the OAuth handshake itself.
+- **No token is kept.** The access/id token is used to read identity and then discarded — so there is no credential sitting in the app to revoke.
+- **Sign-in is not authorization.** The app never calls Google or GitHub again after the handshake.
+
+Two setup notes, both of which cost time if discovered late:
+
+1. **GitHub needs two variables in `.env`** — `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`. If either is missing, the GitHub button is disabled and its tooltip says exactly that. Changing them requires an **app restart**: those are read by the Rust process, so a Vite hot reload will not pick them up.
+2. **Register the GitHub OAuth App with the callback `http://127.0.0.1/callback` — no port.** GitHub matches the registered path and accepts whatever port the app binds at request time, so one registration covers every run. A port in that field produces `redirect_uri_mismatch`.
+
+Signing out clears the identity fields only. `env.example` documents both providers' variables.
+
 ## Running agents
 
 Three runtimes. **One at a time** — the same three buttons exist on **Agent Control** inside the app, and the terminal takes the same argument.
@@ -171,7 +189,8 @@ ValhallaAI/
 │                            custom-providers.ts, custom-agents.ts
 ├─ src-tauri/src/main.rs     Tauri commands: run_agent, agent_status,
 │                            provider_keys, vault_status, vault_file,
-│                            google_sign_in + path/config helpers
+│                            google_sign_in, github_sign_in,
+│                            github_client_configured + path/config helpers
 ├─ src-tauri/src/envfile.rs  Reads the allowlisted .env keys
 ├─ scripts/valhallaai        Launcher: open, build, relay
 ├─ scripts/run_agent.sh      One-shot runner shared by the UI and the terminal
@@ -198,11 +217,15 @@ Every entry here is a real failure that cost time, not a hypothetical.
 | The agent's answer is not in `AGENT_SYNC.md` | Nothing folds outboxes automatically | Read `vault/AGENT_OUTBOX_<agent>.md`, or run `valhallaai relay` |
 | Docker Compose rejects `.env` with a syntax error | A label sits on its own line | `NAME=value` lines and `#` comments only |
 | An agent's "answer" is a `MODULE_NOT_FOUND` stack trace | Some CLI hook noise was captured as stdout | Fixed by the `redact()` filter in `run_agent.sh`; if a new hook appears, add its pattern there |
+| The gate shows a disabled "Sign in with GitHub" | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` are missing or empty in `.env` | Add both, then **restart the app** — Rust reads `.env`, so a Vite reload will not pick them up |
+| GitHub sign-in fails with `redirect_uri_mismatch` | The OAuth App's registered callback has a port in it, or a different path | Set it to exactly `http://127.0.0.1/callback` (no port) |
+| Google sign-in fails with `access_denied` | The consent screen is still in Testing and your account is not on the test-user list | Add the account under **Audience → Test users**, or publish the app |
+| The Profile page shows an **Unverified** email badge | The provider returned an unverified address (an unconfirmed GitHub address, some Workspace setups) | Expected and harmless — the badge is surfaced, not enforced, and sign-in still works |
 
 ## What is proven, and what is not
 
 The full table is [ARCHITECTURE.md §12](./ARCHITECTURE.md#12-verification-what-is-proven-and-what-is-merely-built). The short version:
 
-**Proven:** 13 providers counted three ways; 12 read images; a Run click no longer freezes the app; `grok-build` bills the subscription with no `XAI_API_KEY` set; a run is ~5× faster (197 s → 41 s); `cargo test` → 14 passed; the relay folds and commits (verified on a throwaway repo); Google sign-in round-trips end to end.
+**Proven:** 13 providers counted three ways; 12 read images; a Run click no longer freezes the app; `grok-build` bills the subscription with no `XAI_API_KEY` set; a run is ~5× faster (197 s → 41 s); `cargo test` → 14 passed; the relay folds and commits (verified on a throwaway repo); **Google and GitHub sign-in both round-trip end to end**, GitHub against a live consent screen.
 
 **Not proven, and not claimed:** the relay has never pushed to a remote; there is no daily multi-agent loop in this repo yet; Windows and Linux builds have never been produced; `callNous()` has not been exercised against the live proxy since the provider-count changes; `claude-agent`'s instruction edit is a consistency fix, not a speedup (9 s before, 9 s after).

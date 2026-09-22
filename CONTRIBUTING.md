@@ -48,11 +48,12 @@ ValhallaAI/
 │     ├─ providers.ts      — the ONLY provider catalog
 │     ├─ provider-keys.ts  — loads the allowlisted .env keys through Tauri
 │     ├─ sessions.ts       — chat sessions in localStorage; project is a label, not a container
-│     ├─ profiles.ts       — profiles, per-profile storage, Google sign-in
+│     ├─ profiles.ts       — profiles, per-profile storage, Google + GitHub sign-in
 │     ├─ custom-providers.ts — user-defined providers, registered at startup
 │     └─ custom-agents.ts  — user-defined agents, bound to an allowlisted runtime
 ├─ src-tauri/src/main.rs   — run_agent, agent_status, provider_keys, vault_status,
-│                            vault_file, google_sign_in, project_root
+│                            vault_file, google_sign_in, github_sign_in,
+│                            github_client_configured, project_root
 ├─ src-tauri/src/envfile.rs — the allowlisted .env key reader
 ├─ agents/                 — claude + grok images, _shared/task.cjs. Hermes runs on the host
 ├─ scripts/run_agent.sh    — one-shot runner shared by the UI and the terminal
@@ -199,29 +200,62 @@ Two ordering rules that are easy to break:
 
 Adding a new piece of per-user state means routing it through `scopedKey()` **and** adding it to `LEGACY_SCOPED_KEYS` if installs already have it flat, or existing users silently lose it.
 
-### Sign in with Google
+### Sign in with Google or GitHub
 
-**Working end to end as of 2026-09-22** — a real round trip against the `valhallaai` Google project: browser consent, loopback callback, `state` check, token exchange, and name/email/avatar rendered on the profile.
+**Both working end to end as of 2026-09-22** — a real round trip against the `valhallaai` Google project, and a real round trip against a GitHub OAuth App (the GitHub one confirmed by an actual click-through of a live consent screen, not merely by compiling).
 
-Identity only. It attaches a name, email, and avatar to a local profile and **nothing else** — there is no backend, so there is nothing to authorize against and nothing syncs. The only network traffic is the handshake.
+Identity only, for either provider. A sign-in attaches a name, email, and avatar to a local profile and **nothing else** — there is no backend, so there is nothing to authorize against and nothing syncs. The only network traffic is the handshake.
 
-- **Rust command `google_sign_in`** in `main.rs`. A desktop client cannot keep a secret, so this is OAuth 2.0 + **PKCE** with a **loopback redirect** (RFC 8252 §7.3): bind `127.0.0.1:0`, open the system browser, catch the one callback, exchange `code` + `code_verifier` at Google's token endpoint.
+**The shared shape.** `google_sign_in` and `github_sign_in` are the same flow under the hood, and both live in `main.rs`:
+
+- **OAuth 2.0 + PKCE with a loopback redirect** (RFC 8252 §7.3): bind `127.0.0.1:0`, open the system browser, accept **exactly one** callback, close the socket. Nothing is left listening after a sign-in. The `code_challenge` uses `S256`.
+- **The `state` check is not optional.** Without it the loopback callback is forgeable by anything that can reach localhost.
+- **No token is stored.** Identity is read and the token is discarded — no access token, no refresh token, for either provider. Holding one would be holding a credential for no reason, since nothing here calls a provider API afterwards.
 - **Why Rust and not the webview:** the flow needs a real listening socket, which the webview cannot open. The allowlist stays `{"all": false}` — no `http` or `shell` entries were added for this.
+- Signing in overwrites the profile name only when it is still an app-assigned default (`Local`, `New profile`). A profile the user deliberately renamed keeps its name. Signing out clears the identity fields only — sessions, keys, and prefs belong to the machine, not the account.
+
+**One field, two meanings.** `Profile.emailVerified` is surfaced, not enforced (§[First-launch onboarding](#first-launch-onboarding-and-email-verification)), and each provider fills it from a different place: Google from the `email_verified` claim inside the `id_token`, GitHub from the `verified` flag on the primary entry returned by `GET /user/emails`.
+
+#### Google specifics
 - **Two variables, and the prefix difference is load-bearing.** `VITE_GOOGLE_CLIENT_ID` is read by the frontend, so it needs the `VITE_` prefix and is inlined into the bundle — public by design, since it ships inside the binary anyway. `GOOGLE_CLIENT_SECRET` has **no** prefix on purpose: it is read by the Rust process via `envfile::value()`, and a `VITE_` prefix would inline it into the JS bundle for no reason.
 - **The secret is required**, contrary to what a plain reading of RFC 8252 suggests. Google's "Desktop app" client type still demands `client_secret` at the token endpoint even with PKCE, and answers `400 invalid_request: client_secret is missing` without it. Google treats it as a low-value secret (it ships in every installed copy); PKCE is the actual protection.
-- **No token is stored.** Nothing here calls a Google API, so keeping an access or refresh token would be holding a credential for no reason. The three display fields are read out of the `id_token` and the rest is dropped.
-- **The `state` check is not optional.** Without it the loopback callback is forgeable by anything that can reach localhost.
 - **The `id_token` signature is not verified locally**, deliberately: it arrives straight from Google's token endpoint over TLS, which is the case Google's docs exempt. If that token ever starts arriving from anywhere else — a redirect fragment, a cache, another process — that reasoning stops holding and the signature must be checked.
 - **Testing mode gotcha:** while the consent screen is in Testing, only accounts listed under **Audience → Test users** can sign in. Everyone else gets `access_denied`, which the command translates into a message naming that exact cause, because it is the failure people lose an hour to.
-- Signing in overwrites the profile name only when it is still an app-assigned default (`Local`, `New profile`). A profile the user deliberately renamed keeps its name. Signing out clears the identity fields only — sessions, keys, and prefs belong to the machine, not the Google account.
+
+#### GitHub specifics
+
+GitHub is **not OpenID Connect**, which is the source of every real difference below. Each was confirmed against GitHub's own docs before the code was written, not discovered by trial and error afterwards:
+
+- **No `id_token`, so identity costs two more calls.** The token endpoint returns only an `access_token`. Identity then comes from `GET /user` (name + avatar) and `GET /user/emails` (address + verified flag), after which the token is discarded. Nothing is stored.
+- **The registered callback is the bare path `http://127.0.0.1/callback` — no port.** GitHub matches the registered *path* and accepts whatever port the app happens to bind at request time, so a single registration covers every run. A `redirect_uri_mismatch` almost always means the registered value has a port in it or a different path; the command's error text says so.
+- **`client_secret` is required at the token endpoint despite PKCE** — the same situation as Google's Desktop client type. Bare PKCE is not accepted by either provider.
+- **`Accept: application/json` is required on the token exchange.** Without it GitHub answers in `access_token=...&scope=...` form-encoded style, which is not what the code parses.
+- **Every `api.github.com` request needs a `User-Agent`.** Missing → the request is rejected outright; invalid → a `403` with no clear explanation. That is why it is a named constant (`GITHUB_USER_AGENT`) rather than a string sprinkled on the one call that happened to be tested first.
+- **Scope is `read:user user:email`, nothing else** — no `repo`, no write, no admin. An empty email comes back as an error naming the scope, rather than a profile with a blank identity.
+- **`name` is nullable; `login` is not.** The display name falls back to the username, so a GitHub account with no display name set still produces a named profile instead of an empty one.
+- **Both variables are Rust-only.** `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` are read by `github_sign_in` via `envfile::value()`, so neither gets a `VITE_` prefix and neither is inlined into the JS bundle (contrast `VITE_GOOGLE_CLIENT_ID`, which is public by design). **Consequence: changing them needs an app restart — a Vite hot reload will not pick up `.env`.**
+- **`github_client_configured()` reports presence only, never the value.** Because the frontend cannot see the client id at all, the button needs a round trip to know whether to disable itself with the hint `Set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET in .env`.
+- **GitHub Enterprise is not supported.** `api.github.com` is hardcoded; a GHE host would need its own base URL plumbed through both REST calls and the two OAuth endpoints. Tracked in [Known open issues](#known-open-issues).
+
+| Dimension | Google | GitHub |
+|---|---|---|
+| Protocol | OpenID Connect — an `id_token` carries the identity claims | plain OAuth 2.0 — an `access_token` only, so identity needs two follow-up REST calls |
+| Client id visibility | frontend, via `VITE_GOOGLE_CLIENT_ID` (public by design, inlined into the bundle) | Rust only, never in the bundle (hence the extra presence-check command) |
+| Client secret | required at the token endpoint despite PKCE | required too — same situation |
+| Email + verification | `email_verified` claim in the `id_token` | `verified` flag on the primary entry from `GET /user/emails` |
+| Registration gotcha | consent screen in Testing → `access_denied` for anyone not on the test-user list | the registered callback must be the bare path `http://127.0.0.1/callback`, no port |
+| Silent-failure trap | the `id_token`'s signature is not checked locally (accepted: it arrives over TLS from Google's token endpoint) | a missing or invalid `User-Agent` on `api.github.com` → rejected, or a `403` with no explanation |
+| Token response format | JSON | form-encoded **unless** `Accept: application/json` is sent |
 
 ### First-launch onboarding and email verification
 
 Added 2026-09-22, alongside splitting Profile out of Settings (see [ARCHITECTURE.md §5.4](./ARCHITECTURE.md#54-onboarding-srcroutesonboardingsvelte) and [§5.3](./ARCHITECTURE.md#53-profile-srcroutesprofilesvelte)).
 
-- **`Onboarding.svelte` is a gate.** Jacob reversed the earlier decision on 2026-09-22 and asked for the dialog to require a profile with a verified email before the app is usable. The only verification available is Google's, so the gate is `isSignedIn()` — an auth provider plus an email — and there is no "continue without an account" path. A profile that is already signed in never sees it. The `onboarded` flag is no longer what shows or hides this screen; keying it off that flag would exempt every pre-existing profile, which is what was asked *not* to happen.
-- **`Profile.emailVerified`** comes from the id_token's `email_verified` claim, captured once at sign-in and never re-checked (there is nothing to re-check against — no token is retained). It is **surfaced, not enforced**: Google sets it false only in edge cases (some unverified Workspace setups), and refusing sign-in on it would risk locking out the account's real owner over a claim this app never asked Google to guarantee. Shown as a Verified/Unverified badge on the Profile page.
-- **`signInProfileWithGoogle()` / `signOutProfile()` / `completeOnboardingLocally()` live in `profiles.ts`**, not in either route component. `Profile.svelte` and `Onboarding.svelte` both need the identical OAuth call; duplicating it in two components would repeat the exact mistake the provider catalog already made once (see [Model lists rot, and silently](#model-lists-rot-and-silently)).
+- **`Onboarding.svelte` is a gate.** Jacob reversed the earlier decision on 2026-09-22 and asked for the dialog to require a profile with a verified email before the app is usable. The only verification available is Google's or GitHub's, so the gate is `isSignedIn()` — an auth provider plus an email — and there is no "continue without an account" path. A profile that is already signed in, via either provider, never sees it. The `onboarded` flag is no longer what shows or hides this screen; keying it off that flag would exempt every pre-existing profile, which is what was asked *not* to happen.
+- **Both providers are offered side by side**, in `Onboarding.svelte` and on the Profile page, each with its own disabled-state hint. The two buttons are gated by different mechanisms — Google's readiness is knowable synchronously from the inlined `VITE_GOOGLE_CLIENT_ID`, GitHub's needs the `github_client_configured` round trip — so do not "simplify" one to match the other. `signingInProvider` tracks *which* popup is in flight rather than a bare boolean, so the other button's label does not flip to "Waiting for your browser…" while only one is actually waiting.
+- **The gate's copy names both providers.** It used to say "Sign in with Google"; if a third provider is ever added, that lede and the `authProvider` union are the two places that must be updated together.
+- **`Profile.emailVerified`** is captured once at sign-in and never re-checked (there is nothing to re-check against — no token is retained). It is **surfaced, not enforced**: it comes from Google's `email_verified` claim or GitHub's `verified` flag on the primary address, each provider sets it false only in edge cases (some unverified Workspace setups, an unconfirmed GitHub address), and refusing sign-in on it would risk locking out the account's real owner over a claim this app never asked either provider to guarantee. Shown as a Verified/Unverified badge on the Profile page.
+- **`signInProfileWithGoogle()` / `signInProfileWithGithub()` / `signOutProfile()` / `completeOnboardingLocally()` live in `profiles.ts`**, not in either route component. `Profile.svelte` and `Onboarding.svelte` both need the identical OAuth calls; duplicating them in two components would repeat the exact mistake the provider catalog already made once (see [Model lists rot, and silently](#model-lists-rot-and-silently)).
 - **Existing profiles are grandfathered in.** `initProfiles()` backfills `onboarded: true` for any profile with no `onboarded` field at all, on first load after this shipped — a profile already in daily use has definitely had a "first run", even though nothing ever recorded it. Only `createProfile()`-made profiles see the prompt, because that function deliberately leaves the field unset. Verified in a browser: a profile carrying a real sign-in and no `onboarded` field does not see the overlay once the backfill runs on load.
 
 ### Finding the project from a bundled app
@@ -366,6 +400,8 @@ Tracked here until there is a formal issue tracker.
 - **Windows path untested end-to-end.** The `${HOST_HERMES_DIR}` / `${HOST_SSH_DIR}` fix (replacing `~` tilde mounts in `docker-compose.local.yml`) has only been verified on macOS.
 - **Linux/Omarchy path untested end-to-end.** Nothing in the stack — Tauri build, Docker agent runtime, or the app itself — has actually run on an Omarchy machine. Tauri's `pacman` prerequisites (see [ARCHITECTURE.md §4.1](./ARCHITECTURE.md#41-cross-platform-constraint)) have not been verified there either.
 - **`callNous()` has not been exercised against the live proxy** since the provider-count changes. The proxy itself answered a real completion on 2026-09-22 (`x-ai/grok-4.7`, with a usage payload); this client path is the unverified half.
+- **GitHub Enterprise is not supported.** `api.github.com` is hardcoded in `github_sign_in`, and so are `github.com/login/oauth/authorize` and `/access_token`. A GHE instance would need its own base URL plumbed through all four call sites (two OAuth endpoints, two REST calls) plus its own env vars. Not attempted — there is exactly one GitHub host in play today.
+- **Sign-in is identity only, and the gate is not an authorization boundary.** Nothing is authorized against either provider after sign-in: no token is retained, no API is called, and every profile on the machine holds its own `localStorage` namespace. `emailVerified` is surfaced on the Profile page but never enforced, for the reason given in [First-launch onboarding](#first-launch-onboarding-and-email-verification).
 - **No secret-scanning tool in CI.** Multiple independent hand-written scanners across several verification passes have found nothing secret-shaped in the full commit history — genuinely clean — but all explicitly caveat that a hand-rolled scanner is best-effort, not tool-certified. Add gitleaks or trufflehog before this repo ever goes public.
 - **No mermaid validation in CI.** Diagram blocks in these docs are parsed against mermaid v11 before being committed, but by hand. A `npm run docs:check`-style script would make that a gate instead of a habit.
 
@@ -405,3 +441,6 @@ Tracked here until there is a formal issue tracker.
 - ~~A host CLI run could hang forever on a prompt with no TTY~~ — `run_with_timeout` in `run_agent.sh` implements SIGTERM→SIGKILL with `AGENT_TIMEOUT_SECS` (default 900), because macOS has no `timeout(1)`. A killed run exits 143/137 and the outbox records `Timed out after Ns (SIGTERM)` rather than a bare failure.
 - ~~An agent run took ~3 minutes to answer a question whose context was already in the prompt~~ — the instruction now says the context is supplied and not to call tools, and `run_grok` passes the fast model variant at low reasoning effort. Measured **197 s → 41 s end to end**, same answer, same cited log entries. Full ladder and the three levers that do *not* work: [ARCHITECTURE.md §8](./ARCHITECTURE.md#8-agent-run-performance).
 - ~~A Grok subscription that existed was reported as absent, then failed with `docker: command not found`~~ — Tauri launches the runner with a GUI `PATH`, and `command -v grok` therefore failed, which read as "no subscription" and fell through to a paid Docker path that also had no `docker`. `run_agent.sh` now prepends `path_helper` plus `~/.grok/bin`, `~/.local/bin`, `~/.hermes/bin`, `~/.orbstack/bin`.
+- ~~Sign-in was Google-only, so an account without Google could not get past the mandatory gate~~ — added GitHub as a second provider: `github_sign_in` + `github_client_configured` in `main.rs`, `signInProfileWithGithub()` in `profiles.ts`, and the second button in `Onboarding.svelte` and `Profile.svelte`. `isSignedIn()` was already provider-agnostic, so this was a second path into the existing gate rather than a second gate. **Confirmed by a real sign-in through a live GitHub consent screen**, not just by compiling.
+- ~~`Onboarding.svelte`'s lede and body copy named Google specifically~~ ("Sign in with Google to use ValhallaAI", "Your Google account supplies…") while the dialog offered two providers — the gate's own text contradicted its own buttons. Reworded to name both. The `env.example` GitHub entries (`GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, with the no-port redirect note) were added in the same pass; without them a fresh setup had no way to discover the variable names.
+- ~~A `cargo test` run failed intermittently on a temp-directory name collision between parallel test threads~~ — nanosecond timestamps are not unique enough under real concurrency. All three test-fixture helpers now use an atomic counter. This was a *flaky* test, not a flaky product: the code under test was fine, and the fix is in the fixtures.
