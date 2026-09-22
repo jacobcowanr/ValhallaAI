@@ -132,16 +132,26 @@ export const PROVIDERS: Record<LLMProvider, ProviderEntry> = {
     ],
   },
   groq: {
+    // Verified 2026-09-22 against console.groq.com/docs/models. The previous
+    // list (mixtral-8x7b-32768, llama2-70b-4096, gemma-7b-it) is retired —
+    // none of the three appear in the production table. Kept to the
+    // production chat models with a published price; the Llama entries are
+    // enterprise-only ("Contact sales") and Whisper is speech-to-text.
     name: "Groq (Fast Inference)",
-    models: ["mixtral-8x7b-32768", "llama2-70b-4096", "gemma-7b-it"],
+    models: ["openai/gpt-oss-120b", "openai/gpt-oss-20b"],
   },
   huggingface: {
     name: "Hugging Face Inference API",
     models: ["meta-llama/Llama-2-70b-chat-hf", "mistralai/Mistral-7B-Instruct-v0.1"],
   },
   minimax: {
+    // Verified 2026-09-22 against platform.minimax.io's text chat API
+    // reference, which lists the accepted model ids. The previous list
+    // (minimax-text-01, minimax-abab6.5s-chat) matches none of them.
+    // M3 is the current generation; M2.5 is the prior one and the cheap
+    // option (M2.7-highspeed is the pricier tier of the same generation).
     name: "MiniMax",
-    models: ["minimax-text-01", "minimax-abab6.5s-chat"],
+    models: ["MiniMax-M3", "MiniMax-M2.5"],
   },
   nous: {
     // Curated subset of the Portal catalog, not the full list. Checked
@@ -214,8 +224,13 @@ export const PROVIDERS: Record<LLMProvider, ProviderEntry> = {
     ],
   },
   perplexity: {
+    // Verified 2026-09-22 against docs.perplexity.ai. The previous list
+    // (pplx-7b-online, pplx-70b-online) is retired. Perplexity warns that
+    // Sonar Chat Completions moves to the Agent API and is supported only
+    // until 2026-09-27, so these ids have a short life — re-check after
+    // that date rather than assuming they still answer.
     name: "Perplexity (Search + LLM)",
-    models: ["pplx-7b-online", "pplx-70b-online"],
+    models: ["sonar", "sonar-pro", "sonar-reasoning-pro"],
   },
   qwen: {
     name: "Qwen Code",
@@ -230,8 +245,12 @@ export const PROVIDERS: Record<LLMProvider, ProviderEntry> = {
     models: ["meta-llama/Llama-2-70b-chat-hf", "mistralai/Mistral-7B-Instruct-v0.1"],
   },
   xai_grok: {
+    // Verified 2026-09-22 against docs.x.ai/developers/models. xAI's own
+    // guidance is to use grok-4.7 for everything including code; grok-3 and
+    // grok-vision are retired. grok-4.6 is the previous generation and the
+    // cheaper fallback.
     name: "xAI Grok",
-    models: ["grok-3", "grok-vision"],
+    models: ["grok-4.7", "grok-4.6"],
   },
 };
 
