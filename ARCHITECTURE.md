@@ -81,25 +81,37 @@ graph TB
 | **Provider-agnostic** | The router is the only place that knows about provider APIs. UI and agents never hardcode a provider. |
 | **Coordination ≠ storage** | The vault is for logs, config, and hand-offs between agents — not a database. If you need fast queries, that's a separate concern (see §7). |
 | **Transparent security** | Credentials live in `.env`/local storage, never in the git-tracked vault. Every write to the vault is a plain-text, human-readable diff. |
-| **Cross-platform (macOS + Windows)** | Every design and dependency choice is checked against both target OSes from the start — not retrofitted after a macOS-only implementation ships. See §3.1. |
+| **Cross-platform (macOS + Windows + Linux)** | Every design and dependency choice is checked against all three target OS families from the start — not retrofitted after a macOS-only implementation ships. See §3.1. |
 
 ### 3.1 Cross-platform constraint
 
-Vahalla targets **macOS and Windows** as first-class platforms. This is a standing constraint on every change, not a future nice-to-have — it shapes decisions now, while the architecture is still easy to adjust.
+Vahalla targets **macOS, Windows, and Linux** (including Arch-based distros such as **Omarchy**) as first-class platforms. This is a standing constraint on every change, not a future nice-to-have — it shapes decisions now, while the architecture is still easy to adjust.
 
-**Why Tauri fits this well:** it cross-compiles the same Svelte frontend + Rust backend into a native app on each OS (`.dmg`/`.app` on macOS, `.msi`/`.exe` on Windows). `tauri init` already generated both `icon.icns` (macOS) and `icon.ico` (Windows) — the bundle config doesn't need platform-specific forks for the desktop app itself.
+**Why Tauri fits this well:** it cross-compiles the same Svelte frontend + Rust backend into a native app on each OS — `.dmg`/`.app` on macOS, `.msi`/`.exe` on Windows, and on Linux both distro-specific packages (`.deb`, `.rpm`) *and* a distro-agnostic **AppImage**, which is what actually matters for Omarchy: it's Arch-based (pacman, not apt/dnf), so the `.deb`/`.rpm` bundles are useless there but the AppImage runs on any Linux with no packaging step. `tauri.conf.json`'s `bundle.targets: "all"` already builds every target valid for the host OS — no per-OS fork of the bundle config needed. `tauri init` generated `icon.icns` (macOS), `icon.ico` (Windows), and PNG icons (Linux) up front.
+
+**Linux/Omarchy build prerequisites** (not yet installed or verified on an actual Omarchy machine): Tauri's Linux build needs system libraries that aren't part of a minimal Arch/Omarchy install. On Arch-based systems:
+
+```bash
+sudo pacman -S --needed webkit2gtk-4.1 base-devel curl wget file openssl \
+  appmenu-gtk-module gtk3 libappindicator-gtk3 librsvg
+```
 
 **Where cross-platform assumptions actually bite** (checklist for new code):
 
-| Area | Unix-only trap | What to do instead |
+| Area | Unix-only / single-OS trap | What to do instead |
 |---|---|---|
-| Docker volumes | `~/.hermes:/root/.hermes` — `~` isn't reliably expanded by Docker Compose, and not at all on Windows | Use `${HOST_HERMES_DIR}` from `.env` (see `env.example`), an absolute path set per-machine |
-| Shell scripts run on the **host** | A `.sh` script invoked directly by the desktop app | Won't run on Windows without WSL/Git Bash. Agent scripts that run *inside* a Docker container are fine — the container is always Linux regardless of host OS — but anything Tauri shells out to directly on the host must be cross-platform (Node/Rust) or ship a `.cmd`/`.ps1` equivalent |
+| Docker volumes | `~/.hermes:/root/.hermes` — `~` isn't reliably expanded by Docker Compose, and not at all on Windows | Use `${HOST_HERMES_DIR}` from `.env` (see `env.example`), an absolute path set per-machine. On Linux/Omarchy this is a normal `/home/<user>/.hermes` path — same fix already covers it |
+| Shell scripts run on the **host** | A `.sh` script invoked directly by the desktop app | Won't run on Windows without WSL/Git Bash. Agent scripts that run *inside* a Docker container are fine on all three OSes — the container is always Linux regardless of host — but anything Tauri shells out to directly on the host must be cross-platform (Node/Rust) or ship OS-specific equivalents |
 | Path separators | Hardcoded `/` in any path string | Use `path.join()` (Node side) or Rust's `PathBuf` (Tauri side), never string concatenation |
-| Home directory | `~` or `$HOME` assumed | `$HOME` doesn't exist on Windows by default (`%USERPROFILE%` does) — resolve via Tauri's path APIs, not shell env vars |
-| Line endings | Assuming `\n` in generated files | Vault markdown files are read by git, which normalizes this — but any file written by a Windows agent and read by a Unix one (or vice versa) should be tested |
+| Home directory | `~` or `$HOME` assumed | `$HOME` doesn't exist on Windows by default (`%USERPROFILE%` does; Linux has `$HOME` same as macOS) — resolve via Tauri's path APIs, not shell env vars |
+| Linux packaging | Assuming a `.deb`/`.rpm` reaches every Linux user | Arch-based distros (Omarchy included) use pacman/AUR, not apt/dnf — the AppImage target is the one guaranteed to run without a distro-specific package |
+| Line endings | Assuming `\n` in generated files | Vault markdown files are read by git, which normalizes this — but any file written on one OS and read on another should be tested |
 
-**Not yet verified:** the agent Docker containers (`agents/claude`, `agents/hermes`, `agents/grok`) haven't been run end-to-end on Windows. Docker Desktop on Windows runs Linux containers via WSL2, so the containers themselves should behave identically — but this is a claim to test, not an assumption to trust. Flagged in [CONTRIBUTING.md](./CONTRIBUTING.md#known-open-issues) until it's actually been done.
+**Not yet verified — flagged, not assumed:**
+- Windows: the agent Docker containers (`agents/claude`, `agents/hermes`, `agents/grok`) haven't been run end-to-end. Docker Desktop on Windows runs Linux containers via WSL2, so they *should* behave identically — that's a claim to test, not trust.
+- Linux/Omarchy: nothing in this stack (Tauri build, Docker agent runtime, or the app itself) has been run on an actual Omarchy machine yet. The user already runs Hermes itself on an Omarchy VM in a separate context, which is a good sign for the Hermes agent container specifically, but that hasn't been confirmed to extend to Vahalla's own build.
+
+Both tracked in [CONTRIBUTING.md](./CONTRIBUTING.md#known-open-issues) until actually done.
 
 ## 4. Component responsibilities
 
