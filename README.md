@@ -62,6 +62,7 @@ The repo's index. Everything here is either a living document (edited as the sys
 | [CONTRIBUTING.md](./CONTRIBUTING.md) | Conventions, recipes, known open issues | living |
 | README.md | this file — quick start and index | living |
 | [Reports/Image-Attachments-Prompt_09.22.2026.md](./Reports/Image-Attachments-Prompt_09.22.2026.md) | A portable prompt for adding screenshot attachments to any multi-provider chat UI, written from this implementation | **frozen** — already sent, not edited in place |
+| [Reports/Norse-Font-Permission_09.22.2026.md](./Reports/Norse-Font-Permission_09.22.2026.md) | The permission request to the Norse font's author, which unblocks publishing the source | **draft** — not yet sent |
 | [vault/AGENT_SYNC.md](./vault/AGENT_SYNC.md) | The project's agent coordination log | append-only |
 
 Two rules keep this table meaningful. A **report** is an artefact written to be sent — once sent it is frozen, and a superseded report stays where it is with the README saying which one is live rather than being deleted or overwritten. A **session file** (`Sessions/`) is the working record, one per session. Superseded work is never erased; the index is what carries the status.
