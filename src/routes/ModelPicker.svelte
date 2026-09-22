@@ -1,12 +1,23 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { callLLM, type LLMProvider, type LLMResponse } from "../lib/llm-router";
+  import {
+    callLLM,
+    providerSupportsImages,
+    type LLMProvider,
+    type LLMResponse,
+  } from "../lib/llm-router";
   import { PROVIDERS, PROVIDER_ENTRIES, FALLBACK_PROVIDER, FALLBACK_MODEL } from "../lib/providers";
 
   interface ChatMessage {
     type: "user" | "assistant";
     text: string;
     usage?: LLMResponse["usage"];
+    imageCount?: number;
+  }
+
+  interface AttachedImage {
+    name: string;
+    dataUrl: string;
   }
 
   let selectedProvider: LLMProvider = FALLBACK_PROVIDER;
@@ -15,6 +26,11 @@
   let userMessage = "";
   let responses: ChatMessage[] = [];
   let loading = false;
+
+  let attachedImages: AttachedImage[] = [];
+  let attachMenuOpen = false;
+  let fileInput: HTMLInputElement;
+  let attachError = "";
 
   function apiKeyStorageKey(providerId: LLMProvider): string {
     return `valhallaai-apikey-${providerId}`;
@@ -57,17 +73,70 @@
   // silently send it to the wrong API).
   $: loadApiKeyFor(selectedProvider);
 
+  // Live warning as soon as a provider switch makes existing attachments
+  // unsendable — don't wait until the user hits Send to tell them.
+  $: imagesSupported = providerSupportsImages(selectedProvider);
+  $: if (attachedImages.length > 0 && !imagesSupported) {
+    attachError = `${PROVIDERS[selectedProvider]?.name} doesn't support image attachments. Remove the image(s) or switch providers.`;
+  } else {
+    attachError = "";
+  }
+
+  function toggleAttachMenu(): void {
+    attachMenuOpen = !attachMenuOpen;
+  }
+
+  function closeAttachMenu(): void {
+    attachMenuOpen = false;
+  }
+
+  function triggerFilePicker(): void {
+    closeAttachMenu();
+    fileInput.click();
+  }
+
+  function readFileAsDataUrl(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function handleFileSelect(e: Event): Promise<void> {
+    const input = e.target as HTMLInputElement;
+    const files = input.files;
+    if (!files || files.length === 0) return;
+
+    for (const file of Array.from(files)) {
+      if (!file.type.startsWith("image/")) continue; // matches accept="image/*", but File inputs can still surface other types on some platforms
+      const dataUrl = await readFileAsDataUrl(file);
+      attachedImages = [...attachedImages, { name: file.name, dataUrl }];
+    }
+
+    input.value = ""; // allow re-selecting the same file
+  }
+
+  function removeAttachment(index: number): void {
+    attachedImages = attachedImages.filter((_, i) => i !== index);
+  }
+
   async function sendMessage(): Promise<void> {
-    if (!userMessage.trim()) return;
+    if (!userMessage.trim() && attachedImages.length === 0) return;
+    if (attachedImages.length > 0 && !imagesSupported) return; // attachError already shown
 
     loading = true;
+    const imageUrls = attachedImages.map((img) => img.dataUrl);
+    const imageCount = attachedImages.length;
+
     const response = await callLLM(
       {
         provider: selectedProvider,
         model: selectedModel,
         apiKey: apiKey,
       },
-      [{ role: "user", content: userMessage }]
+      [{ role: "user", content: userMessage, images: imageUrls.length > 0 ? imageUrls : undefined }]
     );
 
     responses = [
@@ -75,6 +144,7 @@
       {
         type: "user",
         text: userMessage,
+        imageCount: imageCount > 0 ? imageCount : undefined,
       },
       {
         type: "assistant",
@@ -84,43 +154,101 @@
     ];
 
     userMessage = "";
+    attachedImages = [];
     loading = false;
   }
 </script>
 
 <div class="screen">
   <div class="messages">
-    {#if responses.length === 0}
-      <div class="empty-state">
-        <p>Send a message to start chatting.</p>
-        {#if !apiKey && selectedProvider !== "ollama"}
-          <p class="hint">
-            No API key set for {PROVIDERS[selectedProvider]?.name} yet — add one in
-            <strong>⚙ Settings</strong>.
-          </p>
-        {/if}
-      </div>
-    {/if}
-    {#each responses as msg}
-      <div class="message {msg.type}">
-        <div class="content">{msg.text}</div>
-        {#if msg.usage}
-          <div class="usage">
-            {msg.usage.inputTokens} in • {msg.usage.outputTokens} out
-          </div>
-        {/if}
-      </div>
-    {/each}
+    <div class="messages-inner">
+      {#if responses.length === 0}
+        <div class="empty-state">
+          <p>Send a message to start chatting.</p>
+          {#if !apiKey && selectedProvider !== "ollama"}
+            <p class="hint">
+              No API key set for {PROVIDERS[selectedProvider]?.name} yet — add one in
+              <strong>⚙ Settings</strong>.
+            </p>
+          {/if}
+        </div>
+      {/if}
+      {#each responses as msg}
+        <div class="message {msg.type}">
+          {#if msg.imageCount}
+            <div class="attachment-note">📎 {msg.imageCount} image{msg.imageCount > 1 ? "s" : ""} attached</div>
+          {/if}
+          <div class="content">{msg.text}</div>
+          {#if msg.usage}
+            <div class="usage">
+              {msg.usage.inputTokens} in • {msg.usage.outputTokens} out
+            </div>
+          {/if}
+        </div>
+      {/each}
+    </div>
   </div>
 
   <div class="composer">
-    <div class="input-area">
-      <textarea
-        bind:value={userMessage}
-        placeholder="Send a message..."
-        on:keydown={(e) => e.key === "Enter" && !e.shiftKey && sendMessage()}
-      />
-      <button on:click={sendMessage} disabled={loading}>{loading ? "Sending..." : "Send"}</button>
+    <div class="composer-inner">
+      {#if attachedImages.length > 0}
+        <div class="attachments">
+          {#each attachedImages as img, i}
+            <div class="attachment-chip">
+              <img src={img.dataUrl} alt={img.name} />
+              <button class="remove-chip" on:click={() => removeAttachment(i)} title="Remove">✕</button>
+            </div>
+          {/each}
+        </div>
+      {/if}
+
+      {#if attachError}
+        <p class="attach-error">⚠ {attachError}</p>
+      {/if}
+
+      <div class="input-area">
+        <div class="attach-wrapper">
+          <button
+            class="attach-btn"
+            on:click={toggleAttachMenu}
+            title="Attach"
+            aria-haspopup="true"
+            aria-expanded={attachMenuOpen}
+          >
+            +
+          </button>
+          {#if attachMenuOpen}
+            <button class="menu-backdrop" on:click={closeAttachMenu} aria-label="Close menu"></button>
+            <div class="attach-menu">
+              <button class="attach-menu-item" on:click={triggerFilePicker}>
+                <span class="menu-icon">🖼</span> Upload image{!imagesSupported ? " (not supported by this provider)" : ""}
+              </button>
+            </div>
+          {/if}
+        </div>
+
+        <input
+          type="file"
+          accept="image/*"
+          multiple
+          bind:this={fileInput}
+          on:change={handleFileSelect}
+          style="display: none;"
+        />
+
+        <textarea
+          bind:value={userMessage}
+          placeholder="Send a message..."
+          on:keydown={(e) => e.key === "Enter" && !e.shiftKey && sendMessage()}
+        />
+        <button
+          class="send-btn"
+          on:click={sendMessage}
+          disabled={loading || (attachedImages.length > 0 && !imagesSupported)}
+        >
+          {loading ? "Sending..." : "Send"}
+        </button>
+      </div>
     </div>
 
     <div class="model-bar">
@@ -156,9 +284,19 @@
     padding: 2rem 2rem 0 2rem;
   }
 
+  /* Narrow, centered chat column — the background stays full-bleed dark,
+     only the actual conversation content is constrained, similar to
+     Gemini's centered input/conversation column. */
   .messages {
     flex: 1;
     overflow-y: auto;
+    display: flex;
+    justify-content: center;
+  }
+
+  .messages-inner {
+    width: 100%;
+    max-width: 720px;
     display: flex;
     flex-direction: column;
     gap: 1rem;
@@ -173,6 +311,7 @@
     justify-content: center;
     text-align: center;
     color: var(--text-secondary);
+    min-height: 200px;
   }
 
   .empty-state p {
@@ -189,7 +328,7 @@
     border-radius: 12px;
     background: var(--bg-surface);
     color: var(--text-primary);
-    max-width: 75%;
+    max-width: 85%;
     line-height: 1.6;
   }
 
@@ -202,6 +341,12 @@
   .message.assistant {
     align-self: flex-start;
     border: 1px solid var(--border-color);
+  }
+
+  .attachment-note {
+    font-size: 0.8rem;
+    opacity: 0.85;
+    margin-bottom: 0.35rem;
   }
 
   .content {
@@ -220,19 +365,142 @@
     color: rgba(255, 255, 255, 0.75);
   }
 
-  /* Everything below the message list: input row, then the horizontal
-     provider/model bar underneath it — both pinned to the bottom of the
-     screen, chat gets all the remaining (and dominant) vertical space. */
+  /* Everything below the message list: attachments, input row, then the
+     horizontal provider/model bar underneath — pinned to the bottom of
+     the screen, chat gets all the remaining (and dominant) vertical space. */
   .composer {
     flex-shrink: 0;
     border-top: 1px solid var(--border-color);
     background: var(--bg-surface);
   }
 
+  .composer-inner {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 1rem 2rem;
+  }
+
+  .attachments {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.75rem;
+  }
+
+  .attachment-chip {
+    position: relative;
+    width: 56px;
+    height: 56px;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--border-color);
+  }
+
+  .attachment-chip img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  .remove-chip {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.7);
+    color: white;
+    border: none;
+    font-size: 0.65rem;
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  .attach-error {
+    margin: 0 0 0.5rem 0;
+    font-size: 0.8rem;
+    color: var(--warning-text);
+  }
+
   .input-area {
     display: flex;
-    gap: 0.75rem;
-    padding: 1rem 2rem;
+    align-items: flex-end;
+    gap: 0.6rem;
+  }
+
+  .attach-wrapper {
+    position: relative;
+  }
+
+  .attach-btn {
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    border-radius: 50%;
+    background: var(--bg-surface-raised);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    font-size: 1.3rem;
+    font-weight: 400;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .attach-btn:hover {
+    background: var(--bg-surface-hover);
+  }
+
+  .menu-backdrop {
+    position: fixed;
+    inset: 0;
+    background: transparent;
+    border: none;
+    padding: 0;
+    cursor: default;
+    z-index: 5;
+  }
+
+  .attach-menu {
+    position: absolute;
+    bottom: 48px;
+    left: 0;
+    min-width: 240px;
+    background: var(--bg-surface-raised);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    padding: 0.4rem;
+    z-index: 10;
+  }
+
+  .attach-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    width: 100%;
+    padding: 0.6rem 0.75rem;
+    background: none;
+    border: none;
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: 0.85rem;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .attach-menu-item:hover {
+    background: var(--bg-surface-hover);
+  }
+
+  .menu-icon {
+    font-size: 1rem;
   }
 
   textarea {
@@ -254,8 +522,9 @@
     border-color: var(--accent);
   }
 
-  button {
+  .send-btn {
     padding: 0 1.75rem;
+    height: 52px;
     background: var(--accent);
     color: var(--accent-text);
     border: none;
@@ -263,19 +532,22 @@
     cursor: pointer;
     font-weight: 600;
     transition: background 0.2s;
+    flex-shrink: 0;
   }
 
-  button:hover:not(:disabled) {
+  .send-btn:hover:not(:disabled) {
     background: var(--accent-hover);
   }
 
-  button:disabled {
+  .send-btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
   }
 
   /* The horizontal provider/model bar — a slim strip along the very
-     bottom of the window, distinct from the input row above it. */
+     bottom of the window, distinct from the input row above it, and
+     deliberately full-width (unlike the narrower chat column) since it
+     reads as a footer/status bar. */
   .model-bar {
     display: flex;
     gap: 1.5rem;

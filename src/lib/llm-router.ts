@@ -25,6 +25,35 @@ export interface LLMConfig {
 export interface LLMMessage {
   role: "user" | "assistant" | "system";
   content: string;
+  /** Data URLs (e.g. "data:image/png;base64,..."). Only sent if the
+   * provider is in IMAGE_CAPABLE_PROVIDERS — see providerSupportsImages(). */
+  images?: string[];
+}
+
+/**
+ * Providers that speak the OpenAI-compatible dialect (callOpenAICompatible
+ * below) accept the standard multimodal content-array format, so images
+ * are wired in there once. The other 9 providers (Anthropic, Google,
+ * MiniMax, Qwen, Hugging Face, Ollama, Replicate, Claude DirectSDK) each
+ * have their own request shape and don't get image support in this pass —
+ * that's real per-provider work, not something to fake. The UI checks this
+ * before allowing an attachment to be sent, rather than silently dropping
+ * the image for an unsupported provider.
+ */
+const IMAGE_CAPABLE_PROVIDERS: ReadonlySet<LLMProvider> = new Set([
+  "openrouter",
+  "chatgpt",
+  "xai_grok",
+  "nous",
+  "fireworks",
+  "groq",
+  "openclaw",
+  "perplexity",
+  "together",
+]);
+
+export function providerSupportsImages(provider: LLMProvider): boolean {
+  return IMAGE_CAPABLE_PROVIDERS.has(provider);
 }
 
 export interface LLMResponse {
@@ -125,6 +154,25 @@ interface OpenAICompatibleOptions {
  * it for every provider that uses it, instead of needing a matching edit in
  * N near-identical functions.
  */
+/**
+ * OpenAI's multimodal content-array format: content is either a plain
+ * string (text-only, the common case) or an array mixing text and
+ * image_url blocks. Messages with no images stay as plain strings —
+ * only messages that actually carry attachments get the array form.
+ */
+function toOpenAICompatibleMessage(msg: LLMMessage): Record<string, unknown> {
+  if (!msg.images || msg.images.length === 0) {
+    return { role: msg.role, content: msg.content };
+  }
+  return {
+    role: msg.role,
+    content: [
+      { type: "text", text: msg.content },
+      ...msg.images.map((url) => ({ type: "image_url", image_url: { url } })),
+    ],
+  };
+}
+
 async function callOpenAICompatible(
   config: LLMConfig,
   messages: LLMMessage[],
@@ -142,7 +190,7 @@ async function callOpenAICompatible(
     },
     body: JSON.stringify({
       model: config.model,
-      messages,
+      messages: messages.map(toOpenAICompatibleMessage),
       // `?? 0.7` (not `|| 0.7`) so an explicit temperature of 0
       // (deterministic output) isn't silently replaced with the default.
       temperature: config.temperature ?? 0.7,
