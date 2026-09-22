@@ -14,12 +14,97 @@ struct VaultStatus {
     last_commit: String,
 }
 
-fn project_root() -> PathBuf {
-    let compiled = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
-    if compiled.join("docker-compose.local.yml").is_file() {
-        return compiled;
+/// The file that identifies a ValhallaAI checkout. Everything project_root
+/// hands back must contain it, so a stale or wrong candidate is rejected
+/// rather than trusted.
+const PROJECT_MARKER: &str = "docker-compose.local.yml";
+
+/// Where the launcher records the project directory, so a bundled .app that
+/// lives outside the checkout can still find it.
+fn project_dir_pointer() -> Option<PathBuf> {
+    let base = if cfg!(target_os = "macos") {
+        PathBuf::from(std::env::var_os("HOME")?).join("Library/Application Support")
+    } else if cfg!(target_os = "windows") {
+        PathBuf::from(std::env::var_os("APPDATA")?)
+    } else {
+        match std::env::var_os("XDG_CONFIG_HOME") {
+            Some(x) => PathBuf::from(x),
+            None => PathBuf::from(std::env::var_os("HOME")?).join(".config"),
+        }
+    };
+    Some(base.join("com.jacobcowan.valhallaai").join("project_dir"))
+}
+
+fn is_project(dir: &std::path::Path) -> bool {
+    dir.join(PROJECT_MARKER).is_file()
+}
+
+/// Locate the ValhallaAI checkout.
+///
+/// This used to be `env!("CARGO_MANIFEST_DIR")` with a silent fallback to
+/// `current_dir()`. Both halves were wrong for a bundled app: the manifest dir
+/// is baked in at COMPILE time, so it points at whatever machine did the
+/// build, and a double-clicked .app has `/` as its working directory. The
+/// fallback therefore "succeeded" with a path containing no .env, no vault,
+/// and no scripts -- so every backend feature quietly found an empty world
+/// instead of reporting that it could not find the project.
+///
+/// Now it is a checked chain, every candidate validated against the marker
+/// file, and a failure is an error the UI can surface:
+///
+/// 1. `VALHALLAAI_PROJECT_DIR` -- explicit override, wins over everything.
+/// 2. The pointer file written by `scripts/valhallaai` -- this is what makes a
+///    relocated .app work, since macOS `open` does not forward env vars.
+/// 3. Walking up from the working directory -- covers `npm run tauri-dev` and
+///    any run started from inside the checkout.
+/// 4. `CARGO_MANIFEST_DIR` -- still correct for a dev build on the machine
+///    that compiled it, kept as a last resort rather than a first choice.
+fn project_root() -> Result<PathBuf, String> {
+    if let Some(dir) = std::env::var_os("VALHALLAAI_PROJECT_DIR") {
+        let dir = PathBuf::from(dir);
+        if is_project(&dir) {
+            return Ok(dir);
+        }
+        return Err(format!(
+            "VALHALLAAI_PROJECT_DIR is set to {} but there is no {PROJECT_MARKER} there.",
+            dir.display()
+        ));
     }
-    std::env::current_dir().unwrap_or(compiled)
+
+    if let Some(pointer) = project_dir_pointer() {
+        if let Ok(text) = fs::read_to_string(&pointer) {
+            let dir = PathBuf::from(text.trim());
+            // A pointer to a moved or deleted checkout falls through to the
+            // remaining candidates instead of being taken on faith.
+            if !dir.as_os_str().is_empty() && is_project(&dir) {
+                return Ok(dir);
+            }
+        }
+    }
+
+    if let Ok(cwd) = std::env::current_dir() {
+        let mut here = cwd.as_path();
+        loop {
+            if is_project(here) {
+                return Ok(here.to_path_buf());
+            }
+            match here.parent() {
+                Some(parent) => here = parent,
+                None => break,
+            }
+        }
+    }
+
+    let compiled = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
+    if is_project(&compiled) {
+        return Ok(compiled);
+    }
+
+    Err(format!(
+        "Could not locate the ValhallaAI project (no {PROJECT_MARKER} found). \
+Run the app with `valhallaai`, which records the location, or set \
+VALHALLAAI_PROJECT_DIR to the checkout."
+    ))
 }
 
 /// Run one allowlisted agent once. The name is matched before it is passed
@@ -31,7 +116,7 @@ fn run_agent(service: String) -> Result<String, String> {
         _ => return Err(format!("Unknown agent: {service}")),
     }
 
-    let root = project_root();
+    let root = project_root()?;
     let script = root.join("scripts/run_agent.sh");
     let output = Command::new("bash")
         .arg(&script)
@@ -618,7 +703,7 @@ fn google_sign_in(client_id: String) -> Result<GoogleIdentity, String> {
     // It is a low-value secret by design, but there is no reason to copy it
     // somewhere it does not need to be.
     let client_secret =
-        envfile::value(&project_root().join(".env"), "GOOGLE_CLIENT_SECRET").unwrap_or_default();
+        envfile::value(&project_root()?.join(".env"), "GOOGLE_CLIENT_SECRET").unwrap_or_default();
 
     let mut form: Vec<(&str, &str)> = vec![
         ("client_id", client_id.as_str()),
@@ -725,7 +810,7 @@ fn google_sign_in(client_id: String) -> Result<GoogleIdentity, String> {
 
 #[tauri::command]
 fn provider_keys() -> Result<std::collections::HashMap<String, String>, String> {
-    let path = project_root().join(".env");
+    let path = project_root()?.join(".env");
     if !path.is_file() {
         return Ok(std::collections::HashMap::new());
     }
@@ -754,7 +839,7 @@ struct AgentInfo {
 /// component state resets every launch, the outbox does not.
 #[tauri::command]
 fn agent_status() -> Result<Vec<AgentInfo>, String> {
-    let vault = project_root().join("vault");
+    let vault = project_root()?.join("vault");
 
     let enabled_map: std::collections::HashMap<String, bool> =
         match fs::read_to_string(vault.join("agents-config.json")) {
@@ -866,7 +951,7 @@ fn resolve_vault_path(vault: &std::path::Path, path: &str) -> Result<PathBuf, St
 fn vault_file(path: String) -> Result<String, String> {
     const MAX_VAULT_FILE_BYTES: u64 = 2 * 1024 * 1024;
 
-    let vault = project_root().join("vault");
+    let vault = project_root()?.join("vault");
     let real = resolve_vault_path(&vault, &path)?;
 
     let size = fs::metadata(&real)
@@ -886,7 +971,7 @@ fn vault_file(path: String) -> Result<String, String> {
 
 #[tauri::command]
 fn vault_status() -> Result<VaultStatus, String> {
-    let root = project_root();
+    let root = project_root()?;
     let vault = root.join("vault");
     let mut files = Vec::new();
     if vault.is_dir() {
@@ -956,6 +1041,83 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod project_root_tests {
+    use super::{is_project, PROJECT_MARKER};
+    use std::fs;
+
+    fn scratch(with_marker: bool) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "valhallaai-rootest-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        fs::create_dir_all(dir.join("src-tauri")).unwrap();
+        if with_marker {
+            fs::write(dir.join(PROJECT_MARKER), "services: {}\n").unwrap();
+        }
+        dir
+    }
+
+    /// The whole point of the marker: a directory that merely exists is not a
+    /// project. The old code accepted current_dir() unconditionally, which is
+    /// how a double-clicked .app ended up treating "/" as the checkout.
+    #[test]
+    fn a_directory_without_the_marker_is_not_a_project() {
+        let dir = scratch(false);
+        assert!(!is_project(&dir));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_directory_with_the_marker_is_a_project() {
+        let dir = scratch(true);
+        assert!(is_project(&dir));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// "/" must never validate. This is the exact path a bundled app falls
+    /// back to, and the bug being fixed here.
+    #[test]
+    fn filesystem_root_is_never_a_project() {
+        assert!(!is_project(std::path::Path::new("/")));
+    }
+
+    /// A pointer file left behind by a moved or deleted checkout must not be
+    /// taken on faith -- the resolver validates before trusting it.
+    #[test]
+    fn a_stale_pointer_target_does_not_validate() {
+        let dir = scratch(true);
+        let path = dir.clone();
+        let _ = fs::remove_dir_all(&dir);
+        assert!(!is_project(&path));
+    }
+
+    /// Walking up from a nested directory finds the checkout; this is the
+    /// branch that covers `npm run tauri-dev`, whose cwd is src-tauri.
+    #[test]
+    fn walking_up_from_a_subdirectory_finds_the_marker() {
+        let dir = scratch(true);
+        let nested = dir.join("src-tauri");
+        let mut here = nested.as_path();
+        let mut found = None;
+        loop {
+            if is_project(here) {
+                found = Some(here.to_path_buf());
+                break;
+            }
+            match here.parent() {
+                Some(parent) => here = parent,
+                None => break,
+            }
+        }
+        assert_eq!(found.as_deref(), Some(dir.as_path()));
+        let _ = fs::remove_dir_all(&dir);
+    }
 }
 
 #[cfg(test)]

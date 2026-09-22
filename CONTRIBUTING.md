@@ -153,6 +153,41 @@ against and nothing syncs. The only network traffic is the handshake.
   keeps its name. Signing out clears the identity fields only — sessions, keys,
   and prefs belong to the machine, not the Google account.
 
+### Finding the project from a bundled app
+
+Every backend command needs the checkout: `.env`, `vault/`, `scripts/`, and
+`docker-compose.local.yml` all live there. `project_root()` resolves it.
+
+It used to be `env!("CARGO_MANIFEST_DIR")` with a silent fallback to
+`current_dir()`. Both halves break in a release build: the manifest dir is
+baked in at **compile** time, so it names whichever machine built the app, and
+a double-clicked `.app` has `/` as its working directory. The fallback then
+"succeeded" with a path containing none of those files, so every feature
+quietly found an empty world instead of saying it could not find the project.
+
+The chain now validates every candidate against `docker-compose.local.yml` and
+returns an error when none match:
+
+1. `VALHALLAAI_PROJECT_DIR` — explicit override, wins over everything.
+2. The pointer file at
+   `~/Library/Application Support/com.jacobcowan.valhallaai/project_dir`,
+   rewritten by `scripts/valhallaai` on every run. This is what lets a
+   relocated `.app` work: macOS `open` does not forward environment variables,
+   so an export cannot reach it, but a file can.
+3. Walking up from the working directory — covers `npm run tauri-dev`, whose
+   cwd is `src-tauri`, and anything started inside the checkout.
+4. `CARGO_MANIFEST_DIR` — still right for a dev build on the machine that
+   compiled it, kept as a last resort rather than the first choice.
+
+A stale pointer (moved or deleted checkout) fails the marker test and falls
+through rather than being trusted. Launch once via `valhallaai` after moving
+the project and the pointer corrects itself.
+
+**This does not make the build distributable.** The `.app` is ad-hoc signed,
+arm64-only, and still expects a checkout to exist somewhere on the machine.
+Shipping it to someone else needs a Developer ID, notarization, and a decision
+about what the app should do when there is no checkout at all.
+
 ### The vault relay
 
 `scripts/vault_relay.sh` in the `vault-relay` container folds each
