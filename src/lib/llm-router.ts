@@ -13,7 +13,14 @@
  *
  * Exception: Nous Portal (`callNous`) does not take a user key. It calls
  * the local Hermes subscription proxy, which attaches the Portal credential.
+ *
+ * Anthropic calls from this window fail with "Load failed" (WebKit hides
+ * the CORS rejection). Those go through the `anthropic_messages` command
+ * in the desktop process instead.
  */
+
+import { invoke } from "@tauri-apps/api/tauri";
+import { inTauri } from "./provider-keys";
 
 export type LLMProvider = "anthropic" | "anthropic_oauth" | "chatgpt" | "claude_directsdk" | "fireworks" | "google" | "groq" | "huggingface" | "minimax" | "nous" | "ollama" | "openclaw" | "openrouter" | "perplexity" | "qwen" | "replicate" | "together" | "xai_grok";
 
@@ -293,6 +300,24 @@ async function callAnthropic(
   const missingKey = requireApiKey(config);
   if (missingKey) return missingKey;
 
+  const turns = toAnthropicMessages(messages);
+  if (inTauri()) {
+    try {
+      return await invoke<LLMResponse>("anthropic_messages", {
+        request: {
+          apiKey: config.apiKey,
+          model: config.model,
+          maxTokens: config.maxTokens ?? 2048,
+          temperature: config.temperature ?? 0.7,
+          messages: turns,
+        },
+      });
+    } catch (error) {
+      const message = typeof error === "string" ? error : error instanceof Error ? error.message : "Anthropic request failed";
+      return { success: false, error: message };
+    }
+  }
+
   const response = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -305,7 +330,7 @@ async function callAnthropic(
       model: config.model,
       max_tokens: config.maxTokens ?? 2048,
       temperature: config.temperature ?? 0.7,
-      messages: toAnthropicMessages(messages),
+      messages: turns,
     }),
   });
 
