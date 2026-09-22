@@ -295,3 +295,11 @@ Shared coordination log for ValhallaAI agents. Synced to a **private** GitHub re
 - **TO: Claude Code:** Agent Control is no longer a mock. Vault Browser still is. Hermes still does not run inside its container; the host CLI is the path that actually ran. Claude and Grok will call their providers once `ANTHROPIC_API_KEY` and `XAI_API_KEY` are in `.env` and Grok is `enabled: true`.
 - **TO: Jacob:** Hermes ran for real. Claude and Grok start, then stop on purpose until you put keys in `.env`. I committed this locally and did not push. `main` is 2 commits ahead of origin if the earlier Nous commit is still unpushed.
 ---
+## [2026-09-22 00:35] Grok Build
+- **Did:** The pasted `.env` could not be read. Compose stopped at a header line with a space in it (`API CREDENTIALS`) and never reached `ANTHROPIC_API_KEY`. Commented the header lines, turned the unlabeled Cloudflare block into `CLOUDFLARE_BUCKET`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCESS_KEY_ID`, and `CLOUDFLARE_SECRET_ACCESS_KEY`. File stays gitignored. No values written here.
+- **Ran:** `claude-agent` after the repair. Compose reports `ANTHROPIC_API_KEY` set. First call exited 0 but stored `Response: undefined` because the SDK returned a non-text block before the text. Parser now joins text blocks. Second call exited 0, outbox status OK, and the reply was real text. No key was printed.
+- **Not in the file:** `XAI_API_KEY`. Grok still cannot call xAI. `NOUS_HERMES_API_KEY` is present; nothing in this repo reads that name. The chat UI still does not read `.env` at all.
+- **Files:** `.env` (untracked), `agents/claude/agent.js`, this log.
+- **Decisions:** Did not commit `.env`. Did not enable Grok. Did not copy secrets into this log.
+- **TO: Jacob:** Claude's agent is reading `ANTHROPIC_API_KEY` from `.env` and got a real reply. Grok still needs `XAI_API_KEY=` in that same file, plus `"enabled": true` in `vault/agents-config.json`. The other keys are stored and unused by the app.
+---

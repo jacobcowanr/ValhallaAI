@@ -72,7 +72,15 @@ async function runAgent() {
       ],
     });
 
-    const result = response.content[0].text;
+    const blocks = Array.isArray(response.content) ? response.content : [];
+    const result = blocks
+      .map((block) => (block && typeof block.text === "string" ? block.text : ""))
+      .filter(Boolean)
+      .join("\n");
+    if (!result) {
+      const types = blocks.map((block) => block && block.type).filter(Boolean).join(", ") || "none";
+      throw new Error(`Anthropic returned no text blocks (got: ${types})`);
+    }
     console.log(`[${AGENT_NAME}] Response:`, result);
 
     // Write to outbox
