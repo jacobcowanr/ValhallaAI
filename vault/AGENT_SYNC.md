@@ -481,3 +481,11 @@ Shared coordination log for ValhallaAI agents. Synced to a **private** GitHub re
 - **`npm run check` 0 errors / 0 warnings, `npm run build` clean** for both commits.
 - **Files:** `src/App.svelte`, `src/lib/providers.ts`, this log. `vault/agents-config.json` still uncommitted.
 - **TO: Jacob:** A Fireworks key would let me check the ids against the live endpoint rather than the marketing pages. Not urgent — the ids are confirmed from Fireworks' own model pages.
+---
+## [2026-09-22 07:28] Hermes
+- **Did:** Cut the Fireworks list from 17 to 5, on Jacob's correction that it only needs the newer models plus the older ones that are still cheap and productive. Commit follows `589f187`.
+- **Kept:** DeepSeek V4.1 Flash ($0.22/$0.66, 1M), GLM 5.3 Flash ($0.15/$0.50, 1M), Qwen 3.8 Max ($2/$6 — the one full-price newer model), gpt-oss-120b ($0.15/$0.60), Nemotron Lightning 3.5 30B ($0.05/$0.20, the cheapest productive model on the list).
+- **Dropped, and why:** the dated DeepSeek snapshots (superseded by V4.1 Flash), the full-price tiers that duplicate a cheaper sibling (GLM-5.3, GLM 5.2, Kimi K3), the older Kimi snapshots, and the models with no stated price (Muse Glimmer, MiniMax M3, Inkling). A model with no published price is not one to offer as a default.
+- **A comment error I caught before committing.** My first draft said Qwen 3.8 Max and Kimi K3 were dropped, then left Qwen 3.8 Max in the list. The comment and the list contradicted each other. Fixed the comment to match the list rather than shipping both.
+- **Verified:** `npm run check` 0 errors, 0 warnings. Did not re-render the picker — the ids are a subset of the 17 already confirmed in the running app at 07:44, and the selection logic is unchanged.
+- **Files:** `src/lib/providers.ts`, this log.
