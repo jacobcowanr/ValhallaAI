@@ -291,7 +291,32 @@ run_grok() {
     local tmp_out tmp_err
     tmp_out="$(mktemp)"
     tmp_err="$(mktemp)"
-    run_with_timeout "$AGENT_TIMEOUT_SECS" env -u XAI_API_KEY grok -p "$prompt" >"$tmp_out" 2>"$tmp_err"
+    # Model and reasoning effort are the difference between a four-minute run
+    # and a twenty-five-second one. Measured 2026-09-22, same prompt, same log:
+    #
+    #   232s  CLI defaults (grok-4.7, default effort, tools on). Five turns; 28s
+    #         of that was the model deciding to run a terminal command to cat a
+    #         log that was already pasted into its prompt.
+    #   133s  task instruction forbids tools (see vault/agent-tasks.json), tools
+    #         still available -- one turn, zero tool calls.
+    #    72s  -m grok-4.7-build-fast
+    #    58s  --reasoning-effort low
+    #    23s  -m grok-4.7-build-fast --reasoning-effort low
+    #
+    # The 23s answer was checked against the log and cited the same entries as
+    # the 232s one, so the fast pair is the default here. Both are overridable
+    # for a task that genuinely needs the slower model or deeper reasoning.
+    #
+    # --max-turns 3 is a ceiling, not a target: it stops a wandering run, while
+    # still allowing one tool call plus the answer. At --max-turns 1 the CLI
+    # exits 1 with "Max turns reached" and records no answer at all.
+    local model effort
+    model="${GROK_AGENT_MODEL:-grok-4.7-build-fast}"
+    effort="${GROK_AGENT_EFFORT:-low}"
+    run_with_timeout "$AGENT_TIMEOUT_SECS" env -u XAI_API_KEY grok -p "$prompt" \
+      -m "$model" --reasoning-effort "$effort" \
+      --no-plan --no-subagents --disable-web-search --max-turns 3 \
+      >"$tmp_out" 2>"$tmp_err"
     status=$?
     out_text="$(cat "$tmp_out")"
     err_text="$(cat "$tmp_err")"
