@@ -1,10 +1,10 @@
-# Vahalla — Architecture
+# ValhallaAI — Architecture
 
 **Status:** Local development. This document is the design of record — update it whenever the system changes shape, not after the fact.
 
-## 1. What Vahalla is
+## 1. What ValhallaAI is
 
-Vahalla is a **desktop-first, multi-provider AI orchestration platform**. One app, three jobs:
+ValhallaAI is a **desktop-first, multi-provider AI orchestration platform**. One app, three jobs:
 
 1. **Talk to any model** — 18 providers behind one router, one chat UI. This one is real and verified (`npx vite build` succeeds, `npx tsc --noEmit` is clean).
 2. **Run agents** — Docker-based agent runtimes (Claude, Hermes, Grok, custom) that do work autonomously. The containers themselves work via `docker-compose up` directly; the **desktop UI's Agent Control panel does not yet trigger them** — see §4.4.
@@ -16,7 +16,7 @@ It is built to be **self-hosted and user-owned**: you run it on your Mac today, 
 
 ```mermaid
 graph TB
-    subgraph Desktop["Vahalla Desktop App (Tauri)"]
+    subgraph Desktop["ValhallaAI Desktop App (Tauri)"]
         UI[Svelte UI]
         Settings[Settings<br/>provider + model prefs]
         ModelPicker[Model Picker<br/>chat interface]
@@ -85,7 +85,7 @@ graph TB
 
 ### 3.1 Cross-platform constraint
 
-Vahalla targets **macOS, Windows, and Linux** (including Arch-based distros such as **Omarchy**) as first-class platforms. This is a standing constraint on every change, not a future nice-to-have — it shapes decisions now, while the architecture is still easy to adjust.
+ValhallaAI targets **macOS, Windows, and Linux** (including Arch-based distros such as **Omarchy**) as first-class platforms. This is a standing constraint on every change, not a future nice-to-have — it shapes decisions now, while the architecture is still easy to adjust.
 
 **Why Tauri fits this well:** it cross-compiles the same Svelte frontend + Rust backend into a native app on each OS — `.dmg`/`.app` on macOS, `.msi`/`.exe` on Windows, and on Linux both distro-specific packages (`.deb`, `.rpm`) *and* a distro-agnostic **AppImage**, which is what actually matters for Omarchy: it's Arch-based (pacman, not apt/dnf), so the `.deb`/`.rpm` bundles are useless there but the AppImage runs on any Linux with no packaging step. `tauri.conf.json`'s `bundle.targets: "all"` already builds every target valid for the host OS — no per-OS fork of the bundle config needed. `tauri init` generated `icon.icns` (macOS), `icon.ico` (Windows), and PNG icons (Linux) up front.
 
@@ -109,7 +109,7 @@ sudo pacman -S --needed webkit2gtk-4.1 base-devel curl wget file openssl \
 
 **Not yet verified — flagged, not assumed:**
 - Windows: the agent Docker containers (`agents/claude`, `agents/hermes`, `agents/grok`) haven't been run end-to-end. Docker Desktop on Windows runs Linux containers via WSL2, so they *should* behave identically — that's a claim to test, not trust.
-- Linux/Omarchy: nothing in this stack (Tauri build, Docker agent runtime, or the app itself) has been run on an actual Omarchy machine yet. The user already runs Hermes itself on an Omarchy VM in a separate context, which is a good sign for the Hermes agent container specifically, but that hasn't been confirmed to extend to Vahalla's own build.
+- Linux/Omarchy: nothing in this stack (Tauri build, Docker agent runtime, or the app itself) has been run on an actual Omarchy machine yet. The user already runs Hermes itself on an Omarchy VM in a separate context, which is a good sign for the Hermes agent container specifically, but that hasn't been confirmed to extend to ValhallaAI's own build.
 
 Both tracked in [CONTRIBUTING.md](./CONTRIBUTING.md#known-open-issues) until actually done.
 
@@ -219,7 +219,7 @@ Each stage is a deliberate gate, not a deadline. We do not skip Stage 2 — see 
 
 ## 9.1 Platform roadmap (beyond macOS/Windows/Linux desktop)
 
-macOS, Windows, and Linux/Omarchy (§3.1) are all **desktop** targets — Vahalla currently requires a GUI to run at all, since it's Tauri desktop-only. The platforms below aren't a flat list of "OSes to also support" — they have a real dependency order, and building them out of order means building something with nothing to connect to.
+macOS, Windows, and Linux/Omarchy (§3.1) are all **desktop** targets — ValhallaAI currently requires a GUI to run at all, since it's Tauri desktop-only. The platforms below aren't a flat list of "OSes to also support" — they have a real dependency order, and building them out of order means building something with nothing to connect to.
 
 ```mermaid
 flowchart TD
@@ -254,6 +254,6 @@ flowchart TD
 
 ## 10. Related documents
 
-- [POSITIONING.md](./POSITIONING.md) — how Vahalla differs from Hermes, LangChain, Open WebUI, AnythingLLM, and the rest of the field
+- [POSITIONING.md](./POSITIONING.md) — how ValhallaAI differs from Hermes, LangChain, Open WebUI, AnythingLLM, and the rest of the field
 - [CONTRIBUTING.md](./CONTRIBUTING.md) — how to work on this project (even solo, even before it's public)
 - [README.md](./README.md) — quick start

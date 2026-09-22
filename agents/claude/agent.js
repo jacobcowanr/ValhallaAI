@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Claude Agent for Vahalla
+ * Claude Agent for ValhallaAI
  * Reads config from vault, processes tasks, writes results to AGENT_OUTBOX.md
  */
 
@@ -49,7 +49,7 @@ async function runAgent() {
   try {
     // Example: simple echo task
     const prompt =
-      "You are an agent running in Vahalla. Report your status and capabilities.";
+      "You are an agent running in ValhallaAI. Report your status and capabilities.";
 
     const response = await client.messages.create({
       model: config.config.model,

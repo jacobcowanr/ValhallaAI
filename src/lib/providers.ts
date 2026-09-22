@@ -7,7 +7,7 @@
  * found the two copies were byte-identical, meaning they hadn't drifted
  * *yet* — this module is what keeps it that way).
  *
- * This list is also the ground truth for "how many providers Vahalla
+ * This list is also the ground truth for "how many providers ValhallaAI
  * supports." Docs (README, ARCHITECTURE, POSITIONING) should say
  * Object.keys(PROVIDERS).length, not a hand-maintained number — that
  * number drifted out of sync with the code before (19 router cases vs. 18

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Hermes Agent for Vahalla
+# Hermes Agent for ValhallaAI
 # Delegates to the local Hermes CLI
 
 VAULT_PATH=${VAULT_PATH:-/vault}
@@ -22,7 +22,7 @@ fi
 
 # Run a simple Hermes task and capture output
 echo "[${AGENT_NAME}] Running Hermes..."
-RESULT=$(hermes -z "Report your status and capabilities as an agent in the Vahalla platform." 2>&1)
+RESULT=$(hermes -z "Report your status and capabilities as an agent in the ValhallaAI platform." 2>&1)
 STATUS=$?
 
 # Write to outbox

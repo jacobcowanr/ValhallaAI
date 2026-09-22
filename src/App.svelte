@@ -9,7 +9,7 @@
 
 <main>
   <header>
-    <h1>Vahalla</h1>
+    <h1>ValhallaAI</h1>
     <p>Multi-agent orchestration • Model switching • Vault coordination</p>
   </header>
 

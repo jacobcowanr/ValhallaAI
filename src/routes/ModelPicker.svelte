@@ -11,7 +11,7 @@
   let loading = false;
 
   function apiKeyStorageKey(providerId) {
-    return `vahalla-apikey-${providerId}`;
+    return `valhallaai-apikey-${providerId}`;
   }
 
   function loadApiKeyFor(providerId) {
@@ -20,7 +20,7 @@
 
   onMount(() => {
     // Load user's saved preferences
-    const prefs = localStorage.getItem("vahalla-prefs");
+    const prefs = localStorage.getItem("valhallaai-prefs");
     if (prefs) {
       const { defaultProvider, defaultModel } = JSON.parse(prefs);
       // A previously-saved provider can disappear from the catalog (e.g. the

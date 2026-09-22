@@ -1,4 +1,4 @@
-# Vahalla
+# ValhallaAI
 
 **Multi-provider AI orchestration, self-hosted.** One app to talk to 18 LLM providers, run agents against them, and coordinate those agents through a git-synced markdown vault instead of a database.
 
@@ -35,7 +35,7 @@ First run: open **Settings**, pick your default provider and model — nothing i
 ## Project structure
 
 ```
-Vahalla/
+ValhallaAI/
 ├─ ARCHITECTURE.md       Design of record — read first
 ├─ POSITIONING.md        Why this exists, differentiation
 ├─ CONTRIBUTING.md        Conventions, known issues

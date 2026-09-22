@@ -192,8 +192,8 @@ async function callOpenRouter(
     endpoint: "https://openrouter.ai/api/v1/chat/completions",
     authHeader: bearer,
     extraHeaders: {
-      "HTTP-Referer": "https://vahalla.local",
-      "X-Title": "Vahalla",
+      "HTTP-Referer": "https://valhallaai.local",
+      "X-Title": "ValhallaAI",
     },
   });
 }
@@ -265,7 +265,7 @@ async function callAnthropic(
  * they're distinct *products* (a plain API key vs. Claude.ai OAuth vs.
  * the Hermes DirectSDK plugin that spawns the local `claude` CLI against a
  * Pro/Max subscription — see the Obsidian vault's Hermes — Local Setup.md
- * for how that actually works today in Hermes itself), but Vahalla doesn't
+ * for how that actually works today in Hermes itself), but ValhallaAI doesn't
  * yet implement the OAuth or CLI-spawn flows — only the API-key path is
  * real. Flagged honestly rather than left to look implemented.
  */

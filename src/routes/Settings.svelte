@@ -9,12 +9,12 @@
   let ollamaEndpoint = "";
 
   function apiKeyStorageKey(providerId) {
-    return `vahalla-apikey-${providerId}`;
+    return `valhallaai-apikey-${providerId}`;
   }
 
   onMount(() => {
     // Load saved preferences
-    const savedPrefs = localStorage.getItem("vahalla-prefs");
+    const savedPrefs = localStorage.getItem("valhallaai-prefs");
     if (savedPrefs) {
       const prefs = JSON.parse(savedPrefs);
       // A previously-saved provider can disappear from the catalog (e.g. the
@@ -47,7 +47,7 @@
       defaultProvider,
       defaultModel,
     };
-    localStorage.setItem("vahalla-prefs", JSON.stringify(prefs));
+    localStorage.setItem("valhallaai-prefs", JSON.stringify(prefs));
     saved = true;
     setTimeout(() => {
       saved = false;
@@ -56,7 +56,7 @@
 
   function saveApiKey(providerId) {
     // Uses the SAME localStorage key ModelPicker reads from
-    // (vahalla-apikey-<providerId>), so a key saved here actually shows up
+    // (valhallaai-apikey-<providerId>), so a key saved here actually shows up
     // there. Previously these were two disconnected storage schemes.
     if (apiKeys[providerId]) {
       localStorage.setItem(apiKeyStorageKey(providerId), apiKeys[providerId]);
@@ -127,7 +127,7 @@
           <li>Download from <a href="https://ollama.ai" target="_blank" rel="noopener noreferrer">ollama.ai</a></li>
           <li>Run: <code>ollama serve</code></li>
           <li>Pull a model: <code>ollama pull llama2</code></li>
-          <li>Select Ollama (Local) in Vahalla and choose your model</li>
+          <li>Select Ollama (Local) in ValhallaAI and choose your model</li>
         </ol>
       </div>
     </section>
@@ -159,7 +159,7 @@
     </section>
 
     <section class="section">
-      <h3>About Vahalla</h3>
+      <h3>About ValhallaAI</h3>
       <p class="section-description">Multi-agent orchestration • Model switching • Vault coordination</p>
       <p>Version: 0.1.0 (local development)</p>
       <p>Status: Not ready for public use</p>
