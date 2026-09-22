@@ -153,6 +153,41 @@ against and nothing syncs. The only network traffic is the handshake.
   keeps its name. Signing out clears the identity fields only — sessions, keys,
   and prefs belong to the machine, not the Google account.
 
+### The vault relay
+
+`scripts/vault_relay.sh` in the `vault-relay` container folds each
+`AGENT_OUTBOX_<agent>.md` into `AGENT_SYNC.md`, clears the outbox, and commits.
+It is `profiles: optional`, so a plain `docker compose up` never starts it.
+
+```bash
+docker compose -f docker-compose.local.yml --profile optional up -d vault-relay
+docker compose -f docker-compose.local.yml stop vault-relay
+```
+
+**Verified 2026-09-22** against a throwaway fixture repo: two outboxes folded
+into `AGENT_SYNC.md`, both cleared, one commit, and three idle cycles
+afterwards produced no further commits.
+
+Things that were wrong and are worth not reintroducing:
+
+- The container ran `image: alpine:latest`, which is busybox with **no git
+  binary**, so every git call failed instantly. It now builds from
+  `scripts/vault_relay.Dockerfile`.
+- It mounted only `./vault`, which has no `.git`, so even with git installed
+  there was no work tree. It now mounts the repo root at `/repo` and scopes
+  `git add` to `vault/` so it cannot sweep up app-code changes.
+- Entries arrived with **two stacked headers**: agents already write
+  `## [<run time>] <agent>`, and the relay added its own carrying the fold
+  time. The relay now appends verbatim under a `---` separator. When the fold
+  happened is the commit's job.
+
+**Push does not work over the current remote.** `origin` is HTTPS, and the
+container has no credential helper, so `git push` cannot authenticate — the
+mounted `HOST_SSH_DIR` only helps an `ssh://` remote. Push is gated behind
+`VAULT_REPO` being set and every git step is individually guarded, so the
+relay folds and commits locally without crash-looping. Switch `origin` to SSH
+or add a token helper before expecting push to work.
+
 ### Before claiming something works
 Actually run it — all three of these, not just the first one:
 

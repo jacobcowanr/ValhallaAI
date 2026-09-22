@@ -57,10 +57,16 @@ relay_once() {
     [ -e "$outbox" ] || continue # glob didn't match anything
 
     if [ -s "$outbox" ]; then
-      agent_name=$(basename "$outbox" .md | sed 's/^AGENT_OUTBOX_//')
+      # Appended verbatim under a separator, with no wrapper header.
+      #
+      # The relay used to add its own "## [<fold time>] <agent> (via relay)"
+      # line, but agents already write "## [<run time>] <agent>" as the first
+      # line of every entry -- so each folded entry arrived with two stacked
+      # headers, the outer one carrying the time the fold happened rather than
+      # the time the agent ran. The agent's own timestamp is the meaningful
+      # one; when the fold happened is recorded by the commit.
       {
         echo "---"
-        echo "## [$(date -u +%Y-%m-%dT%H:%M:%SZ)] $agent_name (via relay)"
         cat "$outbox"
       } >> "$SYNC_LOG"
 
