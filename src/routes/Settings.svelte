@@ -16,6 +16,47 @@
   let apiKeyProvider: LLMProvider = FALLBACK_PROVIDER;
   const KEY_EDITABLE_PROVIDERS = PROVIDER_ENTRIES.filter(([id]) => id !== "ollama");
 
+  // Was: the masked password field sat there permanently, always visible
+  // and always editable, even after a key was already saved. Now it's a
+  // saved/edit toggle — a saved key shows only a confirmation (the same
+  // checkmark used in the dropdown), not an editable field, until you
+  // explicitly click Edit. pendingKeyValue is a draft that's only
+  // committed on Submit, not on every keystroke or blur.
+  let editingKey = false;
+  let pendingKeyValue = "";
+
+  // Svelte's template-expression parser doesn't support TS `as` casts
+  // inline in markup (only inside the script block's own function
+  // bodies) — this wrapper exists so the <select>'s on:change handler in
+  // the template can stay a plain function reference instead of an
+  // inline arrow function with a cast, which fails to parse there.
+  function handleApiKeyProviderChange(e: Event): void {
+    const value = (e.currentTarget as HTMLSelectElement).value as LLMProvider;
+    selectApiKeyProvider(value);
+  }
+
+  function selectApiKeyProvider(providerId: LLMProvider): void {
+    apiKeyProvider = providerId;
+    // Existing key -> show the saved confirmation. No key yet -> go
+    // straight to the input so there's no extra click for a first-time setup.
+    editingKey = !apiKeys[providerId];
+    pendingKeyValue = "";
+  }
+
+  function startEditingKey(): void {
+    // Deliberately NOT pre-filling with the existing saved value — you're
+    // pasting a replacement key, not character-editing a masked one, and
+    // re-displaying a saved secret (even masked) is unnecessary exposure.
+    pendingKeyValue = "";
+    editingKey = true;
+  }
+
+  function submitApiKey(): void {
+    saveApiKey(apiKeyProvider, pendingKeyValue);
+    pendingKeyValue = "";
+    editingKey = !apiKeys[apiKeyProvider]; // stay in edit mode only if it was cleared (delete), not a real key
+  }
+
   function apiKeyStorageKey(providerId: LLMProvider): string {
     return `valhallaai-apikey-${providerId}`;
   }
@@ -43,12 +84,6 @@
       }
     }
 
-    // Default the key-editor dropdown to whatever the user's actual default
-    // provider is, so the first thing they see is the key they most likely
-    // need to check or set — falling back if that happens to be Ollama
-    // (which is excluded from key editing entirely, it needs none).
-    apiKeyProvider = defaultProvider !== "ollama" ? defaultProvider : FALLBACK_PROVIDER;
-
     // Load the saved Ollama endpoint so the field reflects what's actually stored.
     ollamaEndpoint = localStorage.getItem("ollama-endpoint") || "";
 
@@ -58,6 +93,14 @@
       if (providerId === "ollama") continue;
       apiKeys[providerId] = localStorage.getItem(apiKeyStorageKey(providerId)) || "";
     }
+
+    // Default the key-editor dropdown to whatever the user's actual default
+    // provider is, so the first thing they see is the key they most likely
+    // need to check or set — falling back if that happens to be Ollama
+    // (which is excluded from key editing entirely, it needs none). Done
+    // after apiKeys finishes loading above so the saved/edit toggle starts
+    // in the right state instead of always defaulting to "no key yet".
+    selectApiKeyProvider(defaultProvider !== "ollama" ? defaultProvider : FALLBACK_PROVIDER);
   });
 
   function savePreferences(): void {
@@ -72,12 +115,13 @@
     }, 2000);
   }
 
-  function saveApiKey(providerId: LLMProvider): void {
+  function saveApiKey(providerId: LLMProvider, value: string): void {
     // Uses the SAME localStorage key ModelPicker reads from
     // (valhallaai-apikey-<providerId>), so a key saved here actually shows up
     // there. Previously these were two disconnected storage schemes.
-    if (apiKeys[providerId]) {
-      localStorage.setItem(apiKeyStorageKey(providerId), apiKeys[providerId]);
+    apiKeys[providerId] = value;
+    if (value) {
+      localStorage.setItem(apiKeyStorageKey(providerId), value);
     } else {
       localStorage.removeItem(apiKeyStorageKey(providerId));
     }
@@ -160,26 +204,40 @@
 
       <div class="field">
         <label for="apikey-provider">Provider:</label>
-        <select id="apikey-provider" bind:value={apiKeyProvider}>
+        <select
+          id="apikey-provider"
+          value={apiKeyProvider}
+          on:change={handleApiKeyProviderChange}
+        >
           {#each KEY_EDITABLE_PROVIDERS as [providerId, { name }]}
             <option value={providerId}>{name}{apiKeys[providerId] ? " ✓" : ""}</option>
           {/each}
         </select>
       </div>
 
-      <div class="field">
-        <label for="apikey-value">{PROVIDERS[apiKeyProvider]?.name} API Key:</label>
-        {#key apiKeyProvider}
-          <input
-            id="apikey-value"
-            type="password"
-            bind:value={apiKeys[apiKeyProvider]}
-            placeholder="Enter API key"
-            on:blur={() => saveApiKey(apiKeyProvider)}
-          />
-        {/key}
-        <small>✓ next to a provider above means a key is already saved for it.</small>
-      </div>
+      {#key apiKeyProvider}
+        {#if editingKey}
+          <div class="field">
+            <label for="apikey-value">{PROVIDERS[apiKeyProvider]?.name} API Key:</label>
+            <div class="key-edit-row">
+              <input
+                id="apikey-value"
+                type="password"
+                bind:value={pendingKeyValue}
+                placeholder="Enter API key"
+                on:keydown={(e) => e.key === "Enter" && submitApiKey()}
+              />
+              <button class="submit-key-btn" on:click={submitApiKey}>Submit</button>
+            </div>
+          </div>
+        {:else}
+          <div class="field key-saved-row">
+            <span class="key-saved-status">✓ {PROVIDERS[apiKeyProvider]?.name} key saved</span>
+            <button class="edit-key-btn" on:click={startEditingKey}>Edit</button>
+          </div>
+        {/if}
+      {/key}
+      <small>✓ next to a provider above means a key is already saved for it.</small>
     </section>
 
     <section class="section">
@@ -280,6 +338,63 @@
 
   .save-btn:hover {
     background: var(--accent-hover);
+  }
+
+  .key-edit-row {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .key-edit-row input {
+    flex: 1;
+  }
+
+  .submit-key-btn {
+    padding: 0.75rem 1.25rem;
+    background: var(--accent);
+    color: var(--accent-text);
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 600;
+    white-space: nowrap;
+    transition: background 0.2s;
+  }
+
+  .submit-key-btn:hover {
+    background: var(--accent-hover);
+  }
+
+  .key-saved-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--success-bg);
+    border: 1px solid var(--accent-soft-border);
+    border-radius: 4px;
+    padding: 0.75rem 1rem;
+  }
+
+  .key-saved-status {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--success-text);
+  }
+
+  .edit-key-btn {
+    padding: 0.4rem 0.9rem;
+    background: none;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    color: var(--text-primary);
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
+
+  .edit-key-btn:hover {
+    background: var(--bg-surface-hover);
+    border-color: var(--text-muted);
   }
 
   p {

@@ -1,11 +1,12 @@
 <script>
   import { onMount } from "svelte";
-  import "@fontsource/pirata-one";
   import ModelPicker from "./routes/ModelPicker.svelte";
   import VaultBrowser from "./routes/VaultBrowser.svelte";
   import AgentControl from "./routes/AgentControl.svelte";
   import Settings from "./routes/Settings.svelte";
   import logoWordmark from "./assets/ValhallaAI_Logo.png";
+  import norseFontUrl from "./assets/fonts/Norse.otf";
+  import norseBoldFontUrl from "./assets/fonts/Norse-Bold.otf";
 
   const sections = [
     { id: "models", label: "Models & Chat", icon: "💬" },
@@ -23,6 +24,23 @@
   onMount(() => {
     const saved = localStorage.getItem("valhallaai-sidebar-open");
     if (saved !== null) sidebarOpen = saved === "true";
+  });
+
+  // Vite-resolved import URLs cannot be interpolated into a plain CSS
+  // font-face rule's src, and CSS custom properties don't reliably work
+  // there either across browsers/webviews. The FontFace API sidesteps
+  // both: register the font in JS, reference it by name in CSS as normal.
+  //
+  // (Deliberately not spelling out either surrounding markup tag's name
+  // literally in this comment — doing so once here made svelte-check
+  // misparse the whole component as unclosed, a real reproduced tooling
+  // quirk, not a typo. Safest to just avoid it in comments going forward.)
+  onMount(() => {
+    const norseRegular = new FontFace("Norse", `url(${norseFontUrl})`, { weight: "400" });
+    const norseBold = new FontFace("Norse", `url(${norseBoldFontUrl})`, { weight: "700" });
+    Promise.all([norseRegular.load(), norseBold.load()])
+      .then((fonts) => fonts.forEach((f) => document.fonts.add(f)))
+      .catch((err) => console.error("Failed to load Norse font:", err));
   });
 
   function toggleSidebar() {
@@ -74,7 +92,10 @@
    * src/assets/ValhallaAI_Logo.png (dominant pixel color), not guessed.
    */
   :global(:root) {
-    --font-display: "Pirata One", "UnifrakturMaguntia", serif;
+    /* "Norse" is registered via the FontFace API in onMount above, not
+       @fontsource — it's a licensed local font file (src/assets/fonts/),
+       not an npm-distributed one. Falls back to serif until it loads. */
+    --font-display: "Norse", serif;
     --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial,
       sans-serif;
 
