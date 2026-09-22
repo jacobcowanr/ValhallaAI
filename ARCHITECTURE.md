@@ -188,6 +188,19 @@ predates it, which is the opposite of what was asked.
 ### 4.3 Model Picker (`src/routes/ModelPicker.svelte`)
 Loads the saved default on mount, lets the user override per-conversation, sends through the router, renders responses with token usage.
 
+The model bar (bottom strip) carries three pickers — Provider, Model, Project — plus **+ New session**. The Project picker files the active conversation; when there is no session yet it holds the choice in `pendingProject` and applies it to the session that the first message creates. Without that, picking a project and then typing would silently drop the choice, since sessions are created lazily.
+
+### 4.3b Recent and Projects (`src/routes/Recent.svelte`, `src/routes/Projects.svelte`)
+Both read the same `sessions` store and differ only in filter, which is why neither needs its own storage:
+
+| View | Shows | Filter |
+|---|---|---|
+| Recent | where a chat lands, newest first | `project === undefined` |
+| Projects | filed chats, grouped | grouped by `project` |
+| Sessions | everything, newest first | none |
+
+`projectNames()` in `sessions.ts` returns the union of explicitly created projects and any name a session references. Deriving it rather than trusting the stored list means a session restored from a backup can never name a project the UI refuses to list — it would be invisible with no way to recover it. Filing happens two ways: the dropdown on each row in Recent, and the Project picker in the model bar. Removing a project (`deleteProject()`) clears the label and leaves the sessions, after a confirmation that says so in words.
+
 ### 4.4 Agent Control (`src/routes/AgentControl.svelte`)
 Run starts one agent and waits for it to exit. The button calls the Tauri command `run_agent`, which runs `scripts/run_agent.sh` with an allowlisted name (`claude-agent`, `hermes-agent`, `grok-agent`). Hermes is the host CLI (`hermes chat --oneshot`). Claude prefers the host `claude` CLI on the `claude auth login` subscription and falls back to the Docker container on the paid key only when there is no login — the container is the fallback, not the default. Grok is a `docker compose run --rm` one-shot container and has no subscription path. The same script is what you run from a terminal. A user-defined agent is a display name bound to one of those three runtimes; the name never reaches the shell (see §4.4b). The cards read real state via `agent_status`: enabled flags come from `vault/agents-config.json`, and last-run time plus OK/ERROR are recovered from each `AGENT_OUTBOX_<agent>.md`. Nothing about run history lives in component state, which is why it survives a relaunch.
 
@@ -240,15 +253,37 @@ Top to bottom, as of 2026-09-22:
 
 1. **Profile card** — avatar, name, email (or "Sign in" if no identity is
    attached). Clicking it opens Profile (§4.2b). At the very top of the
-   column, above New Session — identity is the first thing you see, mirroring
+   column, above the nav — identity is the first thing you see, mirroring
    Settings' gear being the last.
 2. **Profile switcher** — a `<select>`, only rendered when `$profiles.length
    > 1`. Switching calls `switchProfile()`, which reloads the window (see
    that function's comment in `profiles.ts` for why).
-3. **New Session**
-4. **`sections` nav** — Models & Chat, Sessions, Vault Browser, Agent
-   Control. `activeTab` is a plain string, not a router; each value maps to
-   one component in a single `{#if}/{:else if}` chain in the template.
+3. **Conversation views** — Recent, Projects and Sessions. Three views over
+   the same flat session store, each with a distinct job, so none duplicates
+   another:
+   - **Recent** (`Recent.svelte`) — previous chats with no project, newest
+     first. This is where a conversation lands, and where it stays until it
+     is filed.
+   - **Projects** (`Projects.svelte`) — the filed ones, grouped by project.
+   - **Sessions** (`Sessions.svelte`) — all of them, newest first, and the
+     only view with delete.
+
+   `project` is an optional string on `ChatSession`, not a container holding
+   sessions. That is the load-bearing decision: deleting a project only
+   clears the label, so it can never delete a conversation. It also means a
+   session can never be orphaned inside a deleted group — the failure a
+   nested store would invite.
+4. **`sections` nav** — Models & Chat, Recent, Projects, Sessions, Vault
+   Browser, Agent Control. `activeTab` is a plain string, not a router; each
+   value maps to one component in a single `{#if}/{:else if}` chain in the
+   template.
+
+   There is no "New Session" entry. It used to be a sidebar button that
+   called `createSession()` and then switched to Models & Chat — a second
+   control for a tab that already existed, and redundant with the chat
+   creating its session on the first message anyway. Starting a fresh
+   conversation is now **+ New session** in the model bar (§4.3), inside the
+   view where the conversation actually is.
 5. **`sidebar-bottom`** (`margin-top: auto` pins it) — Settings only.
    Profile used to live here too, as a small chip; it moved to the top of the
    list in the same pass that gave it its own page (§4.2b), so identity and

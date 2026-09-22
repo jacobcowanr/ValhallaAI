@@ -16,7 +16,15 @@
   } from "../lib/providers";
   import { loadEnvProviderKeys, resolveApiKey } from "../lib/provider-keys";
   import { scopedKey } from "../lib/profiles";
-  import { sessions, activeSessionId, createSession, appendToSession } from "../lib/sessions";
+  import {
+    sessions,
+    activeSessionId,
+    createSession,
+    appendToSession,
+    projects,
+    projectNames,
+    assignSessionProject,
+  } from "../lib/sessions";
 
   // Passed down from App.svelte rather than imported directly here, so
   // there's one import of the logo asset, not one per place it's shown.
@@ -33,12 +41,41 @@
   let userMessage = "";
   let loading = false;
 
+  /** Project chosen before a session exists. A session is created lazily on
+   *  the first message, so filing has to be remembered somewhere until then —
+   *  otherwise picking a project and then typing a message would silently
+   *  drop the choice. */
+  let pendingProject = "";
+
   // Messages now live in the sessions store (src/lib/sessions.ts), not
   // local component state — previously `responses` was ephemeral, lost on
   // every tab switch or restart, with no way to have more than one
   // conversation. Read-only here; sendMessage() below writes through
   // appendToSession() instead of mutating an array directly.
-  $: responses = $sessions.find((s) => s.id === $activeSessionId)?.messages ?? [];
+  $: activeSession = $sessions.find((s) => s.id === $activeSessionId) ?? null;
+  $: responses = activeSession?.messages ?? [];
+
+  // What the project picker shows: the active session's project, or the
+  // pending choice while there is no session yet.
+  $: currentProject = activeSession ? activeSession.project ?? "" : pendingProject;
+  $: allProjects = projectNames($sessions, $projects);
+
+  /** Starts a fresh conversation, filing it if a project is picked.
+   *  This is the action that used to be a sidebar "New Session" button
+   *  duplicating the Models & Chat tab. */
+  function startNewSession(): void {
+    createSession(selectedProvider, selectedModel, pendingProject || undefined);
+    pendingProject = "";
+    userMessage = "";
+  }
+
+  function changeProject(value: string): void {
+    if (activeSession) {
+      assignSessionProject(activeSession.id, value);
+    } else {
+      pendingProject = value;
+    }
+  }
 
   // Copy-to-clipboard for individual messages.
   //
@@ -490,12 +527,15 @@
     const typedText = userMessage;
 
     // A session gets created lazily, on the first message, rather than
-    // requiring the "New Session" button first — the empty state's own
-    // hint ("Send a message to start chatting") promises this works
-    // without an extra click.
+    // requiring a button first — the empty state's own hint ("Send a
+    // message to start chatting") promises this works without an extra
+    // click.
     let sessionId = $activeSessionId;
     if (!sessionId) {
-      sessionId = createSession(selectedProvider, selectedModel);
+      // Carry the project chosen while there was no session yet, so filing a
+      // conversation before its first message is not silently discarded.
+      sessionId = createSession(selectedProvider, selectedModel, pendingProject || undefined);
+      pendingProject = "";
     }
 
     // Send the FULL prior conversation as context, not just the new
@@ -774,6 +814,27 @@
           {/each}
         </select>
       </div>
+
+      <div class="picker">
+        <label class="picker-label" for="model-bar-project">Project</label>
+        <select
+          id="model-bar-project"
+          value={currentProject}
+          on:change={(e) => changeProject(e.currentTarget.value)}
+          title="File this conversation under a project"
+        >
+          <option value="">Recent (no project)</option>
+          {#each allProjects as name (name)}
+            <option value={name}>{name}</option>
+          {/each}
+        </select>
+      </div>
+
+      <!-- Replaces the sidebar "New Session" button, which was a second
+           control for this tab rather than a place of its own. -->
+      <button class="new-session" on:click={startNewSession} title="Start a new conversation">
+        + New session
+      </button>
     </div>
   </div>
 </div>
@@ -1258,6 +1319,26 @@
     padding: 0.6rem 0;
     border-top: 1px solid var(--border-color);
     background: var(--bg-surface-raised);
+    /* The + New session button sits at the far end, so the pickers keep
+       their natural width and the button takes the slack. */
+    align-items: center;
+  }
+
+  .new-session {
+    margin-left: auto;
+    padding: 0.35rem 0.7rem;
+    border: 1px solid var(--accent-soft-border);
+    border-radius: 6px;
+    background: var(--accent-soft-bg);
+    color: var(--text-primary);
+    font-size: 0.8rem;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+
+  .new-session:hover {
+    border-color: var(--accent);
+    color: var(--accent);
   }
 
   .picker {

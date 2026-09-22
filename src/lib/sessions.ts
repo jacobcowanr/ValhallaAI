@@ -34,6 +34,13 @@ export interface ChatSession {
   title: string;
   provider: string;
   model: string;
+  /** The project this conversation is filed under, if any.
+   *
+   *  A label, not a container: sessions are stored in one flat list and a
+   *  project is only a name on them. That is deliberate — it means deleting a
+   *  project can never delete a conversation, which is the failure a nested
+   *  store would invite. */
+  project?: string;
   messages: ChatMessage[];
   createdAt: number;
   updatedAt: number;
@@ -103,7 +110,7 @@ export function loadSessions(): void {
 // component's onMount fires, regardless of the component tree's shape.
 loadSessions();
 
-export function createSession(provider: string, model: string): string {
+export function createSession(provider: string, model: string, project?: string): string {
   const id = newId();
   const now = Date.now();
   const session: ChatSession = {
@@ -111,6 +118,7 @@ export function createSession(provider: string, model: string): string {
     title: "New session",
     provider,
     model,
+    project,
     messages: [],
     createdAt: now,
     updatedAt: now,
@@ -158,4 +166,95 @@ export function appendToSession(
     })
   );
   persist();
+}
+
+// ---------------------------------------------------------------------------
+// Projects — a label over sessions, not a container holding them
+// ---------------------------------------------------------------------------
+
+const projectsKey = () => scopedKey("valhallaai-projects");
+
+/** Projects that exist without holding a session yet. A project also exists
+ *  the moment a session names it, whether or not it was created here — see
+ *  projectNames(). */
+export const projects = writable<string[]>([]);
+
+function persistProjects(): void {
+  try {
+    localStorage.setItem(projectsKey(), JSON.stringify(get(projects)));
+  } catch (err) {
+    console.error("Failed to persist projects:", err);
+  }
+}
+
+export function loadProjects(): void {
+  try {
+    const raw = localStorage.getItem(projectsKey());
+    projects.set(raw ? JSON.parse(raw) : []);
+  } catch (err) {
+    console.error("Failed to load projects:", err);
+    projects.set([]);
+  }
+}
+
+loadProjects();
+
+/**
+ * Every project name in play: the ones explicitly created, plus any a session
+ * already references.
+ *
+ * Derived rather than trusting the stored list alone. A session restored from
+ * a backup, or filed before this store existed, would otherwise name a project
+ * the Projects page refuses to list — and that session would be invisible with
+ * no way to get it back.
+ */
+export function projectNames(sessionsList: ChatSession[], created: string[]): string[] {
+  const names = new Set<string>(created);
+  for (const session of sessionsList) {
+    if (session.project) names.add(session.project);
+  }
+  return [...names].sort((a, b) => a.localeCompare(b));
+}
+
+/** Returns the stored name, or null if it was empty or already existed. */
+export function createProject(name: string): string | null {
+  const trimmed = name.trim();
+  if (!trimmed) return null;
+  // Case-insensitive: "CareConnectLite" and "careconnectlite" would otherwise
+  // become two projects with half the sessions each.
+  if (get(projects).some((p) => p.toLowerCase() === trimmed.toLowerCase())) return null;
+  projects.set([...get(projects), trimmed]);
+  persistProjects();
+  return trimmed;
+}
+
+/**
+ * Removes the project label only.
+ *
+ * The sessions inside it stay and become unassigned. Deleting a grouping must
+ * never delete the conversations that were grouped — that is the whole reason
+ * `project` is a field on a session rather than a nested store.
+ */
+export function deleteProject(name: string): void {
+  projects.set(get(projects).filter((p) => p !== name));
+  sessions.update((all) =>
+    all.map((s) => (s.project === name ? { ...s, project: undefined } : s))
+  );
+  persistProjects();
+  persist();
+}
+
+/** Files a session under a project, or unfiles it when `project` is empty. */
+export function assignSessionProject(id: string, project: string): void {
+  sessions.update((all) =>
+    all.map((s) => (s.id === id ? { ...s, project: project || undefined } : s))
+  );
+  persist();
+}
+
+/** Sessions in one project. `null` means the unassigned ones. */
+export function sessionsInProject(sessionsList: ChatSession[], project: string | null): ChatSession[] {
+  return sessionsList
+    .filter((s) => (project === null ? !s.project : s.project === project))
+    .sort((a, b) => b.updatedAt - a.updatedAt);
 }
