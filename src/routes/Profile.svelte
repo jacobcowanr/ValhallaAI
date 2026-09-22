@@ -189,6 +189,13 @@
             and avatar only — this profile's chats, keys, and settings stay put.
           </p>
         {:else}
+          {#if activeProfile?.authProvider === "local"}
+            <p class="section-hint">
+              Local profile — no account attached and nothing to sign out of. Sign in
+              below if you want a name, avatar, and verified email on it; your chats,
+              keys, and settings are unaffected either way.
+            </p>
+          {/if}
           <div class="signin-row">
             <button
               class="signin-btn"

@@ -96,7 +96,11 @@ ln -sf "$PWD/scripts/valhallaai" ~/.local/bin/valhallaai
 
 ## Signing in
 
-The first launch shows a sign-in gate. There is no "skip" — that is deliberate, and it is the only thing standing between a fresh install and the app.
+Sign-in is **optional**. The first launch shows a gate with three ways through it: Google, GitHub, or **Continue without an account**.
+
+**The local path needs no network and no configuration.** You get a profile named `Local` with no email attached, and every feature, provider key and setting works exactly the same. Nothing is withheld — sign-in supplies a display name, avatar and email for the profile and nothing else. You can sign in later from the profile page; signing in then overwrites the provider and adds the identity.
+
+That matters because **this app reads OAuth credentials from your own `.env`**. Requiring sign-in would mean every new user registering a Google Cloud OAuth client *and* a GitHub OAuth app before seeing a single screen, which is unreasonable for a tool you clone and run.
 
 **Google or GitHub, either one.** Both are identity only:
 
@@ -105,12 +109,13 @@ The first launch shows a sign-in gate. There is no "skip" — that is deliberate
 - **No token is kept.** The access/id token is used to read identity and then discarded — so there is no credential sitting in the app to revoke.
 - **Sign-in is not authorization.** The app never calls Google or GitHub again after the handshake.
 
-Two setup notes, both of which cost time if discovered late:
+Three setup notes, all of which cost time if discovered late:
 
-1. **GitHub needs two variables in `.env`** — `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`. If either is missing, the GitHub button is disabled and its tooltip says exactly that. Changing them requires an **app restart**: those are read by the Rust process, so a Vite hot reload will not pick them up.
+1. **GitHub needs two variables in `.env`** — `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`. If either is missing, the GitHub button is disabled and its tooltip says exactly that. Google needs `VITE_GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` (the `VITE_` prefix is required — that one is read by the frontend, unlike GitHub's). Changing either set requires an **app restart**: the non-`VITE_` values are read by the Rust process, so a Vite hot reload will not pick them up.
 2. **Register the GitHub OAuth App with the callback `http://127.0.0.1/callback` — no port.** GitHub matches the registered path and accepts whatever port the app binds at request time, so one registration covers every run. A port in that field produces `redirect_uri_mismatch`.
+3. **A Google Cloud OAuth consent screen in Testing mode only admits listed test users** — anyone else gets `access_denied`. Add yourself under *Audience → Test users*.
 
-Signing out clears the identity fields only. `env.example` documents both providers' variables.
+Signing out clears the identity fields only; a local profile has nothing to sign out of and says so. `env.example` documents both providers' variables.
 
 ## Running agents
 
