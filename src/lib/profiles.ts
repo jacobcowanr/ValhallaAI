@@ -330,8 +330,42 @@ export async function signInProfileWithGoogle(profileId: string): Promise<void> 
   updateProfile(profileId, patch);
 }
 
+export interface GitHubIdentity {
+  email: string;
+  name: string;
+  avatarUrl: string;
+  emailVerified: boolean;
+}
+
+/**
+ * Sign a profile in with GitHub. Same contract as signInProfileWithGoogle --
+ * throws on failure, callers catch and show `err.message`.
+ *
+ * No client-id parameter, unlike the Google version: `github_sign_in` reads
+ * both GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET itself, in Rust, from .env.
+ * Nothing about this flow's first step needs the webview at all, so there is
+ * no reason for the id to be in the JS bundle -- see the Rust command's own
+ * comment for the full reasoning.
+ */
+export async function signInProfileWithGithub(profileId: string): Promise<void> {
+  const { invoke } = await import("@tauri-apps/api/tauri");
+  const identity = await invoke<GitHubIdentity>("github_sign_in");
+  const profile = get(profiles).find((p) => p.id === profileId);
+  const patch: Partial<Profile> = {
+    email: identity.email,
+    emailVerified: identity.emailVerified,
+    avatarUrl: identity.avatarUrl,
+    authProvider: "github",
+    onboarded: true,
+  };
+  if (identity.name && profile && AUTO_PROFILE_NAMES.has(profile.name)) {
+    patch.name = identity.name;
+  }
+  updateProfile(profileId, patch);
+}
+
 /** Clears identity only -- sessions, keys, and prefs belong to the machine,
- * not the Google account, so they are untouched. */
+ * not the Google/GitHub account, so they are untouched. */
 export function signOutProfile(profileId: string): void {
   updateProfile(profileId, {
     email: undefined,

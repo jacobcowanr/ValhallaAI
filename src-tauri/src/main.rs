@@ -869,6 +869,307 @@ fn google_sign_in(client_id: String) -> Result<GoogleIdentity, String> {
     })
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GitHubIdentity {
+    email: String,
+    name: String,
+    avatar_url: String,
+    email_verified: bool,
+}
+
+/// Every request to api.github.com is rejected outright with no User-Agent
+/// header (GitHub's own docs: "Requests with no User-Agent header will be
+/// rejected"), and an invalid one gets a 403 rather than a clearer error --
+/// so this is worth a named constant to make sure it goes on every call, not
+/// just the one that happened to get tested first.
+const GITHUB_USER_AGENT: &str = "ValhallaAI-Desktop";
+
+/// Sign in with GitHub. Same shape as `google_sign_in` -- OAuth 2.0 + PKCE
+/// with a loopback redirect (RFC 8252 §7.3) -- with three real differences:
+///
+/// 1. GitHub is NOT OpenID Connect. There is no id_token; the token endpoint
+///    hands back only an access_token, so identity requires two follow-up
+///    REST calls (`/user`, `/user/emails`), then the token is discarded --
+///    same "do not keep what is not needed" rule as Google, just reached in
+///    more steps.
+/// 2. GitHub's OAuth App type requires the redirect URI's PATH registered in
+///    advance (`http://127.0.0.1/callback`, no port), then accepts any port
+///    at request time -- confirmed against GitHub's own docs, not assumed;
+///    Google's Desktop client instead accepts any loopback origin outright,
+///    nothing pre-registered.
+/// 3. Both `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` are read here, in
+///    Rust, from `.env` -- unlike Google's client id, which the frontend
+///    passes in as an argument. Nothing about this flow's first step (the
+///    browser redirect) needs to happen in the webview, so there is no
+///    reason for the id to be in the JS bundle at all.
+#[tauri::command]
+fn github_sign_in() -> Result<GitHubIdentity, String> {
+    use sha2::{Digest, Sha256};
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+
+    let env_path = project_root()?.join(".env");
+    let client_id = envfile::value(&env_path, "GITHUB_CLIENT_ID").unwrap_or_default();
+    let client_secret = envfile::value(&env_path, "GITHUB_CLIENT_SECRET").unwrap_or_default();
+    if client_id.trim().is_empty() {
+        return Err(
+            "No GitHub client id. Set GITHUB_CLIENT_ID in .env (see env.example), then restart the app -- this is read by the Rust process, so a Vite reload will not pick it up."
+                .to_string(),
+        );
+    }
+
+    let verifier = random_b64(64)?;
+    let challenge = b64url(&Sha256::digest(verifier.as_bytes()));
+    let state = random_b64(32)?;
+
+    // The registered redirect URI is the bare path http://127.0.0.1/callback
+    // (no port). GitHub's docs confirm the port does not have to match what
+    // was registered, only the scheme/host/path -- so binding an ephemeral
+    // port here and appending it is correct, not a mismatch waiting to fail.
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .map_err(|e| format!("Could not open a local port for the sign-in redirect: {e}"))?;
+    let port = listener
+        .local_addr()
+        .map_err(|e| format!("Could not read the local redirect port: {e}"))?
+        .port();
+    let redirect_uri = format!("http://127.0.0.1:{port}/callback");
+
+    let auth_url = format!(
+        "https://github.com/login/oauth/authorize\
+?client_id={}&redirect_uri={}&scope={}\
+&code_challenge={}&code_challenge_method=S256&state={}",
+        percent_encode(&client_id),
+        percent_encode(&redirect_uri),
+        // Identity only: read the profile, read email addresses to find the
+        // verified primary one. No repo, no write, no admin scope.
+        percent_encode("read:user user:email"),
+        percent_encode(&challenge),
+        percent_encode(&state),
+    );
+
+    open_in_browser(&auth_url)?;
+
+    listener
+        .set_nonblocking(true)
+        .map_err(|e| format!("Could not configure the redirect listener: {e}"))?;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(180);
+
+    let (code, returned_state) = loop {
+        if std::time::Instant::now() > deadline {
+            return Err("Sign-in timed out after 3 minutes. Nothing was changed.".to_string());
+        }
+        match listener.accept() {
+            Ok((mut stream, _)) => {
+                let mut buf = [0u8; 4096];
+                let n = stream.read(&mut buf).unwrap_or(0);
+                let request = String::from_utf8_lossy(&buf[..n]);
+                let line = request.lines().next().unwrap_or("").to_string();
+
+                let err = query_param(&line, "error");
+                let body = if err.is_some() {
+                    "<h2>Sign-in cancelled</h2><p>You can close this tab and return to ValhallaAI.</p>"
+                } else {
+                    "<h2>Signed in</h2><p>You can close this tab and return to ValhallaAI.</p>"
+                };
+                let _ = stream.write_all(
+                    format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        body.len(),
+                        body
+                    )
+                    .as_bytes(),
+                );
+                let _ = stream.flush();
+
+                if let Some(e) = err {
+                    // GitHub's authorize step reaches this with access_denied
+                    // when the user clicks Cancel on the consent screen --
+                    // unlike Google, there is no Testing-mode allowlist to
+                    // land on instead, so the message does not guess at one.
+                    return Err(format!("GitHub returned an error: {e}"));
+                }
+
+                let code = query_param(&line, "code")
+                    .ok_or_else(|| "The redirect carried no authorization code.".to_string())?;
+                let got_state = query_param(&line, "state").unwrap_or_default();
+                break (code, got_state);
+            }
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                std::thread::sleep(std::time::Duration::from_millis(120));
+            }
+            Err(e) => return Err(format!("Sign-in redirect failed: {e}")),
+        }
+    };
+
+    if returned_state != state {
+        return Err("Sign-in state mismatch — the response did not match this request. Nothing was changed.".to_string());
+    }
+
+    // GitHub still requires client_secret at the token endpoint despite PKCE
+    // being in use (confirmed against GitHub's own docs) -- same situation as
+    // Google's Desktop client, so no bare-PKCE-is-enough assumption survives
+    // contact with either provider actually used here.
+    if client_secret.trim().is_empty() {
+        return Err(
+            "No GitHub client secret. Set GITHUB_CLIENT_SECRET in .env, then restart the app."
+                .to_string(),
+        );
+    }
+
+    // Accept: application/json is required -- without it GitHub's token
+    // endpoint answers access_token=...&scope=...&token_type=bearer as a
+    // query string, not JSON, and the .into_json() call below would fail on
+    // a well-formed, successful response.
+    let token_result = ureq::post("https://github.com/login/oauth/access_token")
+        .set("Accept", "application/json")
+        .set("User-Agent", GITHUB_USER_AGENT)
+        .send_form(&[
+            ("client_id", client_id.as_str()),
+            ("client_secret", client_secret.as_str()),
+            ("code", code.as_str()),
+            ("redirect_uri", redirect_uri.as_str()),
+            ("code_verifier", verifier.as_str()),
+        ]);
+
+    // GitHub's own docs did not state whether a failed exchange comes back as
+    // a non-2xx status or as an `error` field inside an HTTP 200 body -- both
+    // shapes exist across GitHub's various OAuth-adjacent endpoints, so both
+    // are handled instead of assuming the one that happened to be easiest to
+    // find documentation for.
+    let token_json: serde_json::Value = match token_result {
+        Ok(response) => response
+            .into_json()
+            .map_err(|e| format!("Token response was not JSON: {e}"))?,
+        Err(ureq::Error::Status(code, response)) => {
+            let body = response.into_string().unwrap_or_default();
+            let parsed: serde_json::Value = serde_json::from_str(&body).unwrap_or_default();
+            let kind = parsed.get("error").and_then(|v| v.as_str()).unwrap_or("");
+            let detail = parsed
+                .get("error_description")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let hint = match kind {
+                "incorrect_client_credentials" => {
+                    " -- the client id and secret in .env do not match the same GitHub OAuth App."
+                }
+                "redirect_uri_mismatch" => {
+                    " -- confirm the registered redirect URI is exactly http://127.0.0.1/callback, no port."
+                }
+                "bad_verification_code" => " -- the authorization code was already used or expired. Try signing in again.",
+                _ => "",
+            };
+            return Err(format!(
+                "Token exchange failed ({code} {kind}{}){hint}",
+                if detail.is_empty() { String::new() } else { format!(": {detail}") }
+            ));
+        }
+        Err(e) => return Err(format!("Token exchange failed: {e}")),
+    };
+
+    if let Some(err) = token_json.get("error").and_then(|v| v.as_str()) {
+        let detail = token_json
+            .get("error_description")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        return Err(format!(
+            "Token exchange failed ({err}){}",
+            if detail.is_empty() { String::new() } else { format!(": {detail}") }
+        ));
+    }
+
+    let access_token = token_json
+        .get("access_token")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "Token response carried no access_token.".to_string())?
+        .to_string();
+
+    let auth_header = format!("Bearer {access_token}");
+
+    let user: serde_json::Value = ureq::get("https://api.github.com/user")
+        .set("Authorization", &auth_header)
+        .set("User-Agent", GITHUB_USER_AGENT)
+        .set("Accept", "application/vnd.github+json")
+        .call()
+        .map_err(|e| format!("Could not read your GitHub profile: {e}"))?
+        .into_json()
+        .map_err(|e| format!("GitHub profile response was not JSON: {e}"))?;
+
+    // GitHub's `name` (display name) is nullable -- not everyone sets one.
+    // `login` (the username) always exists, so it is the fallback rather
+    // than leaving the profile with an empty name.
+    let name = user
+        .get("name")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .or_else(|| user.get("login").and_then(|v| v.as_str()))
+        .unwrap_or_default()
+        .to_string();
+    let avatar_url = user
+        .get("avatar_url")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
+
+    // `/user`'s own `email` field is null whenever the account's email is set
+    // to private, which is common -- /user/emails is the reliable path
+    // regardless, and it is also the only place a verified flag exists.
+    let emails: serde_json::Value = ureq::get("https://api.github.com/user/emails")
+        .set("Authorization", &auth_header)
+        .set("User-Agent", GITHUB_USER_AGENT)
+        .set("Accept", "application/vnd.github+json")
+        .call()
+        .map_err(|e| format!("Could not read your GitHub email addresses: {e}"))?
+        .into_json()
+        .map_err(|e| format!("GitHub email response was not JSON: {e}"))?;
+
+    let emails = emails.as_array().cloned().unwrap_or_default();
+    let primary = emails
+        .iter()
+        .find(|e| e.get("primary").and_then(|v| v.as_bool()) == Some(true))
+        .or_else(|| emails.first());
+
+    let email = primary
+        .and_then(|e| e.get("email"))
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
+    let email_verified = primary
+        .and_then(|e| e.get("verified"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    if email.is_empty() {
+        return Err(
+            "GitHub returned no email address. Confirm the OAuth App requests the `user:email` scope, then sign in again."
+                .to_string(),
+        );
+    }
+
+    Ok(GitHubIdentity {
+        email,
+        name,
+        avatar_url,
+        email_verified,
+    })
+}
+
+/// Whether GITHUB_CLIENT_ID is set, so the UI can disable the sign-in button
+/// with a helpful hint instead of letting a click reach the Rust command just
+/// to learn that. Presence only, not the value: unlike Google's client id,
+/// GitHub's is never sent to the frontend at all -- there is no bundle to
+/// inline it into anyway, since the frontend does not need it for anything.
+#[tauri::command]
+fn github_client_configured() -> bool {
+    match project_root() {
+        Ok(root) => !envfile::value(&root.join(".env"), "GITHUB_CLIENT_ID")
+            .unwrap_or_default()
+            .trim()
+            .is_empty(),
+        Err(_) => false,
+    }
+}
+
 #[tauri::command]
 fn provider_keys() -> Result<std::collections::HashMap<String, String>, String> {
     let path = project_root()?.join(".env");
@@ -1098,6 +1399,8 @@ fn main() {
             agent_status,
             anthropic_messages,
             google_sign_in,
+            github_sign_in,
+            github_client_configured,
             claude_subscription
         ])
         .run(tauri::generate_context!())
@@ -1105,17 +1408,27 @@ fn main() {
 }
 
 #[cfg(test)]
+fn unique_test_dir_suffix() -> u128 {
+    // See the comment on TEST_DIR_COUNTER below for why this exists
+    // alongside a nanosecond timestamp rather than instead of it.
+    static TEST_DIR_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let seq = TEST_DIR_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    nanos * 1_000_000 + seq as u128
+}
+
+#[cfg(test)]
 mod project_root_tests {
-    use super::{is_project, PROJECT_MARKER};
+    use super::{is_project, unique_test_dir_suffix, PROJECT_MARKER};
     use std::fs;
 
     fn scratch(with_marker: bool) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!(
             "valhallaai-rootest-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_nanos())
-                .unwrap_or(0)
+            unique_test_dir_suffix()
         ));
         fs::create_dir_all(dir.join("src-tauri")).unwrap();
         if with_marker {
@@ -1183,17 +1496,14 @@ mod project_root_tests {
 
 #[cfg(test)]
 mod outbox_tests {
-    use super::read_last_outbox_entry;
+    use super::{read_last_outbox_entry, unique_test_dir_suffix};
     use std::fs;
 
     fn write_outbox(agent: &str, body: &str) -> std::path::PathBuf {
         let base = std::env::temp_dir().join(format!(
             "valhallaai-outboxtest-{}-{}",
             agent,
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_nanos())
-                .unwrap_or(0)
+            unique_test_dir_suffix()
         ));
         fs::create_dir_all(&base).unwrap();
         fs::write(base.join(format!("AGENT_OUTBOX_{agent}.md")), body).unwrap();
@@ -1249,17 +1559,14 @@ mod outbox_tests {
 
 #[cfg(test)]
 mod vault_path_tests {
-    use super::resolve_vault_path;
+    use super::{resolve_vault_path, unique_test_dir_suffix};
     use std::fs;
 
     /// Builds a temp tree:  root/vault/ok.md  and  root/secret.txt
     fn fixture() -> std::path::PathBuf {
         let base = std::env::temp_dir().join(format!(
             "valhallaai-vaulttest-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_nanos())
-                .unwrap_or(0)
+            unique_test_dir_suffix()
         ));
         fs::create_dir_all(base.join("vault")).unwrap();
         fs::write(base.join("vault").join("ok.md"), "hello").unwrap();

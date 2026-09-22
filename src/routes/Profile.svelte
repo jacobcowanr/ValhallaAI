@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import { inTauri } from "../lib/provider-keys";
   import {
     profiles,
@@ -10,6 +11,7 @@
     isSignedIn,
     googleClientId,
     signInProfileWithGoogle,
+    signInProfileWithGithub,
     signOutProfile,
   } from "../lib/profiles";
 
@@ -20,21 +22,53 @@
   // except for the profiles store itself.
   $: activeProfile = $profiles.find((p) => p.id === $activeProfileId) ?? null;
 
-  let signingIn = false;
+  // Unlike googleClientId(), which reads a VITE_-prefixed value already
+  // inlined into the bundle, GITHUB_CLIENT_ID is deliberately never sent to
+  // the frontend (see github_sign_in's own comment) -- so a Tauri round trip
+  // is the only way to know whether it is configured, loaded once on mount
+  // rather than on every render.
+  let githubConfigured = false;
+  onMount(async () => {
+    if (!inTauri()) return;
+    try {
+      const { invoke } = await import("@tauri-apps/api/tauri");
+      githubConfigured = await invoke<boolean>("github_client_configured");
+    } catch {
+      githubConfigured = false;
+    }
+  });
+
+  // Which provider's popup is in flight, not just whether one is -- so the
+  // OTHER button's label does not also flip to "Waiting..." while only one
+  // flow is actually running.
+  let signingInProvider: "google" | "github" | null = null;
   let signInError = "";
 
-  // The actual OAuth call and patch-building live in profiles.ts, shared with
-  // the first-launch onboarding prompt -- see the comment there.
+  // The actual OAuth calls and patch-building live in profiles.ts, shared
+  // with the first-launch onboarding prompt -- see the comment there.
   async function signInWithGoogle(): Promise<void> {
-    if (!activeProfile || signingIn) return;
-    signingIn = true;
+    if (!activeProfile || signingInProvider) return;
+    signingInProvider = "google";
     signInError = "";
     try {
       await signInProfileWithGoogle(activeProfile.id);
     } catch (err) {
       signInError = typeof err === "string" ? err : err instanceof Error ? err.message : "Sign-in failed.";
     } finally {
-      signingIn = false;
+      signingInProvider = null;
+    }
+  }
+
+  async function signInWithGithub(): Promise<void> {
+    if (!activeProfile || signingInProvider) return;
+    signingInProvider = "github";
+    signInError = "";
+    try {
+      await signInProfileWithGithub(activeProfile.id);
+    } catch (err) {
+      signInError = typeof err === "string" ? err : err instanceof Error ? err.message : "Sign-in failed.";
+    } finally {
+      signingInProvider = null;
     }
   }
 
@@ -147,36 +181,68 @@
 
       <div class="signin-block">
         {#if isSignedIn(activeProfile)}
-          <button class="signin-btn" on:click={signOut}>Sign out of Google</button>
+          <button class="signin-btn" on:click={signOut}>
+            Sign out of {activeProfile?.authProvider === "github" ? "GitHub" : "Google"}
+          </button>
           <p class="section-hint">
             Signed in as {activeProfile?.email}. Signing out clears the name, email,
             and avatar only — this profile's chats, keys, and settings stay put.
           </p>
         {:else}
-          <button
-            class="signin-btn"
-            on:click={signInWithGoogle}
-            disabled={!googleClientId() || !inTauri() || signingIn}
-            title={!inTauri()
-              ? "Only works in the desktop app"
-              : !googleClientId()
-                ? "Set VITE_GOOGLE_CLIENT_ID in .env"
-                : "Sign in with Google"}
-          >
-            <span class="g-mark">G</span>
-            {signingIn ? "Waiting for your browser…" : "Sign in with Google"}
-          </button>
+          <div class="signin-row">
+            <button
+              class="signin-btn"
+              on:click={signInWithGoogle}
+              disabled={!googleClientId() || !inTauri() || !!signingInProvider}
+              title={!inTauri()
+                ? "Only works in the desktop app"
+                : !googleClientId()
+                  ? "Set VITE_GOOGLE_CLIENT_ID in .env"
+                  : "Sign in with Google"}
+            >
+              <span class="g-mark">G</span>
+              {signingInProvider === "google" ? "Waiting for your browser…" : "Sign in with Google"}
+            </button>
+            <button
+              class="signin-btn"
+              on:click={signInWithGithub}
+              disabled={!githubConfigured || !inTauri() || !!signingInProvider}
+              title={!inTauri()
+                ? "Only works in the desktop app"
+                : !githubConfigured
+                  ? "Set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET in .env"
+                  : "Sign in with GitHub"}
+            >
+              <span class="gh-mark">
+                <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                  <path
+                    fill="currentColor"
+                    d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38
+                       0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13
+                       -.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66
+                       .07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15
+                       -.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0
+                       1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82
+                       1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01
+                       1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"
+                  />
+                </svg>
+              </span>
+              {signingInProvider === "github" ? "Waiting for your browser…" : "Sign in with GitHub"}
+            </button>
+          </div>
           <p class="section-hint">
             {#if !inTauri()}
               Sign-in only runs in the desktop app — it needs a local port the
               browser can't open.
-            {:else if !googleClientId()}
-              Set <code>VITE_GOOGLE_CLIENT_ID</code> in <code>.env</code> (see
-              <code>env.example</code>), then restart the dev server.
+            {:else if !googleClientId() && !githubConfigured}
+              Set <code>VITE_GOOGLE_CLIENT_ID</code> and/or <code>GITHUB_CLIENT_ID</code> +
+              <code>GITHUB_CLIENT_SECRET</code> in <code>.env</code> (see
+              <code>env.example</code>), then restart the app.
             {:else}
               Attaches a name, email, and avatar to this profile. Nothing syncs —
-              there is no server. No access or refresh token is kept, because
-              nothing here calls a Google API.
+              there is no server. No access or refresh token is kept from either
+              provider, because nothing here calls their APIs afterward.
             {/if}
           </p>
         {/if}
@@ -405,6 +471,12 @@
     cursor: not-allowed;
   }
 
+  .signin-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
   .g-mark {
     display: inline-flex;
     align-items: center;
@@ -416,6 +488,15 @@
     color: var(--accent-text);
     font-weight: 700;
     font-size: 0.72rem;
+  }
+
+  /* GitHub's own octocat mark, not a coloured badge like Google's "G" --
+     it's a single-colour glyph by design, so it takes the button's text
+     colour via currentColor rather than needing a light/dark variant. */
+  .gh-mark {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .signin-error {
