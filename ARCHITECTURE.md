@@ -199,6 +199,8 @@ sequenceDiagram
 
 Anthropic (API key) · Anthropic (OAuth) · ChatGPT/Codex · Claude Subscription DirectSDK · Fireworks AI · Google Gemini · Groq · Hugging Face Inference API · MiniMax · Nous Portal · **Ollama** (sole local runtime — broadest local model catalog) · OpenClaw · OpenRouter (aggregator) · Perplexity · Qwen Code · Replicate (non-LLM models: image/audio/video) · Together AI · xAI Grok
 
+Nous Portal does not take a pasted API key. `callNous()` posts to the local Hermes subscription proxy at `http://127.0.0.1:8645/v1` (`hermes portal` once, then `hermes proxy start`), which attaches the Portal credential.
+
 See [POSITIONING.md](./POSITIONING.md) for why this list is deliberately this shape.
 
 ## 9. Deployment path (future)

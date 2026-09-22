@@ -2,13 +2,16 @@
  * LLM Router
  * Abstraction layer for multiple LLM providers.
  *
- * All credentials come from `config.apiKey` (user-supplied via the Settings
+ * Credentials come from `config.apiKey` (user-supplied via the Settings
  * UI / localStorage) — never from `process.env`. This file runs in the
  * browser (Vite-bundled, inside the Tauri webview), where `process` does
  * not exist unless polyfilled; referencing `process.env.X` here was a real
  * bug (not just a style choice) — it throws at call time for every provider
  * that used it, independent of whether the user had already supplied their
  * own key. Fixed 2026-09-21 after a verification pass caught it.
+ *
+ * Exception: Nous Portal (`callNous`) does not take a user key. It calls
+ * the local Hermes subscription proxy, which attaches the Portal credential.
  */
 
 export type LLMProvider = "anthropic" | "anthropic_oauth" | "chatgpt" | "claude_directsdk" | "fireworks" | "google" | "groq" | "huggingface" | "minimax" | "nous" | "ollama" | "openclaw" | "openrouter" | "perplexity" | "qwen" | "replicate" | "together" | "xai_grok";
@@ -338,16 +341,44 @@ async function callGrok(
 }
 
 /**
- * Nous Portal: aggregated endpoint
+ * Local Hermes subscription proxy. Nous's documented path for a third-party
+ * app to use an existing `hermes portal` login:
+ * https://hermes-agent.nousresearch.com/docs/user-guide/features/subscription-proxy
+ *
+ * Direct calls to inference-api.nousresearch.com need a static Portal API
+ * key from the dashboard. This machine's login is the OAuth flow Hermes
+ * keeps in its own auth file, so a pasted "API key" 401s. The proxy accepts
+ * any bearer, ignores it, and attaches the real credential.
+ *
+ * Prerequisite: `hermes portal` once, then `hermes proxy start` left running.
+ * The placeholder below is the docs' own example, not a credential.
  */
+const HERMES_PROXY_ORIGIN = "http://127.0.0.1:8645";
+const HERMES_PROXY_PLACEHOLDER_KEY = "sk-unused";
+
 async function callNous(
   config: LLMConfig,
   messages: LLMMessage[]
 ): Promise<LLMResponse> {
-  return callOpenAICompatible(config, messages, {
-    endpoint: "https://inference-api.nousresearch.com/v1/chat/completions",
-    authHeader: bearer,
-  });
+  try {
+    return await callOpenAICompatible(
+      { ...config, apiKey: HERMES_PROXY_PLACEHOLDER_KEY },
+      messages,
+      {
+        endpoint: `${HERMES_PROXY_ORIGIN}/v1/chat/completions`,
+        authHeader: bearer,
+      }
+    );
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : "Unknown error";
+    return {
+      success: false,
+      error:
+        `Cannot reach the Hermes subscription proxy at ${HERMES_PROXY_ORIGIN}. ` +
+        "Run `hermes portal` once, then leave `hermes proxy start` running. " +
+        `(${detail})`,
+    };
+  }
 }
 
 /**

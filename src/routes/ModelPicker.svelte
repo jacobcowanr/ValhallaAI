@@ -228,7 +228,12 @@
           <img class="empty-logo" src={logoWordmark} alt="ValhallaAI" />
           <p class="tagline">Multi-agent orchestration • Model switching • Vault coordination</p>
           <p class="hint-primary">Send a message to start chatting.</p>
-          {#if !apiKey && selectedProvider !== "ollama"}
+          {#if selectedProvider === "nous"}
+            <p class="hint">
+              Nous Portal uses the local Hermes proxy. Run <code>hermes portal</code> once, then leave
+              <code>hermes proxy start</code> running. No API key.
+            </p>
+          {:else if !apiKey && selectedProvider !== "ollama"}
             <p class="hint">
               No API key set for {PROVIDERS[selectedProvider]?.name} yet — add one in
               <strong>⚙ Settings</strong>.

@@ -14,7 +14,16 @@
   // a wall of 17 inputs. One at a time, picked via dropdown, like the
   // Default Provider & Model section above it.
   let apiKeyProvider: LLMProvider = FALLBACK_PROVIDER;
-  const KEY_EDITABLE_PROVIDERS = PROVIDER_ENTRIES.filter(([id]) => id !== "ollama");
+  // Ollama is local and unauthenticated. Nous Portal goes through the
+  // Hermes subscription proxy, which attaches its own credential, so a
+  // pasted key is not sent.
+  const KEYLESS_PROVIDERS = new Set<LLMProvider>(["ollama", "nous"]);
+  const KEY_EDITABLE_PROVIDERS = PROVIDER_ENTRIES.filter(([id]) => !KEYLESS_PROVIDERS.has(id));
+
+  function defaultKeyProvider(preferred: LLMProvider): LLMProvider {
+    if (!KEYLESS_PROVIDERS.has(preferred)) return preferred;
+    return KEY_EDITABLE_PROVIDERS[0][0];
+  }
 
   // Was: the masked password field sat there permanently, always visible
   // and always editable, even after a key was already saved. Now it's a
@@ -87,20 +96,18 @@
     // Load the saved Ollama endpoint so the field reflects what's actually stored.
     ollamaEndpoint = localStorage.getItem("ollama-endpoint") || "";
 
-    // Load any previously-saved per-provider API keys. Ollama needs none
-    // (local, no auth) so it's excluded from this list.
+    // Load any previously-saved per-provider API keys. Keyless providers
+    // (Ollama, Nous Portal) are excluded — there is nothing to paste.
     for (const providerId of Object.keys(PROVIDERS) as LLMProvider[]) {
-      if (providerId === "ollama") continue;
+      if (KEYLESS_PROVIDERS.has(providerId)) continue;
       apiKeys[providerId] = localStorage.getItem(apiKeyStorageKey(providerId)) || "";
     }
 
-    // Default the key-editor dropdown to whatever the user's actual default
-    // provider is, so the first thing they see is the key they most likely
-    // need to check or set — falling back if that happens to be Ollama
-    // (which is excluded from key editing entirely, it needs none). Done
-    // after apiKeys finishes loading above so the saved/edit toggle starts
-    // in the right state instead of always defaulting to "no key yet".
-    selectApiKeyProvider(defaultProvider !== "ollama" ? defaultProvider : FALLBACK_PROVIDER);
+    // Default the key-editor dropdown to the user's default provider when
+    // that provider actually takes a key. Nous is the app default and is
+    // keyless, so falling back to FALLBACK_PROVIDER would select a provider
+    // that is not in the dropdown.
+    selectApiKeyProvider(defaultKeyProvider(defaultProvider));
   });
 
   function savePreferences(): void {
@@ -195,10 +202,25 @@
     </section>
 
     <section class="section">
+      <h3>Nous Portal</h3>
+      <p class="section-description">
+        Uses the local Hermes subscription proxy. No API key to paste.
+      </p>
+      <div class="ollama-help">
+        <p><strong>Getting started:</strong></p>
+        <ol>
+          <li>One-time login: <code>hermes portal</code></li>
+          <li>Leave this running: <code>hermes proxy start</code></li>
+          <li>It listens on <code>http://127.0.0.1:8645</code> and attaches your Portal login</li>
+        </ol>
+      </div>
+    </section>
+
+    <section class="section">
       <h3>API Keys</h3>
       <p class="section-description">
         Stored locally only (browser localStorage inside the Tauri webview) — never sent anywhere but the
-        provider's own API. Ollama needs no key. Leave a field blank to use that provider's manual
+        provider's own API. Ollama and Nous Portal need no key. Leave a field blank to use that provider's manual
         per-message key entry in Models &amp; Chat instead.
       </p>
 
