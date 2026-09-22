@@ -37,7 +37,7 @@ function loadTask(vaultPath, agentName) {
  * Read the vault files a task asked for.
  *
  * Paths come from a config file rather than a user prompt, but they are still
- * resolved and checked against the vault root. claude-agent and grok-agent run
+ * resolved and checked against the vault root. claude-agent and grok-build run
  * in containers with only /vault mounted, so the blast radius there is small --
  * but hermes-agent runs on the HOST, where "../.env" would be a real read of a
  * real secret. Guarding here keeps the rule in one place instead of depending

@@ -1,8 +1,9 @@
 #!/bin/bash
 # Run one ValhallaAI agent once and append its outbox.
 # hermes-agent uses the Hermes CLI already installed on the host.
-# claude-agent and grok-agent are one-shot Docker containers.
-# Usage: scripts/run_agent.sh <claude-agent|hermes-agent|grok-agent>
+# claude-agent and grok-build both prefer a host CLI on a subscription login
+# and fall back to their one-shot Docker container on the paid key.
+# Usage: scripts/run_agent.sh <claude-agent|hermes-agent|grok-build>
 
 set -u
 
@@ -80,7 +81,7 @@ PY
 run_container() {
   local service="$1"
   local compose=(docker compose --project-directory "$ROOT" -f "$ROOT/docker-compose.local.yml")
-  if [ "$service" = "grok-agent" ]; then
+  if [ "$service" = "grok-build" ]; then
     compose+=(--profile optional)
   fi
   "${compose[@]}" run --rm --no-deps "$service"
@@ -172,13 +173,86 @@ ${err_text}"
   return "$status"
 }
 
+# Is the Grok Build CLI logged in on a subscription?
+#
+# `grok models` is the signal: it prints "You are logged in with grok.com."
+# when a login is present, and it is run with XAI_API_KEY stripped so that a
+# "yes" means the subscription is what will answer. Verified 2026-09-22 --
+# with no XAI_API_KEY set at all, `grok -p "..."` answered "Grok 4.7 answered
+# this.", so the login alone is sufficient.
+grok_subscription_available() {
+  command -v grok >/dev/null 2>&1 || return 1
+  env -u XAI_API_KEY grok models 2>/dev/null | grep -qi "logged in"
+}
+
+# Grok Build agent: SUBSCRIPTION FIRST, paid API key only as the fallback.
+#
+# This reverses an earlier claim in this project's own docs, which said xAI
+# had no subscription login and that grok-agent was "token-billed by nature".
+# That was true of the raw api.x.ai endpoint, and false of the Grok Build CLI
+# (`grok`, installed at ~/.grok/bin/grok): it signs in against auth.x.ai and
+# `grok -p` then runs single-turn prompts with no key involved. The container
+# remains the fallback for a machine with no login.
+#
+# Why this matters here specifically: the Grok Build CLI is the same agent
+# Jacob already uses elsewhere, so an agent run now bills the subscription he
+# is paying for rather than a key that was never set.
+run_grok() {
+  local out="$VAULT/AGENT_OUTBOX_grok-build.md"
+  local prompt
+  prompt="$(node "$ROOT/agents/_shared/task.cjs" "$VAULT" grok-build 2>/dev/null)"
+  if [ -z "$prompt" ]; then
+    prompt="You are the ValhallaAI grok-build agent. Reply with exactly two lines and then stop. Line 1: Status: OK. Line 2: one sentence naming which model answered. Do not use tools. Do not read or write files."
+  fi
+
+  local status billing body out_text err_text
+  if grok_subscription_available; then
+    billing="subscription"
+    # Same stdout/stderr split as run_claude, for the same reason: on success
+    # the agent's answer is stdout, and a CLI's own diagnostics on stderr must
+    # not be recorded as if the agent had said them.
+    local tmp_out tmp_err
+    tmp_out="$(mktemp)"
+    tmp_err="$(mktemp)"
+    env -u XAI_API_KEY grok -p "$prompt" >"$tmp_out" 2>"$tmp_err"
+    status=$?
+    out_text="$(cat "$tmp_out")"
+    err_text="$(cat "$tmp_err")"
+    rm -f "$tmp_out" "$tmp_err"
+  else
+    # No subscription login (or no CLI). The container is the paid path.
+    billing="paid-key"
+    out_text="$(run_container grok-build 2>&1)"
+    status=$?
+    err_text=""
+  fi
+
+  if [ "$status" -eq 0 ]; then
+    body="$out_text"
+  else
+    body="${out_text}
+${err_text}"
+  fi
+
+  body="$(printf '%s\n' "$body" | redact)"
+  local flat
+  flat="$(printf '%s' "$body" | tr '\n' ' ' | sed -E 's/[[:space:]]+/ /g' | cut -c1-2000)"
+  if [ "$status" -eq 0 ]; then
+    write_outbox "$out" "OK (${billing})" "$flat"
+  else
+    write_outbox "$out" "ERROR (${billing})" "$flat"
+  fi
+  printf '%s\n' "$body"
+  return "$status"
+}
+
 case "$AGENT" in
   hermes-agent) run_hermes ;;
   claude-agent) run_claude ;;
-  grok-agent) run_container "grok-agent" ;;
+  grok-build) run_grok ;;
   *)
     echo "Unknown agent: ${AGENT}" >&2
-    echo "Use claude-agent, hermes-agent, or grok-agent." >&2
+    echo "Use claude-agent, hermes-agent, or grok-build." >&2
     exit 2
     ;;
 esac

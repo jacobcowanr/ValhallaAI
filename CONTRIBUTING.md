@@ -327,7 +327,7 @@ Tracked here until there's a formal issue tracker.
 
 - Desktop app: `npm run tauri-dev`. Chat keys for Anthropic, OpenAI, OpenRouter, Google, and xAI come from `.env` when that file has them. Other providers still use a key saved in Settings. Nous Portal uses the Hermes proxy at `http://127.0.0.1:8645` and does not read `NOUS_API_KEY`.
 - `.env` must be `NAME=value` lines and `#` comments. A label on its own line makes Docker Compose reject the whole file.
-- Agents: `scripts/run_agent.sh <claude-agent|hermes-agent|grok-agent>`, or the Run button. Hermes is the host CLI. Claude prefers the `claude auth login` subscription and only needs `ANTHROPIC_API_KEY` when there is no login. Grok needs `XAI_API_KEY` and `"enabled": true`. Do not use `docker compose up` to "start the agents."
+- Agents: `scripts/run_agent.sh <claude-agent|hermes-agent|grok-build>`, or the Run button. Hermes is the host CLI. Claude and Grok Build both prefer their host CLI on a subscription login (`claude auth login`, `grok login`) and only need their paid key when there is no login. Do not use `docker compose up` to "start the agents."
 - Vault Browser lists `vault/` and `git status`. It does not pull or push. The relay can fold and commit; push is still untested.
 - `anthropic` uses `callAnthropic()` and the paid API key. `claude_directsdk` runs the official `claude` CLI on its `claude auth login` session and strips `ANTHROPIC_API_KEY` from the child process, so it bills the subscription instead. Both are working as of 2026-09-22. `anthropic_oauth` was removed the same day — it claimed to be OAuth while `provider-keys.ts` copied the paid key into it (see the note at the top of `providers.ts`).
 

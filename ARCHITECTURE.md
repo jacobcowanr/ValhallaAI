@@ -42,7 +42,7 @@ graph TB
         direction LR
         A1[claude-agent<br/>subscription first]
         A2[hermes-agent<br/>host CLI]
-        A3[grok-agent<br/>Docker, paid key]
+        A3[grok-build<br/>subscription first]
         A4[Custom agents<br/>a name bound to one of the three]
     end
 
@@ -202,7 +202,7 @@ Both read the same `sessions` store and differ only in filter, which is why neit
 `projectNames()` in `sessions.ts` returns the union of explicitly created projects and any name a session references. Deriving it rather than trusting the stored list means a session restored from a backup can never name a project the UI refuses to list — it would be invisible with no way to recover it. Filing happens two ways: the dropdown on each row in Recent, and the Project picker in the model bar. Removing a project (`deleteProject()`) clears the label and leaves the sessions, after a confirmation that says so in words.
 
 ### 4.4 Agent Control (`src/routes/AgentControl.svelte`)
-Run starts one agent and waits for it to exit. The button calls the Tauri command `run_agent`, which runs `scripts/run_agent.sh` with an allowlisted name (`claude-agent`, `hermes-agent`, `grok-agent`). Hermes is the host CLI (`hermes chat --oneshot`). Claude prefers the host `claude` CLI on the `claude auth login` subscription and falls back to the Docker container on the paid key only when there is no login — the container is the fallback, not the default. Grok is a `docker compose run --rm` one-shot container and has no subscription path. The same script is what you run from a terminal. A user-defined agent is a display name bound to one of those three runtimes; the name never reaches the shell (see §4.4b). The cards read real state via `agent_status`: enabled flags come from `vault/agents-config.json`, and last-run time plus OK/ERROR are recovered from each `AGENT_OUTBOX_<agent>.md`. Nothing about run history lives in component state, which is why it survives a relaunch.
+Run starts one agent and waits for it to exit. The button calls the Tauri command `run_agent`, which runs `scripts/run_agent.sh` with an allowlisted name (`claude-agent`, `hermes-agent`, `grok-build`). Hermes is the host CLI (`hermes chat --oneshot`). Claude prefers the host `claude` CLI on the `claude auth login` subscription and falls back to the Docker container on the paid key only when there is no login. Grok Build prefers the host `grok` CLI on the grok.com login and falls back to its container the same way. The same script is what you run from a terminal. A user-defined agent is a display name bound to one of those three runtimes; the name never reaches the shell (see §4.4b). The cards read real state via `agent_status`: enabled flags come from `vault/agents-config.json`, and last-run time plus OK/ERROR are recovered from each `AGENT_OUTBOX_<agent>.md`. Nothing about run history lives in component state, which is why it survives a relaunch.
 
 ### 4.4b Custom agents (`src/lib/custom-agents.ts`, Agent Control → "Add an agent")
 
@@ -246,7 +246,7 @@ Each agent is one-shot:
 3. Appends a result to `vault/AGENT_OUTBOX_<agent>.md` (gitignored; the relay folds it)
 4. Exits
 
-Hermes runs on the host because the installed CLI is a macOS virtualenv under `~/.hermes`. A Linux container cannot execute that binary, and installing a second Hermes that shares the same home would race the proxy that is already running. Claude and Grok stay as Docker containers. Claude exits with an error if `ANTHROPIC_API_KEY` is unset, instead of calling the API and then exiting 0. Grok calls `api.x.ai` directly. It exits with an error when `agents-config.json` has `"enabled": false` or when `XAI_API_KEY` is unset. It does not use the Hermes proxy. Grok models in chat go through Nous Portal (`x-ai/grok-4.7` and the other `x-ai/*` ids), which is a different path and does not need that key.
+Hermes runs on the host because the installed CLI is a macOS virtualenv under `~/.hermes`. A Linux container cannot execute that binary, and installing a second Hermes that shares the same home would race the proxy that is already running. Claude and Grok both prefer a host CLI on a subscription login, and their Docker containers are the fallback for a machine with no login. Those containers are the paid path: Claude's calls the API and exits with an error if `ANTHROPIC_API_KEY` is unset rather than exiting 0, and Grok's calls `api.x.ai` directly and exits with an error when `agents-config.json` has `"enabled": false` or when `XAI_API_KEY` is unset. Neither uses the Hermes proxy. Grok models in chat go through Nous Portal (`x-ai/grok-4.7` and the other `x-ai/*` ids), which is a third path again and does not need that key.
 
 ### 4.7 App shell and sidebar (`src/App.svelte`)
 Top to bottom, as of 2026-09-22:
@@ -367,8 +367,10 @@ sequenceDiagram
         S->>RT: docker compose run (paid key)
     else hermes-agent
         S->>RT: host `hermes` CLI
-    else grok-agent
-        S->>RT: docker compose run (paid key, no subscription path)
+    else grok-build and a subscription login exists
+        S->>RT: host `grok` CLI, XAI_API_KEY stripped
+    else grok-build, no login
+        S->>RT: docker compose run (paid key)
     end
     RT->>V: read agents-config.json and agent-tasks.json
     RT->>RT: run the task
@@ -382,7 +384,9 @@ sequenceDiagram
     G-->>V: other agents and devices pull on their own cycle
 ```
 
-**Subscription first, token billing second.** `claude-agent` probes `claude auth status` and runs the host `claude` CLI on the Pro/Max login, stripping `ANTHROPIC_API_KEY` from that process so "subscription" cannot silently mean "paid key". The Docker container is the fallback, used only when there is no login. `hermes-agent` already ran this way through the Hermes portal login. `grok-agent` cannot: xAI has no subscription login, so it is token-billed by nature and currently unrunnable without `XAI_API_KEY`.
+**Subscription first, token billing second.** All three runtimes prefer a subscription login and fall back to a paid key only when there is none. `claude-agent` probes `claude auth status` and runs the host `claude` CLI on the Pro/Max login, stripping `ANTHROPIC_API_KEY` from that process so "subscription" cannot silently mean "paid key". `hermes-agent` runs the host Hermes CLI on the Portal login. `grok-build` probes `grok models` for a grok.com login and runs the host Grok Build CLI (`grok -p`), stripping `XAI_API_KEY` for the same reason; its Docker container is the fallback. The outbox records which path ran (`OK (subscription)` or `OK (paid-key)`), so the cost is visible afterwards rather than implied. Verified 2026-09-22: with no `XAI_API_KEY` set anywhere, a real `grok-build` run wrote `OK (subscription)`.
+
+An earlier version of this section said xAI had no subscription login and that Grok was "token-billed by nature". That was true of the raw `api.x.ai` endpoint the container calls, and false of the Grok Build CLI, which signs in against `auth.x.ai`. The claim was wrong; the code above is the correction.
 
 **A custom agent is a name, not a new runtime.** It is a display name bound to one of the three above, stored in `localStorage`, and the Rust side re-validates the runtime against the same allowlist before anything runs. The name never reaches the shell, which is what keeps "add your own agent" from becoming "run an arbitrary command". Per-agent behaviour still lives in `vault/agent-tasks.json`, keyed by the runtime, so a custom agent shares its runtime's task.
 

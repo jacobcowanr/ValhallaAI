@@ -116,7 +116,7 @@ VALHALLAAI_PROJECT_DIR to the checkout."
 /// the three built-in agents cannot already run.
 #[tauri::command]
 fn run_agent(service: String, runtime: Option<String>) -> Result<String, String> {
-    let known = |name: &str| matches!(name, "claude-agent" | "hermes-agent" | "grok-agent");
+    let known = |name: &str| matches!(name, "claude-agent" | "hermes-agent" | "grok-build");
 
     // What actually gets executed. A built-in agent runs itself; a custom
     // agent runs the runtime it was bound to.
@@ -916,7 +916,7 @@ fn agent_status() -> Result<Vec<AgentInfo>, String> {
         };
 
     let mut out = Vec::new();
-    for name in ["claude-agent", "hermes-agent", "grok-agent"] {
+    for name in ["claude-agent", "hermes-agent", "grok-build"] {
         let (last_run, last_status) = read_last_outbox_entry(&vault, name);
         out.push(AgentInfo {
             name: name.to_string(),
@@ -1209,9 +1209,9 @@ mod outbox_tests {
 
     #[test]
     fn reads_an_error_status() {
-        let body = "## [2026-09-22T05:24:07.516Z] grok-agent\n- Status: ERROR\n- Error: no key\n";
-        let base = write_outbox("grok-agent", body);
-        let (stamp, status) = read_last_outbox_entry(&base, "grok-agent");
+        let body = "## [2026-09-22T05:24:07.516Z] grok-build\n- Status: ERROR\n- Error: no key\n";
+        let base = write_outbox("grok-build", body);
+        let (stamp, status) = read_last_outbox_entry(&base, "grok-build");
         assert_eq!(stamp, "2026-09-22T05:24:07.516Z");
         assert_eq!(status, "ERROR");
         let _ = fs::remove_dir_all(&base);

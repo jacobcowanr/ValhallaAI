@@ -53,7 +53,7 @@ Run one agent at a time. Do not start the stack with `docker compose up`: `claud
 ```bash
 scripts/run_agent.sh hermes-agent    # host Hermes CLI, one shot
 scripts/run_agent.sh claude-agent    # subscription first, paid key only as fallback
-scripts/run_agent.sh grok-agent      # needs XAI_API_KEY and enabled: true
+scripts/run_agent.sh grok-build      # subscription via the Grok Build CLI; container fallback needs XAI_API_KEY
 ```
 
 The same three buttons are on **Agent Control** inside the desktop app. **Settings** shows which chat keys came from `.env`. Nous Portal does not use a key in that file; it uses the local Hermes proxy (`hermes proxy start`).

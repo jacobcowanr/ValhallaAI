@@ -1,7 +1,7 @@
 /**
  * User-defined agents.
  *
- * The three built-in agents (claude-agent, hermes-agent, grok-agent) are
+ * The three built-in agents (claude-agent, hermes-agent, grok-build) are
  * the only things the app can run — `run_agent` in main.rs matches the name
  * against that allowlist before it reaches `scripts/run_agent.sh`, so the
  * app cannot shell out to an arbitrary command. That property is worth
@@ -20,7 +20,7 @@
  * and is keyed by the runtime name, which is shared.
  */
 
-export const AGENT_RUNTIMES = ["hermes-agent", "claude-agent", "grok-agent"] as const;
+export const AGENT_RUNTIMES = ["hermes-agent", "claude-agent", "grok-build"] as const;
 export type AgentRuntime = (typeof AGENT_RUNTIMES)[number];
 
 export interface CustomAgent {
@@ -43,7 +43,7 @@ export function isAgentRuntime(value: string): value is AgentRuntime {
 export const RUNTIME_BLURB: Record<AgentRuntime, string> = {
   "hermes-agent": "Runs the Hermes CLI on this Mac on your Portal login. No per-token cost.",
   "claude-agent": "Subscription first via `claude auth login`; falls back to the Docker container on the paid key only when there is no login.",
-  "grok-agent": "One-shot Docker container. Needs XAI_API_KEY and bills per token. xAI has no subscription login.",
+  "grok-build": "Subscription first via the host Grok Build CLI (`grok -p` on your grok.com login); falls back to the Docker container on XAI_API_KEY only when there is no login.",
 };
 
 function coerce(value: unknown): CustomAgent | null {

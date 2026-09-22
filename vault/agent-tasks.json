@@ -11,7 +11,7 @@
       "context": ["agents-config.json", "AGENT_SYNC.md"],
       "maxContextChars": 8000
     },
-    "grok-agent": {
+    "grok-build": {
       "instruction": "You are checking the ValhallaAI vault for drift. Read the coordination log and reply with exactly two sections, no preamble: (1) CLAIMS -- up to three statements the log makes about the current state of the project that a reader could verify against the code. (2) STALE -- any claim that a later entry appears to contradict, one line each, or the single word NONE.",
       "context": ["AGENT_SYNC.md"],
       "maxContextChars": 10000
