@@ -22,14 +22,49 @@ export interface ProviderEntry {
   models: string[];
 }
 
+// Claude model ids, current as of 2026-09-22. The three Claude providers do
+// NOT share one vocabulary, which is why these lists differ on purpose:
+//
+//   anthropic / anthropic_oauth -> Anthropic Messages API via the
+//     `anthropic_messages` command. Needs ids the API itself accepts.
+//     `claude-sonnet-4-5` is kept because it was deliberately set in 335994f
+//     against the real account; `claude-sonnet-5` is listed above it rather
+//     than replacing it, so a wrong guess about account access can't remove
+//     a model that was known to work.
+//
+//   claude_directsdk -> the `claude` CLI via the `claude_subscription`
+//     command. `claude --model` accepts full ids *or* aliases ("opus",
+//     "sonnet", "fable"), per `claude --help`. Full ids are used here so the
+//     picker shows exactly what gets sent.
+//
+// `claude-opus-5`, `claude-sonnet-5`, `claude-fable-5-1` and
+// `claude-haiku-4-5-20251001` were each confirmed on 2026-09-22 by running
+// `claude -p --model <id>` with the Anthropic env vars stripped, and each
+// returned a reply. Deprecated/legacy dated snapshots are deliberately NOT
+// listed: their exact id strings are easy to get wrong from memory, and a
+// wrong id in this file is a broken send. Pull them from
+// `GET https://api.anthropic.com/v1/models` if the historical set is ever
+// needed, rather than hand-writing them here.
 export const PROVIDERS: Record<LLMProvider, ProviderEntry> = {
   anthropic: {
     name: "Anthropic API Key",
-    models: ["claude-opus-5", "claude-sonnet-4-5", "claude-haiku-4-5-20251001"],
+    models: [
+      "claude-opus-5",
+      "claude-sonnet-5",
+      "claude-fable-5-1",
+      "claude-sonnet-4-5",
+      "claude-haiku-4-5-20251001",
+    ],
   },
   anthropic_oauth: {
     name: "Anthropic OAuth (Usage Credits)",
-    models: ["claude-opus-5", "claude-sonnet-4-5", "claude-haiku-4-5-20251001"],
+    models: [
+      "claude-opus-5",
+      "claude-sonnet-5",
+      "claude-fable-5-1",
+      "claude-sonnet-4-5",
+      "claude-haiku-4-5-20251001",
+    ],
   },
   chatgpt: {
     name: "ChatGPT or Codex Subscription",
@@ -37,7 +72,12 @@ export const PROVIDERS: Record<LLMProvider, ProviderEntry> = {
   },
   claude_directsdk: {
     name: "Claude Subscription DirectSDK",
-    models: ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5-20251001"],
+    models: [
+      "claude-opus-5",
+      "claude-sonnet-5",
+      "claude-fable-5-1",
+      "claude-haiku-4-5-20251001",
+    ],
   },
   fireworks: {
     name: "Fireworks AI",
