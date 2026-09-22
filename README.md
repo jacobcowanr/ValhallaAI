@@ -51,6 +51,21 @@ flowchart TB
 | [POSITIONING.md](./POSITIONING.md) | What problem this solves, how it differs from Hermes / LangChain / Open WebUI / LibreChat / Modal, and what is honestly *not* novel |
 | [CONTRIBUTING.md](./CONTRIBUTING.md) | Local-first policy, conventions, recipes for adding a provider or an agent, and the known-open-issues list |
 
+## Documents and artefacts
+
+The repo's index. Everything here is either a living document (edited as the system changes) or a frozen artefact (written to be sent, then left alone).
+
+| Path | What it is | Status |
+|---|---|---|
+| [ARCHITECTURE.md](./ARCHITECTURE.md) | Design of record — system map, components, data flow, security model, measured performance, proven-vs-built table | living |
+| [POSITIONING.md](./POSITIONING.md) | Differentiation, who it fits, and the honest risks | living |
+| [CONTRIBUTING.md](./CONTRIBUTING.md) | Conventions, recipes, known open issues | living |
+| README.md | this file — quick start and index | living |
+| [Reports/Image-Attachments-Prompt_09.22.2026.md](./Reports/Image-Attachments-Prompt_09.22.2026.md) | A portable prompt for adding screenshot attachments to any multi-provider chat UI, written from this implementation | **frozen** — already sent, not edited in place |
+| [vault/AGENT_SYNC.md](./vault/AGENT_SYNC.md) | The project's agent coordination log | append-only |
+
+Two rules keep this table meaningful. A **report** is an artefact written to be sent — once sent it is frozen, and a superseded report stays where it is with the README saying which one is live rather than being deleted or overwritten. A **session file** (`Sessions/`) is the working record, one per session. Superseded work is never erased; the index is what carries the status.
+
 ## Quick start (local dev)
 
 **Prerequisites:** Node 18+, npm, and the Rust toolchain (`rustup`) for the Tauri shell. Docker/OrbStack is needed only for the two container fallbacks.
