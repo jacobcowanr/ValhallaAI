@@ -1,37 +1,68 @@
 <script>
+  import { onMount } from "svelte";
   import { callLLM } from "../lib/llm-router";
 
-  let selectedProvider = "openrouter";
-  let selectedModel = "openai/gpt-4o";
+  let selectedProvider = "nous";
+  let selectedModel = "x-ai/grok-4.7";
   let apiKey = "";
   let userMessage = "";
   let responses = [];
   let loading = false;
 
+  onMount(() => {
+    // Load user's saved preferences
+    const prefs = localStorage.getItem("vahalla-prefs");
+    if (prefs) {
+      const { defaultProvider, defaultModel } = JSON.parse(prefs);
+      selectedProvider = defaultProvider;
+      selectedModel = defaultModel;
+    }
+  });
+
   const providers = {
-    openrouter: {
-      name: "OpenRouter",
-      models: ["openai/gpt-4o", "anthropic/claude-3.5-sonnet", "deepseek/deepseek-chat"],
-    },
-    openai: {
-      name: "OpenAI",
-      models: ["gpt-4-turbo", "gpt-4o", "gpt-3.5-turbo"],
-    },
-    deepseek: {
-      name: "DeepSeek",
-      models: ["deepseek-chat", "deepseek-coder"],
+    nous: {
+      name: "Nous Portal",
+      models: ["x-ai/grok-4.7", "deepseek/deepseek-v4.1-flash", "meta-llama/llama-3.1-405b"],
     },
     anthropic: {
-      name: "Anthropic",
-      models: ["claude-3.5-sonnet", "claude-opus-5", "claude-haiku-4.5"],
+      name: "Anthropic API Key",
+      models: ["claude-3.5-sonnet", "claude-opus-5", "claude-haiku-4.5-20251001"],
     },
-    grok: {
-      name: "Grok (X.AI)",
+    anthropic_oauth: {
+      name: "Anthropic OAuth (Usage Credits)",
+      models: ["claude-3.5-sonnet", "claude-opus-5", "claude-haiku-4.5-20251001"],
+    },
+    claude_directsdk: {
+      name: "Claude Subscription DirectSDK",
+      models: ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4.5-20251001"],
+    },
+    chatgpt: {
+      name: "ChatGPT or Codex Subscription",
+      models: ["gpt-4-turbo", "gpt-4o", "gpt-3.5-turbo"],
+    },
+    minimax: {
+      name: "MiniMax",
+      models: ["minimax-text-01", "minimax-abab6.5s-chat"],
+    },
+    qwen: {
+      name: "Qwen Code",
+      models: ["qwen-coder-32b", "qwen-turbo"],
+    },
+    xai_grok: {
+      name: "xAI Grok",
       models: ["grok-3", "grok-vision"],
     },
-    local: {
-      name: "Local (Ollama)",
-      models: ["llama2", "mistral", "neural-chat"],
+    github_copilot: {
+      name: "GitHub Copilot (ACP)",
+      models: ["gpt-4-turbo", "gpt-4o"],
+    },
+    fireworks: {
+      name: "Fireworks AI",
+      models: ["llama-v3p1-405b", "mixtral-8x22b"],
+    },
+    openrouter: {
+      name: "OpenRouter",
+      models: ["openai/gpt-4o", "anthropic/claude-3.5-sonnet", "deepseek/deepseek-chat", "x-ai/grok-3"],
     },
   };
 
