@@ -215,6 +215,41 @@ flowchart LR
 
 Each stage is a deliberate gate, not a deadline. We do not skip Stage 2 — see [Development Notes](./CONTRIBUTING.md#why-local-first).
 
+## 9.1 Platform roadmap (beyond macOS/Windows/Linux desktop)
+
+macOS, Windows, and Linux/Omarchy (§3.1) are all **desktop** targets — Vahalla currently requires a GUI to run at all, since it's Tauri desktop-only. The platforms below aren't a flat list of "OSes to also support" — they have a real dependency order, and building them out of order means building something with nothing to connect to.
+
+```mermaid
+flowchart TD
+    Desktop["Desktop (current)<br/>macOS + Windows + Linux/Omarchy<br/>Tauri GUI required"]
+    Headless["Headless / server mode<br/>CLI + agent orchestration +<br/>web-served UI, no Tauri window"]
+    ARM["ARM64 build target<br/>Raspberry Pi, AWS Graviton,<br/>free-tier ARM cloud instances"]
+    Web["Web / browser access"]
+    Cloud["Stage 3 cloud deploy<br/>(§9) becomes real,<br/>not aspirational"]
+    Mobile["Mobile (iOS/Android)<br/>remote-control client only —<br/>no Docker on mobile OSes"]
+
+    Desktop -->|"not yet built"| Headless
+    Headless -->|"falls out for free<br/>once headless serves a UI"| Web
+    Headless -->|"unblocks"| Cloud
+    Headless -.->|"pairs naturally —<br/>a Pi is usually headless anyway"| ARM
+    Headless ==>|"blocks — nothing to<br/>remote-control without this"| Mobile
+
+    style Desktop fill:#667eea,color:#fff
+    style Headless fill:#fff4e6
+    style ARM fill:#f0f4ff
+    style Web fill:#f0f4ff
+    style Cloud fill:#e6ffe6
+    style Mobile fill:#f5f5f5
+```
+
+| Platform | What it actually is | Priority | Why |
+|---|---|---|---|
+| **Headless/server mode** | A second build target of the *same app* — CLI + agent orchestration + web-served UI, no Tauri window | **High** | Already implicitly required by Stage 3 (§9) — "deploy to your own cloud VPS" isn't possible today, since a headless box has no display for a Tauri window to open on. This is the one genuine gap, not a nice-to-have. |
+| **ARM64 build target** | Not a new OS — verifying the existing Docker/Rust stack builds and runs on ARM Linux (Raspberry Pi, Graviton, free-tier ARM cloud) | Medium | Apple Silicon is already covered (that's what runs the Mac build). ARM *Linux* is untested. Pairs naturally with headless mode — a 24/7 self-hosted box is usually a Pi, and a Pi is usually headless. |
+| **Web/browser access** | Not a separate build — falls out for free once headless mode serves a UI over HTTP | Low, but automatic | Don't build a separate web client. Any browser hitting the headless server's UI already works once that exists. |
+| **Mobile (iOS/Android)** | A remote-control client for an already-running headless instance — Docker doesn't run on iOS/Android, so mobile can't run agent containers itself | Low, **blocked on headless mode** | Building this before headless mode exists means building a client with nothing real to connect to. Sequencing matters here more than for any other item. |
+| **BSD, ChromeOS** | Real self-hosting audiences, high effort relative to reach | Not planned | Revisit only if something concrete forces the question — not worth doc space as a standing commitment. |
+
 ## 10. Related documents
 
 - [POSITIONING.md](./POSITIONING.md) — how Vahalla differs from Hermes, LangChain, Open WebUI, AnythingLLM, and the rest of the field
