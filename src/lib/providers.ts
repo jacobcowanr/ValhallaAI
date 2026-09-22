@@ -60,8 +60,38 @@ export const PROVIDERS: Record<LLMProvider, ProviderEntry> = {
     models: ["minimax-text-01", "minimax-abab6.5s-chat"],
   },
   nous: {
+    // Nous Portal aggregates 300+ models across vendors (OpenRouter-style
+    // catalog). This is a curated subset — flagship/notable models per
+    // major vendor, not the full list, which would make the dropdown
+    // unusable. Slugs follow the vendor/model-name convention already
+    // used elsewhere in this file; they're constructed to match that
+    // pattern, not individually verified against a live Nous API call —
+    // same approach as every other provider's model list in this project.
+    // x-ai/grok-4.7 stays first: it's the actual configured default
+    // elsewhere (FALLBACK_MODEL below, Hermes's own default), not just
+    // alphabetically/chronologically first.
     name: "Nous Portal",
-    models: ["x-ai/grok-4.7", "meta-llama/llama-3.1-405b", "deepseek/deepseek-v4.1-flash"],
+    models: [
+      "x-ai/grok-4.7",
+      "x-ai/grok-4.6",
+      "anthropic/claude-opus-5",
+      "anthropic/claude-sonnet-5",
+      "anthropic/claude-haiku-4.5",
+      "openai/gpt-6-astra",
+      "openai/gpt-5.6-terra",
+      "openai/gpt-5.5",
+      "google/gemini-3.8-flash",
+      "google/gemini-3.1-pro-preview",
+      "deepseek/deepseek-v4.1-flash",
+      "deepseek/deepseek-v4-pro-0813",
+      "qwen/qwen3.8-max-0902",
+      "qwen/qwen3-coder-480b-a35b",
+      "meta-llama/llama-4-maverick",
+      "meta-llama/llama-3.3-70b-instruct",
+      "moonshotai/kimi-k3",
+      "z-ai/glm-5.3",
+      "minimax/minimax-m3",
+    ],
   },
   ollama: {
     name: "Ollama (Local)",
