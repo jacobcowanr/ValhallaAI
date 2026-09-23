@@ -20,3 +20,8 @@ vault/.git
 vault/AGENT_OUTBOX_*.md
 .vault-cache/
 .hermes/
+# Per-machine agent enable/model toggles -- personal runtime state, not
+# project config. agent_status() (main.rs) treats a missing file as "all
+# disabled" rather than erroring, so this is safe to omit entirely; new
+# clones copy agents-config.json.example to get started.
+vault/agents-config.json
