@@ -8,6 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.json",
+    "docs:check": "node scripts/check-anchors.mjs",
+    "secret:scan": "bash scripts/secret-scan.sh",
     "tauri": "tauri",
     "tauri-dev": "tauri dev",
     "tauri-build": "tauri build"

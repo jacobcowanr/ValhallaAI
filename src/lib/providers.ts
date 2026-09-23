@@ -222,8 +222,20 @@ export const PROVIDERS: Record<LLMProvider, ProviderEntry> = {
     ],
   },
   ollama: {
+    // Current common models for local inference (verified against library.ollama.ai).
+    // The previous 2023 list (llama2, zephyr, neural-chat, orca-mini) is retired.
+    // Ollama must be running locally (default: http://127.0.0.1:11434) and the
+    // selected model must be pulled (`ollama pull <model>`) before use.
     name: "Ollama (Local)",
-    models: ["neural-chat", "zephyr", "mistral", "llama2:13b", "llama2", "orca-mini", "dolphin-mixtral"],
+    models: [
+      "llama3.3",
+      "llama3.2",
+      "mistral",
+      "qwen2.5",
+      "deepseek-r1",
+      "phi4",
+      "gemma2",
+    ],
   },
   // Verified 2026-09-22 against GET https://openrouter.ai/api/v1/models.
   // Four ids were dead (claude-3.5-sonnet, gemini-pro-1.5, grok-3,

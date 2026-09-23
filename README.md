@@ -95,6 +95,19 @@ With no release build, `valhallaai` falls back to `npm run tauri-dev` and holds 
 ln -sf "$PWD/scripts/valhallaai" ~/.local/bin/valhallaai
 ```
 
+### Checks
+
+```bash
+npm run check         # svelte-check — types across every .svelte and .ts file
+npm run docs:check    # every internal doc anchor resolves
+npm run secret:scan   # credential values in tracked files (see below)
+npm run build         # the real Vite production build
+```
+
+The same four run in CI on every push (`.github/workflows/ci.yml`), along with `cargo test` and a scan of the **entire git history** for credentials — because a key that was committed and later deleted is still in every clone. That scanner matches credential *values*, reports them redacted rather than in full, and is honest about its limits: it is not gitleaks. [CONTRIBUTING.md](./CONTRIBUTING.md#repository-checks) says what it does and does not catch.
+
+**The CI workflow has never run** — this repository had no CI until it was written, and the first push is what tests it.
+
 ## Signing in
 
 Sign-in is **optional**. The first launch shows a gate with three ways through it: Google, GitHub, or **Continue without an account**.
