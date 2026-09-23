@@ -45,11 +45,12 @@ fi
 # where it takes precedence over the pointer file.
 VALHALLAAI_PROJECT_DIR=$PROJECT_DIR
 export VALHALLAAI_PROJECT_DIR
-# Resolved by glob, not hardcoded: the bundle filename comes from
-# productName in tauri.conf.json, so pinning the literal name means a rename
-# silently drops this back to the dev build forever.
-BUNDLE_DIR="$PROJECT_DIR/src-tauri/target/release/bundle/macos"
-APP_BUNDLE=$(ls -d "$BUNDLE_DIR"/*.app 2>/dev/null | head -1)
+
+# This script only ever runs under a POSIX shell -- macOS or Linux/Omarchy.
+# Windows uses scripts/valhallaai.ps1 instead, which mirrors this file's
+# commands and pointer-file logic against the same project_dir_pointer()
+# main.rs resolves.
+OS=$(uname -s)
 
 die() {
     echo "valhallaai: $1" >&2
@@ -62,10 +63,25 @@ need() {
 
 case ${1:-open} in
     open)
-        # A release bundle starts instantly and does not tie up a terminal, so
-        # prefer it when one has been built. Otherwise fall through to dev.
-        if [ -d "$APP_BUNDLE" ]; then
-            exec open "$APP_BUNDLE"
+        # A release build starts instantly and does not tie up a terminal, so
+        # prefer it when one exists. What "a release build" means differs by
+        # platform: macOS bundles a double-clickable .app; Linux's Tauri v1
+        # bundlers (.deb, .AppImage) are install artifacts, not something to
+        # exec in place, so the raw binary next to them is the launchable
+        # thing -- same binary the .deb would have installed, just not
+        # installed. Resolved by glob/productName, not a hardcoded filename:
+        # tauri.conf.json's productName ("ValhallaAI") is what names it, so a
+        # rename must not silently fall back to the dev build forever.
+        if [ "$OS" = "Darwin" ]; then
+            APP_BUNDLE=$(ls -d "$PROJECT_DIR/src-tauri/target/release/bundle/macos/"*.app 2>/dev/null | head -1)
+            if [ -d "$APP_BUNDLE" ]; then
+                exec open "$APP_BUNDLE"
+            fi
+        else
+            BIN="$PROJECT_DIR/src-tauri/target/release/valhallaai"
+            if [ -x "$BIN" ]; then
+                exec "$BIN"
+            fi
         fi
         echo "No release build yet — starting the dev app. Ctrl+C to stop."
         echo "Run 'valhallaai build' once to get a launchable app instead."
