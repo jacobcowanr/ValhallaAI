@@ -9,14 +9,23 @@
 #
 # What is verified locally, and what is not:
 #   secrets  — scanner run locally with controls (planted key caught, benign
-#              lookalike ignored, historical key caught in a probe clone)
+#              lookalike ignored, historical key caught in a probe clone).
+#              gitleaks now also runs, locally (109 commits, zero hits) and
+#              here — a second, tool-certified opinion, not a replacement.
 #   web      — `npm run check`, `npm run docs:check`, `npm run build` all run
 #              locally and pass
 #   rust     — `cargo test` passes locally (22 tests) on macOS; the apt package
 #              list below is the documented Tauri v1 recipe for Linux and has
-#              not been executed. ubuntu-22.04 is pinned deliberately: the
-#              runner's default (24.04) no longer ships libwebkit2gtk-4.0,
-#              which this Tauri v1 app needs.
+#              not been executed on Linux itself before this job's first run.
+#              ubuntu-22.04 is pinned deliberately: the runner's default
+#              (24.04) no longer ships libwebkit2gtk-4.0, which this Tauri v1
+#              app needs.
+#   rust-windows — same tests, on windows-latest. Cross-platform (Windows,
+#              Linux/Omarchy) is a hard requirement for this project, and
+#              until this job exists that claim rested on `#[cfg(target_os)]`
+#              branches in main.rs compiling, never on Windows actually
+#              running them. This job is that missing proof, and its first
+#              run is as unproven as the rest of this file's first run.
 
 name: CI
 
@@ -51,6 +60,10 @@ jobs:
         run: bash scripts/secret-scan.sh --history
       - name: Scan staged additions (backstop for --no-verify)
         run: bash scripts/secret-scan.sh --staged
+      - name: gitleaks (tool-certified, full history)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   web:
     name: Svelte check, docs, build
@@ -87,6 +100,18 @@ jobs:
             curl \
             wget \
             file
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - name: Tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml --verbose
+
+  rust-windows:
+    name: cargo test (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
