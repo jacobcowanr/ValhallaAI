@@ -1771,12 +1771,24 @@ mod claude_bin_tests {
     fn an_executable_in_the_native_location_resolves_to_an_absolute_path() {
         let home = fake_home(true);
         let resolved = resolve_claude(Some(&home), None);
+        // Built the same way claude_search_dirs()/resolve_claude() build it --
+        // not a hand-rolled `home.join(".local/bin/claude")` literal, which
+        // silently diverges from the real join() on Windows (a "/" baked into
+        // one path *segment* stays a literal "/" in the string, while a real
+        // second .join() call inserts a "\\"; the two only ever matched on
+        // Unix, where both separators are "/").
+        let expected = claude_search_dirs(&home)[0]
+            .join("claude")
+            .to_string_lossy()
+            .to_string();
         assert_eq!(
-            resolved,
-            home.join(".local/bin/claude").to_string_lossy().to_string(),
+            resolved, expected,
             "should resolve the actual binary, not fall back to a PATH lookup"
         );
-        assert!(resolved.starts_with('/'), "must be absolute");
+        assert!(
+            std::path::Path::new(&resolved).is_absolute(),
+            "must be absolute"
+        );
         let _ = fs::remove_dir_all(&home);
     }
 
@@ -1820,10 +1832,11 @@ mod claude_bin_tests {
     #[test]
     fn a_blank_override_is_ignored() {
         let home = fake_home(true);
-        assert_eq!(
-            resolve_claude(Some(&home), Some("   ")),
-            home.join(".local/bin/claude").to_string_lossy().to_string()
-        );
+        let expected = claude_search_dirs(&home)[0]
+            .join("claude")
+            .to_string_lossy()
+            .to_string();
+        assert_eq!(resolve_claude(Some(&home), Some("   ")), expected);
         let _ = fs::remove_dir_all(&home);
     }
 
