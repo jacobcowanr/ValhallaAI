@@ -1309,7 +1309,14 @@
      reads as a footer/status bar. */
   .model-bar {
     display: flex;
-    gap: 1.5rem;
+    /* Was 1.5rem. Three pickers (Provider/Model/Project) plus New session
+       used to be two pickers -- adding Project without capping any width
+       pushed the row's natural content to ~976px inside this 680px box,
+       overflowing past the window edge with nowrap. Tightened alongside
+       the per-select max-width below rather than either alone, since a
+       few points of overflow would still spill past a 680px box that has
+       no room to give. */
+    gap: 0.85rem;
     /* Sibling of .composer-inner, so it needs the cap applied here too --
        otherwise the selects run edge to edge beneath a centred text box and
        the composer stops reading as one column. */
@@ -1325,8 +1332,9 @@
   }
 
   .new-session {
+    flex-shrink: 0;
     margin-left: auto;
-    padding: 0.35rem 0.7rem;
+    padding: 0.3rem 0.6rem;
     border: 1px solid var(--accent-soft-border);
     border-radius: 6px;
     background: var(--accent-soft-bg);
@@ -1344,10 +1352,15 @@
   .picker {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.4rem;
+    /* Lets the select's own max-width (below) actually shrink it -- a flex
+       item's default min-width is its content's intrinsic width, which
+       would otherwise ignore max-width and keep forcing the row wider. */
+    min-width: 0;
   }
 
   .picker-label {
+    flex-shrink: 0;
     font-size: 0.75rem;
     font-weight: 600;
     text-transform: uppercase;
@@ -1355,11 +1368,22 @@
     color: var(--text-muted);
   }
 
+  /* Long provider names ("Claude Subscription DirectSDK") and long model
+     ids used to size the closed <select> to fit the text in full, which is
+     what actually overflowed the row -- gaps and padding alone were never
+     going to close a ~300px gap. Ellipsis is a progressive enhancement:
+     WebKit does not reliably render it on a closed native <select>, but
+     overflow:hidden still caps the width either way, which is the part
+     that actually matters here. */
   .picker select {
-    padding: 0.35rem 0.6rem;
+    max-width: 150px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding: 0.35rem 0.5rem;
     border: 1px solid var(--border-color);
     border-radius: 6px;
-    font-size: 0.85rem;
+    font-size: 0.8rem;
     background: var(--bg-surface);
     color: var(--text-primary);
   }
