@@ -19,3 +19,4 @@ pnpm-lock.yaml
 vault/.git
 vault/AGENT_OUTBOX_*.md
 .vault-cache/
+.hermes/

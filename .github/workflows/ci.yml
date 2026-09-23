@@ -1,0 +1,95 @@
+# CI — the gates that must pass before this repo can be made public.
+#
+# STATUS: this workflow has NEVER RUN. Before 2026-09-22 the repository had no
+# CI at all, which was a going-public blocker: a key committed here would be a
+# key published, and nothing was checking. The three jobs below were written and
+# the two Node-side ones were also run locally by hand (same commands, same
+# repo), but the first push is what actually exercises this file. Treat a red
+# first run as the expected outcome of writing CI blind, not as a broken repo.
+#
+# What is verified locally, and what is not:
+#   secrets  — scanner run locally with controls (planted key caught, benign
+#              lookalike ignored, historical key caught in a probe clone)
+#   web      — `npm run check`, `npm run docs:check`, `npm run build` all run
+#              locally and pass
+#   rust     — `cargo test` passes locally (22 tests) on macOS; the apt package
+#              list below is the documented Tauri v1 recipe for Linux and has
+#              not been executed. ubuntu-22.04 is pinned deliberately: the
+#              runner's default (24.04) no longer ships libwebkit2gtk-4.0,
+#              which this Tauri v1 app needs.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# No `${{ github.event.* }}` or `github.head_ref` value is interpolated into any
+# `run:` step below — every step invokes a checked-in script by path. That is
+# deliberate: it is the whole class of GitHub Actions command injection
+# (attacker-controlled branch names, issue bodies, commit messages flowing into
+# a shell) and it is avoided by construction rather than by escaping.
+
+jobs:
+  secrets:
+    name: Secret scan (credential values)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history: the point of the --history step is to read every
+          # commit, and a shallow clone would silently scan only the tip.
+          fetch-depth: 0
+      - name: Scan tracked files
+        run: bash scripts/secret-scan.sh
+      - name: Scan the full git history
+        run: bash scripts/secret-scan.sh --history
+      - name: Scan staged additions (backstop for --no-verify)
+        run: bash scripts/secret-scan.sh --staged
+
+  web:
+    name: Svelte check, docs, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: svelte-check (types)
+        run: npm run check
+      - name: Internal doc anchors
+        run: npm run docs:check
+      - name: Production build
+        run: npm run build
+
+  rust:
+    name: cargo test
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tauri v1 system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.0-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libsoup2.4-dev \
+            build-essential \
+            curl \
+            wget \
+            file
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - name: Tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml --verbose

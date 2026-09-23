@@ -98,6 +98,29 @@ Source-change steps:
 3. Providers list alphabetically; models within a provider are ordered newest/most-capable → oldest/cheapest. `ModelPicker` selects `models[0]` when the provider changes, so first place is the default — and the newest model is not always the one that answers (Gemini's list advertises ids that 404).
 4. Provider *counts* in docs (README, ARCHITECTURE §7, POSITIONING) are written as "N providers" where N is `Object.keys(PROVIDERS).length` — check it against `providers.ts` directly rather than incrementing a remembered number by hand. A hand-maintained count is exactly how the catalog drifted to 19 router cases / 18 catalog entries / "17" in prose before the `providers.ts` extraction.
 
+### Repository checks
+
+Four gates, all runnable locally and all wired into `.github/workflows/ci.yml`:
+
+```bash
+npm run check         # svelte-check: types across every .svelte and .ts file
+npm run docs:check    # every internal doc anchor resolves (scripts/check-anchors.mjs)
+npm run secret:scan   # credential values in tracked files (scripts/secret-scan.sh)
+npm run build         # the real Vite production build
+```
+
+Plus two modes of the scanner that CI also runs:
+
+```bash
+bash scripts/secret-scan.sh --history   # every blob ever committed, not just the tree
+bash scripts/secret-scan.sh --staged    # added lines in the index only
+```
+
+- **The scanner reports file, line, rule name and a redacted match — never the match itself.** Pasting a caught key into a CI log publishes it to everyone who can read the log, turning one leak into two. Do not "improve" it by printing the value.
+- **Do not remove `-H` from the `grep` call inside `scripts/secret-scan.sh`.** With a single file operand, `grep -o` omits the filename, so output is `LINE:MATCH` rather than `FILE:LINE:MATCH`; a parser expecting the latter puts the line number in `fname`, the key in `lineno`, and leaves `match` empty — which made the first version of the scanner report a **planted key as clean**. That is why the script's control test exists and why it is described as proven rather than inspected.
+- **A gate that fails on every run gets deleted, so this one matches values, not words.** It deliberately does *not* flag `127.0.0.1` (the GitHub OAuth callback is portless on purpose) or empty `NAME=` assignments (`env.example` is made of them). The vault's `scripts/secret_scan.sh` flags both, correctly — it guards a coordination log, not this repo. Do not merge the two rule sets.
+- **`docs:check` verifies anchors, not diagram syntax.** Mermaid parsing is still manual; see the note in [Known open issues](#known-open-issues).
+
 ### Agent runtimes
 
 - Each agent run is **one-shot**, not a daemon — `restart: "no"` in `docker-compose.local.yml`, not `unless-stopped`. This was gotten wrong once already: `unless-stopped` on a container that calls a paid API and exits 0 is an unbounded billing loop.
@@ -424,8 +447,8 @@ Tracked here until there is a formal issue tracker.
 - **`callNous()` has not been exercised against the live proxy** since the provider-count changes. The proxy itself answered a real completion on 2026-09-22 (`x-ai/grok-4.7`, with a usage payload); this client path is the unverified half.
 - **GitHub Enterprise is not supported.** `api.github.com` is hardcoded in `github_sign_in`, and so are `github.com/login/oauth/authorize` and `/access_token`. A GHE instance would need its own base URL plumbed through all four call sites (two OAuth endpoints, two REST calls) plus its own env vars. Not attempted — there is exactly one GitHub host in play today.
 - **Sign-in is identity only, and the gate is not an authorization boundary.** Nothing is authorized against either provider after sign-in: no token is retained, no API is called, and every profile on the machine holds its own `localStorage` namespace. `emailVerified` is surfaced on the Profile page but never enforced, for the reason given in [First-launch onboarding](#first-launch-onboarding-and-email-verification).
-- **No secret-scanning tool in CI.** Multiple independent hand-written scanners across several verification passes have found nothing secret-shaped in the full commit history — genuinely clean — but all explicitly caveat that a hand-rolled scanner is best-effort, not tool-certified. Add gitleaks or trufflehog before this repo ever goes public.
-- **No mermaid validation in CI.** Diagram blocks in these docs are parsed against mermaid v11 before being committed, but by hand. A `npm run docs:check`-style script would make that a gate instead of a habit.
+- **Secret scanning: a value-shape scanner now runs in CI, and it is not gitleaks.** `scripts/secret-scan.sh` (wired into `.github/workflows/ci.yml`, runnable as `npm run secret:scan`) matches recognisable **credential values** — provider key shapes for 17 services, private-key blocks, JWTs — across tracked files, the staged diff, and with `--history`, every blob in every commit. Its limits, stated plainly: it has **no rule database and no entropy analysis**, so it catches a key whose format is on its list and cannot catch a novel format, a base64 blob from an unlisted service, or a credential embedded in prose that does not resemble one. It is a meaningful improvement over a hand-scan (it is mechanical and it runs on every push) and it is **not** a substitute for gitleaks or trufflehog, which should still be added before the repo goes public. Proven by control, not by inspection: a planted `sk-ant-…` in a tracked file fails it, a planted key deleted in a later commit fails `--history`, and a doc that merely *names* `sk-ant-` passes.
+- **Mermaid validation is still by hand.** The docs' diagrams are parsed against mermaid v11 before commit, but nothing in CI does it. The blocker is dependency weight, not difficulty: the harness needs `mermaid@11` + `jsdom` as devDependencies for a docs-only check. Add it if a broken diagram ever ships — that is the signal that the habit stopped working.
 
 ### Fixed 2026-09-21
 
