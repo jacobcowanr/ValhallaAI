@@ -10,8 +10,7 @@
   import Profile from "./routes/Profile.svelte";
   import Onboarding from "./routes/Onboarding.svelte";
   import logoWordmark from "./assets/ValhallaAI_Header.png";
-  import norseFontUrl from "./assets/fonts/Norse.otf";
-  import norseBoldFontUrl from "./assets/fonts/Norse-Bold.otf";
+  import displayFontUrl from "./assets/fonts/UnifrakturCook-Bold.ttf";
   // Register stored user-defined providers with the router at startup, so a
   // custom provider is routable before Settings is ever opened. Without
   // this, the first send after a restart would fail with "Unknown provider"
@@ -83,11 +82,14 @@
   // misparse the whole component as unclosed, a real reproduced tooling
   // quirk, not a typo. Safest to just avoid it in comments going forward.)
   onMount(() => {
-    const norseRegular = new FontFace("Norse", `url(${norseFontUrl})`, { weight: "400" });
-    const norseBold = new FontFace("Norse", `url(${norseBoldFontUrl})`, { weight: "700" });
-    Promise.all([norseRegular.load(), norseBold.load()])
+    // UnifrakturCook ships one weight (Bold) only -- registered at both 400
+    // and 700 so var(--font-display) resolves it regardless of which weight
+    // a given element asks for, rather than falling back to serif at 400.
+    const displayRegular = new FontFace("UnifrakturCook", `url(${displayFontUrl})`, { weight: "400" });
+    const displayBold = new FontFace("UnifrakturCook", `url(${displayFontUrl})`, { weight: "700" });
+    Promise.all([displayRegular.load(), displayBold.load()])
       .then((fonts) => fonts.forEach((f) => document.fonts.add(f)))
-      .catch((err) => console.error("Failed to load Norse font:", err));
+      .catch((err) => console.error("Failed to load the display font:", err));
   });
 
   function toggleSidebar() {
@@ -201,10 +203,11 @@
    * from the valknut icon, not guessed.
    */
   :global(:root) {
-    /* "Norse" is registered via the FontFace API in onMount above, not
-       @fontsource — it's a licensed local font file (src/assets/fonts/),
-       not an npm-distributed one. Falls back to serif until it loads. */
-    --font-display: "Norse", serif;
+    /* UnifrakturCook (SIL OFL, google/fonts) is registered via the
+       FontFace API in onMount above rather than a Google Fonts CDN link,
+       so the app has no network dependency for its own branding. Falls
+       back to serif until it loads. */
+    --font-display: "UnifrakturCook", serif;
     --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial,
       sans-serif;
 
@@ -311,9 +314,9 @@
   }
 
   /* An email address is data, not branding -- it has no business in a
-     display face. Norse renders it in caps with angular strokes, which is
-     unreadable at this size. Body font, no opacity dimming, and normal
-     tracking: 3.36:1 -> 7.1:1, and it renders in real lowercase. */
+     display face. UnifrakturCook is blackletter, unreadable at this size.
+     Body font, no opacity dimming, and normal tracking: 3.36:1 -> 7.1:1,
+     and it renders in real lowercase. */
   .profile-sub {
     font-family: var(--font-body);
     font-size: 0.78rem;
@@ -379,10 +382,11 @@
        angular and narrow, so tight spacing makes adjacent letters read as
        one shape. */
     letter-spacing: 0.06em;
-    /* Was --text-secondary (7.1:1). Fine for a body face, but Norse's thin
-       strokes read dimmer than the ratio implies, so the inactive state
-       goes to full primary. Active is still distinguished by the accent
-       colour and its background tint, not by being the only legible one. */
+    /* Was --text-secondary (7.1:1). Fine for a body face, but the display
+       face reads dimmer than the ratio implies at this weight, so the
+       inactive state goes to full primary. Active is still distinguished
+       by the accent colour and its background tint, not by being the only
+       legible one. */
     color: var(--text-primary);
     text-align: left;
     transition: all 0.15s;
