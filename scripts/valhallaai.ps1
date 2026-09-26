@@ -2,7 +2,7 @@
 #
 # Mirrors scripts/valhallaai (macOS/Linux) command-for-command, including the
 # pointer-file it writes for project_dir_pointer() in main.rs -- that
-# function reads %APPDATA%\com.jacobcowan.valhallaai\project_dir on Windows,
+# function reads %APPDATA%\com.valhallaai.app\project_dir on Windows,
 # so a bundled .exe launched from outside the checkout (Start Menu, a
 # desktop shortcut) can still find .env, vault/, and the agent scripts.
 #
@@ -40,7 +40,7 @@ $ProjectDir = (Resolve-Path (Join-Path (Split-Path $Self -Parent) "..")).Path
 # (Start Menu, a desktop shortcut) -- same reasoning as the pointer file the
 # macOS/Linux launcher writes, and read by the same project_dir_pointer() in
 # main.rs, which on Windows resolves to $env:APPDATA.
-$PointerDir = Join-Path $env:APPDATA "com.jacobcowan.valhallaai"
+$PointerDir = Join-Path $env:APPDATA "com.valhallaai.app"
 try {
     New-Item -ItemType Directory -Force -Path $PointerDir | Out-Null
     Set-Content -Path (Join-Path $PointerDir "project_dir") -Value $ProjectDir -NoNewline

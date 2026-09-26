@@ -29,7 +29,7 @@
         "icons/icon.icns",
         "icons/icon.ico"
       ],
-      "identifier": "com.jacobcowan.valhallaai",
+      "identifier": "com.valhallaai.app",
       "longDescription": "",
       "macOS": {
         "entitlements": null,
