@@ -32,7 +32,7 @@ fn project_dir_pointer() -> Option<PathBuf> {
             None => PathBuf::from(std::env::var_os("HOME")?).join(".config"),
         }
     };
-    Some(base.join("com.jacobcowan.valhallaai").join("project_dir"))
+    Some(base.join("com.valhallaai.app").join("project_dir"))
 }
 
 fn is_project(dir: &std::path::Path) -> bool {

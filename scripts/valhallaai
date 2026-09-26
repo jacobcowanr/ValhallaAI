@@ -36,7 +36,7 @@ COMPOSE="docker compose -f $PROJECT_DIR/docker-compose.local.yml"
 # its own. macOS `open` does not forward environment variables either, so an
 # export here would not reach it. A pointer file does. Rewritten every run, so
 # moving the checkout and launching once is enough to correct it.
-POINTER_DIR="$HOME/Library/Application Support/com.jacobcowan.valhallaai"
+POINTER_DIR="$HOME/Library/Application Support/com.valhallaai.app"
 if mkdir -p "$POINTER_DIR" 2>/dev/null; then
     printf '%s\n' "$PROJECT_DIR" > "$POINTER_DIR/project_dir" 2>/dev/null || true
 fi
