@@ -2,7 +2,21 @@
 
 **Multi-provider AI orchestration, self-hosted.** One desktop app to talk to 13 LLM providers, run agents against them, and coordinate those agents through a git-synced markdown vault instead of a database.
 
-**Status: local development, not public.** See [Why local-first](./CONTRIBUTING.md#why-local-first) for the policy and the four-item gate. macOS builds are what exist today; Windows and Linux are designed for and not yet built ([ARCHITECTURE.md §4.1](./ARCHITECTURE.md#41-cross-platform-constraint)).
+**Status: local development, not public.** See [Why local-first](./CONTRIBUTING.md#why-local-first) for the policy and the four-item gate. macOS, Windows, and Linux all build and run — CI proves it on every push, and each has been hands-on tested in a real VM, not just compiled ([ARCHITECTURE.md §4.1](./ARCHITECTURE.md#41-cross-platform-constraint)).
+
+## Download
+
+**macOS is a build-from-source one-liner, on purpose** — a locally-built app never carries the quarantine flag a downloaded unsigned binary would, so Gatekeeper never gets in the way. See [Quick start](#quick-start-local-dev) below.
+
+**Windows and Linux (x86_64) have real installers**, attached to the [v0.1.0 release](https://github.com/jacobcowanr/ValhallaAI/releases/tag/v0.1.0) and built by the same CI that tests every commit — not a separate, less-trusted build path:
+
+| Platform | File | Notes |
+|---|---|---|
+| Windows | `ValhallaAI_0.1.0_x64_en-US.msi` | Standard installer. A `.exe` (NSIS) is also attached if you prefer that instead. |
+| Linux (Debian/Ubuntu) | `valhalla-ai_0.1.0_amd64.deb` | `sudo dpkg -i valhalla-ai_0.1.0_amd64.deb` |
+| Linux (portable) | `valhalla-ai_0.1.0_amd64.AppImage` | `chmod +x` then run directly — no install, no package manager. |
+
+**Known gap:** Debian 13 (Trixie) and other very new distros can't build this from source at all — this Tauri version is pinned to `libsoup-2.4`/`webkit2gtk-4.0`, which those distros no longer ship. Debian 12 (Bookworm) and Ubuntu 22.04 are confirmed working. arm64 Linux users should build from source (`.deb`/`.rpm` work fine there; AppImage bundling does not, in this Tauri version).
 
 ## What it does
 
