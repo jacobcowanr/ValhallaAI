@@ -54,7 +54,7 @@ Nobody occupies: **self-hosted, multi-provider, multi-agent, with a plain-text c
 | Desktop app (not just a library) | ✅ Tauri. Agent Control runs an agent; Vault Browser lists files and git status and never pulls or pushes; chat keys for five providers load from `.env` inside the desktop process. See [ARCHITECTURE.md §5](./ARCHITECTURE.md#5-component-responsibilities) | ✅ | ✅ (usually web) | ❌ (code only) | ❌ |
 | Self-hosted, user-owned cloud | (planned) — not built; a headless build is the blocking prerequisite, see [ARCHITECTURE.md §11](./ARCHITECTURE.md#11-deployment-path-future) | Local-only | Self-hosted option | You build it | ❌ vendor-hosted |
 | Local/offline model support | ✅ Ollama (offered; **Ollama is not installed on the dev machine**, so the entry is untested here) | ✅ | ✅ | Depends | ❌ |
-| Open source | (planned) — see [CONTRIBUTING.md's gate](./CONTRIBUTING.md#why-local-first) | ✅ | ✅ | ✅ | E2B's core SDK: Apache-2.0. Modal: not open source. Do not collapse these into one cell — verify per-vendor. |
+| Open source | ✅ MIT, public since 2026-09-26 (v0.1.0) — its own validation backlog is in [CONTRIBUTING.md](./CONTRIBUTING.md#why-local-first) | ✅ | ✅ | ✅ | E2B's core SDK: Apache-2.0. Modal: not open source. Do not collapse these into one cell — verify per-vendor. |
 | Audit trail = git history | Partial — commits in this repo are real. The relay commits when it is run; that was tested on a throwaway repo. It has never pushed this repo, and the live log is not produced by that relay yet | ✅ proven | ❌ | ❌ | ❌ |
 
 Read left to right and the pattern is the point: ValhallaAI's column is the only one with a check in *both* "desktop app" and "human-readable coordination log", and the only one that claims subscription-first billing as a routing property rather than a user setting. Everyone else has one or the other. The cells that say "partial", "planned" or "not published here" are there on purpose — a comparison that marked those as done would be this document arguing against its own evidence.
@@ -127,7 +127,7 @@ Most projects in this space publish a feature list. This one publishes **where t
 That is a differentiator only if it is kept up — but it is the kind of evidence a person choosing between tools can act on, and it is the reason [ARCHITECTURE.md §12](./ARCHITECTURE.md#12-verification-what-is-proven-and-what-is-merely-built) exists as a proven/not-proven table instead of prose.
 
 ### 3.4 Not novel, but done right: local-first development
-Building the tool for yourself first, using it daily, and only then deciding what to open source is not a new idea — it is how most good developer tools get built. ValhallaAI is explicit about it as policy (see [CONTRIBUTING.md](./CONTRIBUTING.md#why-local-first)) rather than an accident of how development happened to unfold. That policy has already caught compile-breaking bugs and doc-drift before anyone but the developer ever saw them, which is the actual point of it.
+Building the tool for yourself first, using it daily, and only then deciding what to open source is not a new idea — it is how most good developer tools get built. ValhallaAI is explicit about it as policy (see [CONTRIBUTING.md](./CONTRIBUTING.md#why-local-first)) rather than an accident of how development happened to unfold. That policy has already caught compile-breaking bugs and doc-drift before anyone but the developer ever saw them, which is the actual point of it. The repository went public on 2026-09-26, before its own open-source gate was met, so that gate now serves as a validation backlog and the proven-versus-built table carries the honesty the gate was meant to enforce.
 
 ### 3.5 Not novel: the desktop app itself
 Tauri + Svelte + a model picker is not a differentiator. Open WebUI, LM Studio, and a dozen others already do "nice UI over multiple LLMs" well. ValhallaAI does not try to out-UI them — the UI exists to make agent orchestration and vault coordination usable, not to be the product. Chat, Settings, Agent Control, and the vault file list all run inside the desktop app. The vault screen does not sync to a remote (§2).
@@ -143,34 +143,35 @@ flowchart TD
         AI subscriptions, the subscription-first routing is the reason to be
         here. If you want the most polished chat experience, hosted convenience,
         or complex programmatic agent graphs, other tools fit better today. If
-        you are on Windows or Linux, builds do not exist yet. If your work is
-        screenshot-heavy and you leave the default provider in place, images
-        will not send until you switch providers.
+        you are on macOS or Linux, it runs as is. On Windows it installs and
+        launches, but agent runs need bash and do not work there yet. If your
+        work is screenshot-heavy and you leave the default provider in place,
+        images will not send until you switch providers.
     }
     Start{"What do you already pay for?"} -->|"2+ flat-rate subscriptions"| Fit["ValhallaAI fits:<br/>subscription-first routing<br/>is the reason to be here"]
     Start -->|"API keys only"| Maybe["Mixed fit:<br/>13 providers and one UI,<br/>but the cost argument is weaker"]
     Start -->|"nothing yet"| No1["Use a hosted chat app first<br/>until you have a reason to self-host"]
 
-    Fit --> OS{"On macOS today?"}
-    OS -->|yes| Shots{"Work is screenshot-heavy?"}
-    OS -->|"Windows / Linux"| No2["No builds exist yet<br/>macOS only so far"]
+    Fit --> OS{"Which OS?"}
+    OS -->|"macOS or Linux"| Shots{"Work is screenshot-heavy?"}
+    OS -->|Windows| Win["Installs and launches (.msi)<br/>agent runs need bash,<br/>so they do not work there yet"]
+    Win --> Shots
     Shots -->|yes| Switch["Switch the default provider<br/>to Google or Nous Portal:<br/>DirectSDK cannot read images"]
     Shots -->|no| Go["Run it today"]
     Switch --> Go
 
     No1 --> Alt["Also better fits elsewhere:<br/>most polished chat UI,<br/>hosted convenience,<br/>complex programmatic graphs"]
-    No2 --> Alt
 
     style Fit fill:#e6ffe6
     style Go fill:#e6ffe6
     style Switch fill:#fff4e6
     style Maybe fill:#fff4e6
     style No1 fill:#f5f5f5
-    style No2 fill:#f5f5f5
+    style Win fill:#fff4e6
     style Alt fill:#f5f5f5
 ```
 
-**Reading it.** The first diamond is the sales conversation in one step: the fit is strongest for someone already paying for flat-rate subscriptions, because that is where the money argument is real rather than theoretical. The right-hand branch is the honesty path — three answers end at "a different tool fits better today", which is more useful to a reader than a chart where everything points at this tool.
+**Reading it.** The first diamond is the sales conversation in one step: the fit is strongest for someone already paying for flat-rate subscriptions, because that is where the money argument is real rather than theoretical. The right-hand branch is the honesty path — the "nothing yet" answer ends at "a different tool fits better today" and "API keys only" is flagged as a weaker fit, which is more useful to a reader than a chart where everything points at this tool.
 
 ## 5. Where ValhallaAI is deliberately *not* competing
 

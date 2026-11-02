@@ -229,7 +229,7 @@ npm run build         # the real Vite production build
 
 The same four run in CI on every push (`.github/workflows/ci.yml`), along with `cargo test` and a scan of the **entire git history** for credentials — because a key that was committed and later deleted is still in every clone. That scanner matches credential *values*, reports them redacted rather than in full, and is honest about its limits: it is not gitleaks. [CONTRIBUTING.md](./CONTRIBUTING.md#repository-checks) says what it does and does not catch.
 
-**The CI workflow has never run** — this repository had no CI until it was written, and the first push is what tests it.
+**CI runs on every push and pull request.** Its first run (2026-09-23) failed; every run since has passed, including the latest checked on 2026-11-02, which passed all six jobs: the secret scan, the web checks, `cargo test` on Linux and on Windows, and the Linux and Windows installer builds.
 
 ## Signing in
 
@@ -402,7 +402,7 @@ flowchart TD
 2. **The relay is not running by default, so agent answers stop in their outbox.** `valhallaai relay` starts it. Its fold-and-commit logic is verified; its **push has never run against this repo** and requires `VAULT_REPO` to be set ([ARCHITECTURE.md §9.3](./ARCHITECTURE.md#93-the-honest-state-of-the-relay)).
 3. **The Vault Browser never pushes.** The app has no push path anywhere by design. It lists files and reports `git status`; you commit and push from a terminal.
 4. **Perplexity was rewritten onto the Agent API on 2026-09-22 and has never been run.** Sonar Chat Completions retires 2026-09-27, so the old `{model, messages}` → `{choices}` path would have kept working for five more days and then stopped. The replacement uses `POST /v1/agent` with a **`preset`** (`low`, `fast`, `medium`) instead of a model id and a typed `output` array instead of `choices`. **No Perplexity key exists on this machine, so not one line of it has been exercised** — treat the first run with a key as the real test. Two consequences already known: the model dropdown shows the raw preset name ("low"), and **this provider no longer reads images**, since the rewrite sends the conversation as text ([CONTRIBUTING.md](./CONTRIBUTING.md#known-open-issues)).
-5. **macOS-only builds so far.** The `.app` is ad-hoc signed, arm64-only, and expects a checkout to exist on the machine. Not distributable to anyone else yet.
+5. **macOS is build-from-source only.** The `.app` is ad-hoc signed, arm64-only, and expects a checkout to exist on the machine, so it is not distributable. Windows and Linux x86_64 have CI-built installers (see [Download](#download)); on Windows, Agent Control cannot run agents yet because `run_agent` needs `bash` ([CONTRIBUTING.md](./CONTRIBUTING.md#known-open-issues)).
 
 ## Project structure
 
@@ -497,6 +497,6 @@ flowchart LR
 
 The full table is [ARCHITECTURE.md §12](./ARCHITECTURE.md#12-verification-what-is-proven-and-what-is-merely-built). The short version:
 
-**Proven:** 13 providers counted three ways; 12 read images; a Run click no longer freezes the app; `grok-build` bills the subscription with no `XAI_API_KEY` set; a run is ~5× faster (197 s → 41 s); `cargo test` → 22 passed; the relay folds and commits (verified on a throwaway repo); **Google and GitHub sign-in both round-trip end to end**, GitHub against a live consent screen; the DirectSDK path resolves the `claude` CLI under the app's real (minimal) PATH.
+**Proven:** 13 providers counted three ways; 12 read images; a Run click no longer freezes the app; `grok-build` bills the subscription with no `XAI_API_KEY` set; a run is ~5× faster (197 s → 41 s); `cargo test` → 22 passed; the relay folds and commits (verified on a throwaway repo); **Google and GitHub sign-in both round-trip end to end**, GitHub against a live consent screen; the DirectSDK path resolves the `claude` CLI under the app's real (minimal) PATH; **Windows and Linux x86_64 installers are built by CI on every push** (attached to the v0.1.0 release) and were hands-on tested in real VMs, and `cargo test` passes on both (22 tests on Linux, 21 on Windows, latest CI run).
 
-**Not proven, and not claimed:** the relay has never pushed to a remote; there is no daily multi-agent loop in this repo yet; Windows and Linux builds have never been produced; `callNous()` has not been exercised against the live proxy since the provider-count changes; **the Perplexity Agent API rewrite has never been run (no key)**; `claude-agent`'s instruction edit is a consistency fix, not a speedup (9 s before, 9 s after).
+**Not proven, and not claimed:** the relay has never pushed to a remote; there is no daily multi-agent loop in this repo yet; `callNous()` has not been exercised against the live proxy since the provider-count changes; **the Perplexity Agent API rewrite has never been run (no key)**; `claude-agent`'s instruction edit is a consistency fix, not a speedup (9 s before, 9 s after).

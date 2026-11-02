@@ -2,9 +2,9 @@
 
 **Status:** Local development. This document is the design of record — update it whenever the system changes shape, not after the fact.
 
-**Last rewritten: 2026-09-22**, after the agent-run performance work (a run went from 197s to 41s — §8), the async `run_agent` fix (§6.2), and the vault-relay reality check (§9.3).
+**Last rewritten: 2026-09-22**, after the agent-run performance work (a run went from 197s to 41s — §8), the async `run_agent` fix (§6.2), and the vault-relay reality check (§9.3). Platform, CI and open-source-stage statements (§4.1, §11, §12) were brought current on 2026-11-02, after the v0.1.0 release.
 
-**How to trust this document:** every claim about behaviour below was checked against the code or against a real run on the date in the header. Where something is designed but not built, or built but not run, the text says so in the sentence itself rather than in a footnote — see §14 for the list of what is currently proven versus merely built.
+**How to trust this document:** every claim about behaviour below was checked against the code or against a real run on the date in the header. Where something is designed but not built, or built but not run, the text says so in the sentence itself rather than in a footnote — see §12 for the list of what is currently proven versus merely built.
 
 ## 1. What ValhallaAI is
 
@@ -284,7 +284,7 @@ ValhallaAI targets **macOS, Windows, and Linux** (including Arch-based distros s
 
 **Why Tauri fits this well:** it cross-compiles the same Svelte frontend + Rust backend into a native app on each OS — `.dmg`/`.app` on macOS, `.msi`/`.exe` on Windows, and on Linux both distro-specific packages (`.deb`, `.rpm`) *and* a distro-agnostic **AppImage**, which is what actually matters for Omarchy: it's Arch-based (pacman, not apt/dnf), so the `.deb`/`.rpm` bundles are useless there but the AppImage runs on any Linux with no packaging step. `tauri.conf.json`'s `bundle.targets: "all"` already builds every target valid for the host OS — no per-OS fork of the bundle config needed. `tauri init` generated `icon.icns` (macOS), `icon.ico` (Windows), and PNG icons (Linux) up front.
 
-**What is actually built today:** macOS only. `ValhallaAI.app` and `ValhallaAI_0.1.0_aarch64.dmg` are produced and run on Apple Silicon. No Windows or Linux bundle has ever been produced or executed on this project. The sections below describe what must be true for those builds; they are a checklist, not a record.
+**What is built today:** all three families have produced a build. macOS: `ValhallaAI.app` and `ValhallaAI_0.1.0_aarch64.dmg` are built locally and run on Apple Silicon (build-from-source by design). Windows and Linux x86_64: CI builds the installers on every push (`.msi` and `.exe`, `.deb` and `.AppImage`) and attaches them to the v0.1.0 release. Both were hands-on tested in real VMs: the Windows installer installs, launches and passes the sign-in gate through the local-account path; Linux builds on Debian 12 and Ubuntu 22.04, and **Debian 13 (Trixie) cannot build at all** because this Tauri version is pinned to `libsoup-2.4` and `webkit2gtk-4.0`. The detail, including the arm64 AppImage gap, is in [CONTRIBUTING.md](./CONTRIBUTING.md#known-open-issues). What has *not* been run is anything on an actual Omarchy machine (below) and the Windows agent path.
 
 **Linux/Omarchy build prerequisites** (not yet installed or verified on an actual Omarchy machine): Tauri's Linux build needs system libraries that aren't part of a minimal Arch/Omarchy install. On Arch-based systems:
 
@@ -1815,15 +1815,16 @@ flowchart LR
 flowchart LR
     accTitle: The four deployment stages
     accDescr {
-        Stage one is local development, which is where the project is now.
-        Stage two is validation through real daily use, which is where real
-        bugs get found. Stage three is deployment to a cloud account the user
-        owns, and stage four is opening the source. Each stage is a gate that
-        is not skipped, and stage two is explicitly not a deadline.
+        Stage one is local development, where the project started. Stage two
+        is validation through real daily use, which is where real bugs get
+        found and which is still in progress. Stage three is deployment to a
+        cloud account the user owns, and it has not started. Stage four,
+        opening the source, was reached out of order on 2026-09-26, before
+        stage two finished.
     }
-    Local["Stage 1: Local<br/>(current)"] ==> Validate["Stage 2: Validate<br/>real usage, real agents,<br/>real bugs found"]
-    Validate ==> Cloud["Stage 3: user-managed cloud<br/>Docker Compose / Terraform<br/>to YOUR AWS/GCP/DO account"]
-    Cloud ==> OpenSource["Stage 4: open source<br/>MIT/Apache, public repo"]
+    Local["Stage 1: Local<br/>(where it started)"] ==> Validate["Stage 2: Validate<br/>real usage, real agents,<br/>real bugs found<br/>(in progress)"]
+    Validate ==> Cloud["Stage 3: user-managed cloud<br/>Docker Compose / Terraform<br/>to YOUR AWS/GCP/DO account<br/>(not started)"]
+    Local -.->|"reached early, 2026-09-26"| OpenSource["Stage 4: open source<br/>MIT · public repo · v0.1.0"]
 
     style Local fill:#667eea,color:#fff
     style Validate fill:#fff4e6
@@ -1831,7 +1832,7 @@ flowchart LR
     style OpenSource fill:#e6ffe6
 ```
 
-**Reading it.** Thick arrows, because each stage is a gate rather than a milestone — you cannot reach stage three without having actually run stage two, and stage two's exit criteria are the four unchecked boxes in CONTRIBUTING. Stage 3 is also **blocked by a technical gap, not just by policy**: a headless cloud box has no display for a Tauri window, which is why headless mode is the high-priority item in §11.1.
+**Reading it.** The thick arrows are still gates for stages 1 to 3: you cannot reach stage three without having actually run stage two, and stage two's exit criteria are the four unchecked boxes in CONTRIBUTING. Stage 4 is the exception, and the dotted arrow says so: the repository was made public on 2026-09-26 with those boxes still unchecked, so they are now a validation backlog rather than a gate. Stage 3 is also **blocked by a technical gap, not just by policy**: a headless cloud box has no display for a Tauri window, which is why headless mode is the high-priority item in §11.1.
 
 ### 11.1 Platform roadmap (beyond macOS/Windows/Linux desktop)
 
@@ -1896,15 +1897,15 @@ Kept as a table rather than scattered caveats, because this document's failure m
 | The relay folds and commits | ⚠️ proven elsewhere | Verified on a throwaway repo, 2026-09-21 |
 | The relay pushes this repo | ❌ never run | Requires `VAULT_REPO`; not set |
 | Multi-agent coordination as a daily loop here | ❌ not yet | One agent at a time, fold is manual (§9.3) |
-| Windows / Linux builds | ❌ not built | macOS only so far (§4.1) |
+| Windows / Linux builds | ✅ proven | CI builds and uploads the installers on every push; the v0.1.0 release carries `.msi`, `.exe`, `.deb` and `.AppImage`; each was hands-on tested in a real VM (§4.1). Debian 13 cannot build; arm64 Linux AppImage bundling fails |
 | `callNous` against the live proxy | ⚠️ unverified | The proxy itself answered; this client path has not been exercised since |
 | Perplexity Agent API rewrite | ⚠️ unverified | **Never run** — no Perplexity key exists on this machine. Shape taken from Perplexity's own quickstart and Sonar→Agent migration guide; a 400 naming `input` or `preset` on first use means a documented field moved |
 | Sign-in (Google and GitHub) | ✅ proven | Both providers round-trip end to end against live consent screens; GitHub confirmed by a real sign-in on 2026-09-22 |
 | The gate opens without an account | ✅ proven | Clicked through against the running dev server (`localhost:5173`) — the stricter environment, since `inTauri()` is false there and both OAuth buttons are disabled by design: the gate clears, it survives a full reload, the profile page reads "Not signed in" while the sidebar chip still offers sign-in, and a fresh profile with no provider configured still gets the gate. Not re-run inside the packaged desktop app; the local path makes no Tauri call, so nothing it touches is environment-specific. |
 | DirectSDK CLI resolution | ✅ proven | Reproduced the ENOENT under the GUI `PATH`, then confirmed the resolved path runs `claude auth status` and reports `loggedIn: true`; 8 `cargo test` cases cover the search order, the executable-bit check, and the override |
-| Rust unit tests | ✅ proven | `cargo test` → 22 passed, 0 failed |
+| Rust unit tests | ✅ proven | `cargo test` passes in CI: 22 tests on Linux and 21 on Windows (latest run, 2026-11-02) |
 | Secret scanner catches a planted key | ✅ proven | Controls, not inspection. **Positive:** a planted `sk-ant-…` in a tracked file → refused, redacted. **True-negative:** a doc that merely names `sk-ant-` and `GOCSPX-` → clean. **History:** a key committed and deleted in a later commit → tree scan clean (the trap) while `--history` caught it in a probe clone. The first version of this scanner passed the planted key — `grep -o` drops the filename for a single-file operand, so every hit was parsed into the wrong field and discarded |
-| `.github/workflows/ci.yml` | ⚠️ **never run** | The repo had no CI before this. Both Node-side jobs were also run locally by hand; the `rust` job's apt list is the documented Tauri v1 Linux recipe and has not been executed. A red first run is the expected outcome of writing CI blind, not a broken repo |
+| `.github/workflows/ci.yml` | ✅ proven | Runs on every push and pull request. The first run (2026-09-23) failed; every run since has passed, and the latest (2026-11-02) passed all six jobs: secret scan, web checks, `cargo test` on Linux and Windows, and both installer builds |
 
 ## 13. Related documents
 
