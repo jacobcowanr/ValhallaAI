@@ -5,6 +5,7 @@
 **Last substantive rewrite: 2026-09-22**, after Agent Control, the vault screen, `.env` key loading, subscription-first routing, and the agent-run performance work (197 s → 41 s). Comparison claims decay fastest — re-verify against the code if it has been a while since that date.
 
 ```mermaid
+%%{init: {'fontFamily':'Arial, Helvetica, sans-serif','theme':'base','themeVariables':{'primaryColor':'#efe9ff','primaryTextColor':'#1b1533','primaryBorderColor':'#8b6cef','lineColor':'#6b5bd6','secondaryColor':'#e4eaff','tertiaryColor':'#f7f5ff','edgeLabelBackground':'#ffffff','fontFamily':'Arial, Helvetica, sans-serif','fontSize':'14px','noteBkgColor':'#fff6dc','noteTextColor':'#3a2f00','actorBkg':'#efe9ff','actorBorder':'#8b6cef','actorTextColor':'#1b1533','signalColor':'#4a3fb0','signalTextColor':'#1b1533','xyChart':{'backgroundColor':'#ffffff','plotColorPalette':'#8b6cef','titleColor':'#1b1533','xAxisLabelColor':'#1b1533','yAxisLabelColor':'#1b1533','xAxisTitleColor':'#1b1533','yAxisTitleColor':'#1b1533','xAxisLineColor':'#6b5bd6','yAxisLineColor':'#6b5bd6','xAxisTickColor':'#6b5bd6','yAxisTickColor':'#6b5bd6'}}}}%%
 flowchart LR
     accTitle: How fresh each claim in this document is
     accDescr {
@@ -64,6 +65,7 @@ Read left to right and the pattern is the point: ValhallaAI's column is the only
 - **Subscription-first is not the same as free.** The Claude Subscription DirectSDK path is metered against the subscription's Agent SDK allowance at a premium over interactive CLI use (per that plugin's documentation, not measured by this project), and it cannot read images. A heavy automation loop on it spends allowance faster than an interactive session would. The default is cheap at the margin, not free, and not universally right ([ARCHITECTURE.md §8.4](./ARCHITECTURE.md#84-the-cost-of-the-default-stated-plainly)).
 
 ```mermaid
+%%{init: {'fontFamily':'Arial, Helvetica, sans-serif','theme':'base','themeVariables':{'primaryColor':'#efe9ff','primaryTextColor':'#1b1533','primaryBorderColor':'#8b6cef','lineColor':'#6b5bd6','secondaryColor':'#e4eaff','tertiaryColor':'#f7f5ff','edgeLabelBackground':'#ffffff','fontFamily':'Arial, Helvetica, sans-serif','fontSize':'14px','noteBkgColor':'#fff6dc','noteTextColor':'#3a2f00','actorBkg':'#efe9ff','actorBorder':'#8b6cef','actorTextColor':'#1b1533','signalColor':'#4a3fb0','signalTextColor':'#1b1533','xyChart':{'backgroundColor':'#ffffff','plotColorPalette':'#8b6cef','titleColor':'#1b1533','xAxisLabelColor':'#1b1533','yAxisLabelColor':'#1b1533','xAxisTitleColor':'#1b1533','yAxisTitleColor':'#1b1533','xAxisLineColor':'#6b5bd6','yAxisLineColor':'#6b5bd6','xAxisTickColor':'#6b5bd6','yAxisTickColor':'#6b5bd6'}}}}%%
 quadrantChart
     accTitle: Where each tool sits
     accDescr {
@@ -133,6 +135,7 @@ Tauri + Svelte + a model picker is not a differentiator. Open WebUI, LM Studio, 
 ## 4. Who this is for — and who should not use it
 
 ```mermaid
+%%{init: {'fontFamily':'Arial, Helvetica, sans-serif','theme':'base','themeVariables':{'primaryColor':'#efe9ff','primaryTextColor':'#1b1533','primaryBorderColor':'#8b6cef','lineColor':'#6b5bd6','secondaryColor':'#e4eaff','tertiaryColor':'#f7f5ff','edgeLabelBackground':'#ffffff','fontFamily':'Arial, Helvetica, sans-serif','fontSize':'14px','noteBkgColor':'#fff6dc','noteTextColor':'#3a2f00','actorBkg':'#efe9ff','actorBorder':'#8b6cef','actorTextColor':'#1b1533','signalColor':'#4a3fb0','signalTextColor':'#1b1533','xyChart':{'backgroundColor':'#ffffff','plotColorPalette':'#8b6cef','titleColor':'#1b1533','xAxisLabelColor':'#1b1533','yAxisLabelColor':'#1b1533','xAxisTitleColor':'#1b1533','yAxisTitleColor':'#1b1533','xAxisLineColor':'#6b5bd6','yAxisLineColor':'#6b5bd6','xAxisTickColor':'#6b5bd6','yAxisTickColor':'#6b5bd6'}}}}%%
 flowchart TD
     accTitle: Does ValhallaAI fit you
     accDescr {

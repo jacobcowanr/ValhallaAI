@@ -2,7 +2,7 @@
 
 **Multi-provider AI orchestration, self-hosted.** One desktop app to talk to 13 LLM providers, run agents against them, and coordinate those agents through a git-synced markdown vault instead of a database.
 
-**Status: local development, not public.** See [Why local-first](./CONTRIBUTING.md#why-local-first) for the policy and the four-item gate. macOS, Windows, and Linux all build and run — CI proves it on every push, and each has been hands-on tested in a real VM, not just compiled ([ARCHITECTURE.md §4.1](./ARCHITECTURE.md#41-cross-platform-constraint)).
+**Status: public, early development (v0.1.0), MIT licensed.** The local-first policy this project started under is in [Why local-first](./CONTRIBUTING.md#why-local-first). macOS, Windows, and Linux all build and run — CI proves it on every push, and each has been hands-on tested in a real VM, not just compiled ([ARCHITECTURE.md §4.1](./ARCHITECTURE.md#41-cross-platform-constraint)).
 
 ## Download
 
@@ -18,6 +18,43 @@
 
 **Known gap:** Debian 13 (Trixie) and other very new distros can't build this from source at all — this Tauri version is pinned to `libsoup-2.4`/`webkit2gtk-4.0`, which those distros no longer ship. Debian 12 (Bookworm) and Ubuntu 22.04 are confirmed working. arm64 Linux users should build from source (`.deb`/`.rpm` work fine there; AppImage bundling does not, in this Tauri version).
 
+### Which download is for you?
+
+```mermaid
+%%{init: {'fontFamily':'Arial, Helvetica, sans-serif','theme':'base','themeVariables':{'primaryColor':'#efe9ff','primaryTextColor':'#1b1533','primaryBorderColor':'#8b6cef','lineColor':'#6b5bd6','secondaryColor':'#e4eaff','tertiaryColor':'#f7f5ff','edgeLabelBackground':'#ffffff','fontFamily':'Arial, Helvetica, sans-serif','fontSize':'14px','noteBkgColor':'#fff6dc','noteTextColor':'#3a2f00','actorBkg':'#efe9ff','actorBorder':'#8b6cef','actorTextColor':'#1b1533','signalColor':'#4a3fb0','signalTextColor':'#1b1533','xyChart':{'backgroundColor':'#ffffff','plotColorPalette':'#8b6cef','titleColor':'#1b1533','xAxisLabelColor':'#1b1533','yAxisLabelColor':'#1b1533','xAxisTitleColor':'#1b1533','yAxisTitleColor':'#1b1533','xAxisLineColor':'#6b5bd6','yAxisLineColor':'#6b5bd6','xAxisTickColor':'#6b5bd6','yAxisTickColor':'#6b5bd6'}}}}%%
+flowchart TD
+    accTitle: Which download is for you?
+    accDescr {
+        A decision tree for installing. On macOS, build from source with the
+        launcher. On Windows, use the msi installer. On Debian 12 or Ubuntu 22.04 on
+        x86-64, use the deb package. On other x86-64 Linux, use the AppImage. On
+        arm64 Linux, build from source. On Debian 13 and other very new
+        distributions, the app cannot be built or run because of pinned system
+        libraries.
+    }
+    Q["Your system"] --> M{"OS"}
+    M -->|macOS| MAC["build from source<br/>npm install, then valhallaai build"]
+    M -->|Windows| WIN["ValhallaAI_0.1.0_x64_en-US.msi<br/>or the NSIS .exe"]
+    M -->|Linux| LA{"CPU"}
+    LA -->|arm64| ARM["build from source<br/>.deb works, AppImage bundling does not"]
+    LA -->|x86-64| LD{"distribution"}
+    LD -->|"Debian 12 · Ubuntu 22.04"| DEB["valhalla-ai_0.1.0_amd64.deb<br/>sudo dpkg -i"]
+    LD -->|"Arch · Omarchy · other"| APP["valhalla-ai_0.1.0_amd64.AppImage<br/>chmod +x, then run"]
+    LD -->|"Debian 13 · very new"| NO["cannot build: libsoup-2.4<br/>and webkit2gtk-4.0 are not shipped"]
+    class MAC,ARM human
+    class WIN,DEB,APP ok
+    class NO gate
+    class M,LA,LD human
+    classDef live fill:#667eea,stroke:#4c51bf,color:#ffffff
+    classDef machine fill:#f0f4ff,stroke:#8b9cf4,color:#1b1533
+    classDef human fill:#fff4e6,stroke:#e0a458,color:#3a2a00
+    classDef gate fill:#ffe6e6,stroke:#e08080,color:#4a1010
+    classDef ok fill:#e6ffe6,stroke:#6fbf73,color:#0f3a12
+    classDef idle fill:#f5f5f5,stroke:#b8b8b8,color:#444444
+```
+
+**Reading it.** Only the green boxes are a download. macOS is build-from-source on purpose: a locally built app never carries the quarantine flag that a downloaded unsigned binary would, so Gatekeeper never gets in the way. The red box is a limit of the Tauri version the project is pinned to, not of your machine.
+
 ## What it does
 
 | | |
@@ -29,6 +66,7 @@
 | **Your keys, your machine** | Provider keys load from your own `.env` inside the desktop app — not from a browser tab. Nothing is sent anywhere except the provider you picked. |
 
 ```mermaid
+%%{init: {'fontFamily':'Arial, Helvetica, sans-serif','theme':'base','themeVariables':{'primaryColor':'#efe9ff','primaryTextColor':'#1b1533','primaryBorderColor':'#8b6cef','lineColor':'#6b5bd6','secondaryColor':'#e4eaff','tertiaryColor':'#f7f5ff','edgeLabelBackground':'#ffffff','fontFamily':'Arial, Helvetica, sans-serif','fontSize':'14px','noteBkgColor':'#fff6dc','noteTextColor':'#3a2f00','actorBkg':'#efe9ff','actorBorder':'#8b6cef','actorTextColor':'#1b1533','signalColor':'#4a3fb0','signalTextColor':'#1b1533','xyChart':{'backgroundColor':'#ffffff','plotColorPalette':'#8b6cef','titleColor':'#1b1533','xAxisLabelColor':'#1b1533','yAxisLabelColor':'#1b1533','xAxisTitleColor':'#1b1533','yAxisTitleColor':'#1b1533','xAxisLineColor':'#6b5bd6','yAxisLineColor':'#6b5bd6','xAxisTickColor':'#6b5bd6','yAxisTickColor':'#6b5bd6'}}}}%%
 flowchart TB
     accTitle: ValhallaAI at a glance
     accDescr {
@@ -61,6 +99,7 @@ flowchart TB
 
 | Document | What it covers |
 |---|---|
+| [DIAGRAMS.md](./DIAGRAMS.md) | The diagram atlas: the whole system on one page, six requests traced end to end, and an index of all 62 diagrams |
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | Design of record: system map, component responsibilities, data flow, security model, measured agent performance, and a table of what is proven versus merely built |
 | [POSITIONING.md](./POSITIONING.md) | What problem this solves, how it differs from Hermes / LangChain / Open WebUI / LibreChat / Modal, and what is honestly *not* novel |
 | [CONTRIBUTING.md](./CONTRIBUTING.md) | Local-first policy, conventions, recipes for adding a provider or an agent, and the known-open-issues list |
@@ -71,6 +110,7 @@ The repo's index. Everything here is either a living document (edited as the sys
 
 | Path | What it is | Status |
 |---|---|---|
+| [DIAGRAMS.md](./DIAGRAMS.md) | Diagram atlas — the system on one page, six requests traced, an index of every diagram | living |
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | Design of record — system map, components, data flow, security model, measured performance, proven-vs-built table | living |
 | [POSITIONING.md](./POSITIONING.md) | Differentiation, who it fits, and the honest risks | living |
 | [CONTRIBUTING.md](./CONTRIBUTING.md) | Conventions, recipes, known open issues | living |
@@ -96,6 +136,40 @@ npm run tauri-dev          # dev mode, hot reload
 
 **The desktop app is what reads `.env`. A plain browser tab cannot** — it has no filesystem access, so provider keys would silently be missing. Use `npm run tauri-dev`, or a release build.
 
+### What happens on first launch
+
+```mermaid
+%%{init: {'fontFamily':'Arial, Helvetica, sans-serif','theme':'base','themeVariables':{'primaryColor':'#efe9ff','primaryTextColor':'#1b1533','primaryBorderColor':'#8b6cef','lineColor':'#6b5bd6','secondaryColor':'#e4eaff','tertiaryColor':'#f7f5ff','edgeLabelBackground':'#ffffff','fontFamily':'Arial, Helvetica, sans-serif','fontSize':'14px','noteBkgColor':'#fff6dc','noteTextColor':'#3a2f00','actorBkg':'#efe9ff','actorBorder':'#8b6cef','actorTextColor':'#1b1533','signalColor':'#4a3fb0','signalTextColor':'#1b1533','xyChart':{'backgroundColor':'#ffffff','plotColorPalette':'#8b6cef','titleColor':'#1b1533','xAxisLabelColor':'#1b1533','yAxisLabelColor':'#1b1533','xAxisTitleColor':'#1b1533','yAxisTitleColor':'#1b1533','xAxisLineColor':'#6b5bd6','yAxisLineColor':'#6b5bd6','xAxisTickColor':'#6b5bd6','yAxisTickColor':'#6b5bd6'}}}}%%
+flowchart TD
+    accTitle: What happens on first launch
+    accDescr {
+        Install dependencies, copy the env template, and start the app in
+        development mode. The desktop app, not a browser tab, reads the env file
+        through its Rust core. The first launch then shows the sign-in gate, which
+        can be passed with Google, GitHub or no account, and the app opens on Models
+        and Chat with the default provider.
+    }
+    A["npm install"] --> B["cp env.example .env<br/>NAME=value lines only"]
+    B --> C["npm run tauri-dev"]
+    C --> D["Rust core reads .env<br/>provider keys + OAuth settings"]
+    D --> E["Sign-in gate<br/>Google · GitHub · Continue without an account"]
+    E --> F["Models & Chat<br/>default: Claude Subscription DirectSDK"]
+    C -.-> X["a plain browser tab cannot read .env<br/>keys would silently be missing"]
+    class A,B,C human
+    class D machine
+    class E human
+    class F ok
+    class X gate
+    classDef live fill:#667eea,stroke:#4c51bf,color:#ffffff
+    classDef machine fill:#f0f4ff,stroke:#8b9cf4,color:#1b1533
+    classDef human fill:#fff4e6,stroke:#e0a458,color:#3a2a00
+    classDef gate fill:#ffe6e6,stroke:#e08080,color:#4a1010
+    classDef ok fill:#e6ffe6,stroke:#6fbf73,color:#0f3a12
+    classDef idle fill:#f5f5f5,stroke:#b8b8b8,color:#444444
+```
+
+**Reading it.** The dotted red node is the trap this diagram is for: a Vite page opened in an ordinary browser has no filesystem access, so provider keys vanish without an error. Everything that reads `.env` lives in the Tauri process.
+
 ### Build a real app (recommended after the first run)
 
 ```bash
@@ -108,6 +182,41 @@ With no release build, `valhallaai` falls back to `npm run tauri-dev` and holds 
 ```bash
 ln -sf "$PWD/scripts/valhallaai" ~/.local/bin/valhallaai
 ```
+
+### How `valhallaai` decides what to launch
+
+```mermaid
+%%{init: {'fontFamily':'Arial, Helvetica, sans-serif','theme':'base','themeVariables':{'primaryColor':'#efe9ff','primaryTextColor':'#1b1533','primaryBorderColor':'#8b6cef','lineColor':'#6b5bd6','secondaryColor':'#e4eaff','tertiaryColor':'#f7f5ff','edgeLabelBackground':'#ffffff','fontFamily':'Arial, Helvetica, sans-serif','fontSize':'14px','noteBkgColor':'#fff6dc','noteTextColor':'#3a2f00','actorBkg':'#efe9ff','actorBorder':'#8b6cef','actorTextColor':'#1b1533','signalColor':'#4a3fb0','signalTextColor':'#1b1533','xyChart':{'backgroundColor':'#ffffff','plotColorPalette':'#8b6cef','titleColor':'#1b1533','xAxisLabelColor':'#1b1533','yAxisLabelColor':'#1b1533','xAxisTitleColor':'#1b1533','yAxisTitleColor':'#1b1533','xAxisLineColor':'#6b5bd6','yAxisLineColor':'#6b5bd6','xAxisTickColor':'#6b5bd6','yAxisTickColor':'#6b5bd6'}}}}%%
+flowchart TD
+    accTitle: How `valhallaai` decides what to launch
+    accDescr {
+        The launcher first writes a pointer file recording where the checkout is, so
+        a relocated app can find it. With no subcommand it opens a release build if
+        one exists. Otherwise it falls back to development mode and holds the
+        terminal. The build subcommand produces a release app, and the relay
+        subcommand starts or stops the optional relay container.
+    }
+    L["valhallaai [command]"] --> P["write the project pointer file<br/>~/Library/Application Support/com.valhallaai.app/project_dir"]
+    P --> K{"command"}
+    K -->|"none or open"| RB{"release build<br/>exists?"}
+    RB -->|yes| OPEN["open the .app<br/>instant · no terminal held"]
+    RB -->|no| DEV["npm run tauri-dev<br/>holds the terminal until Ctrl+C"]
+    K -->|dev| DEV
+    K -->|build| BLD["npm run tauri-build<br/>release .app + .dmg"]
+    K -->|"relay · relay stop"| RLY["docker compose<br/>start or stop the vault-relay container"]
+    class OPEN ok
+    class DEV human
+    class BLD,RLY machine
+    class RB,K human
+    classDef live fill:#667eea,stroke:#4c51bf,color:#ffffff
+    classDef machine fill:#f0f4ff,stroke:#8b9cf4,color:#1b1533
+    classDef human fill:#fff4e6,stroke:#e0a458,color:#3a2a00
+    classDef gate fill:#ffe6e6,stroke:#e08080,color:#4a1010
+    classDef ok fill:#e6ffe6,stroke:#6fbf73,color:#0f3a12
+    classDef idle fill:#f5f5f5,stroke:#b8b8b8,color:#444444
+```
+
+**Reading it.** The pointer file is what lets a double-clicked `.app` find `.env`, `vault/` and the scripts: macOS `open` does not forward environment variables, so an export would not reach it, but a file can. It is rewritten on every run, so moving the checkout and launching once corrects it.
 
 ### Checks
 
@@ -145,6 +254,38 @@ Three setup notes, all of which cost time if discovered late:
 
 Signing out clears the identity fields only; a local profile has nothing to sign out of and says so. `env.example` documents both providers' variables.
 
+### The three ways through the gate
+
+```mermaid
+%%{init: {'fontFamily':'Arial, Helvetica, sans-serif','theme':'base','themeVariables':{'primaryColor':'#efe9ff','primaryTextColor':'#1b1533','primaryBorderColor':'#8b6cef','lineColor':'#6b5bd6','secondaryColor':'#e4eaff','tertiaryColor':'#f7f5ff','edgeLabelBackground':'#ffffff','fontFamily':'Arial, Helvetica, sans-serif','fontSize':'14px','noteBkgColor':'#fff6dc','noteTextColor':'#3a2f00','actorBkg':'#efe9ff','actorBorder':'#8b6cef','actorTextColor':'#1b1533','signalColor':'#4a3fb0','signalTextColor':'#1b1533','xyChart':{'backgroundColor':'#ffffff','plotColorPalette':'#8b6cef','titleColor':'#1b1533','xAxisLabelColor':'#1b1533','yAxisLabelColor':'#1b1533','xAxisTitleColor':'#1b1533','yAxisTitleColor':'#1b1533','xAxisLineColor':'#6b5bd6','yAxisLineColor':'#6b5bd6','xAxisTickColor':'#6b5bd6','yAxisTickColor':'#6b5bd6'}}}}%%
+flowchart LR
+    accTitle: The three ways through the gate
+    accDescr {
+        On first launch the gate offers Google, GitHub or Continue without an
+        account. Google and GitHub need an OAuth client that you register and put in
+        your own env file. The local path needs no network and no configuration,
+        gives a profile named Local with no email, and withholds nothing. Signing in
+        later overwrites the provider and adds the identity.
+    }
+    G["First launch · sign-in gate"] --> GO["Google<br/>needs VITE_GOOGLE_CLIENT_ID<br/>and GOOGLE_CLIENT_SECRET"]
+    G --> GH["GitHub<br/>needs GITHUB_CLIENT_ID<br/>and GITHUB_CLIENT_SECRET"]
+    G --> LO["Continue without an account<br/>no network · no configuration"]
+    GO --> APP["App opens<br/>name · email · avatar on the profile"]
+    GH --> APP
+    LO --> APP2["App opens<br/>profile named Local · no email"]
+    APP2 -.->|"sign in later from Profile"| APP
+    class GO,GH human
+    class LO,APP,APP2 ok
+    classDef live fill:#667eea,stroke:#4c51bf,color:#ffffff
+    classDef machine fill:#f0f4ff,stroke:#8b9cf4,color:#1b1533
+    classDef human fill:#fff4e6,stroke:#e0a458,color:#3a2a00
+    classDef gate fill:#ffe6e6,stroke:#e08080,color:#4a1010
+    classDef ok fill:#e6ffe6,stroke:#6fbf73,color:#0f3a12
+    classDef idle fill:#f5f5f5,stroke:#b8b8b8,color:#444444
+```
+
+**Reading it.** Nothing is withheld on the local path: sign-in supplies a display name, avatar and email and nothing else, because there is no backend and nothing syncs. That is also why the gate is optional. Requiring sign-in would make every new user register a Google Cloud OAuth client and a GitHub OAuth app before seeing a single screen.
+
 ## Running agents
 
 Three runtimes. **One at a time** — the same three buttons exist on **Agent Control** inside the app, and the terminal takes the same argument.
@@ -166,6 +307,32 @@ Each run reads its task from `vault/agent-tasks.json`, does the work, appends on
 **Do not start the agents with `docker compose up`.** `claude-agent` makes one paid call and exits; a restart policy is not what you want on that container (`restart: "no"` is deliberate). Hermes does not run inside its image at all — it needs the macOS virtualenv at `~/.hermes`.
 
 Edits to `vault/agent-tasks.json` take effect on the **next run with no rebuild**, because the task is read at run time. Edits to Rust or Svelte code need `npm run tauri-dev` (or a rebuild) — a Vite hot reload does not pick up a Rust change.
+
+### Where one agent answer goes
+
+```mermaid
+%%{init: {'fontFamily':'Arial, Helvetica, sans-serif','theme':'base','themeVariables':{'primaryColor':'#efe9ff','primaryTextColor':'#1b1533','primaryBorderColor':'#8b6cef','lineColor':'#6b5bd6','secondaryColor':'#e4eaff','tertiaryColor':'#f7f5ff','edgeLabelBackground':'#ffffff','fontFamily':'Arial, Helvetica, sans-serif','fontSize':'14px','noteBkgColor':'#fff6dc','noteTextColor':'#3a2f00','actorBkg':'#efe9ff','actorBorder':'#8b6cef','actorTextColor':'#1b1533','signalColor':'#4a3fb0','signalTextColor':'#1b1533','xyChart':{'backgroundColor':'#ffffff','plotColorPalette':'#8b6cef','titleColor':'#1b1533','xAxisLabelColor':'#1b1533','yAxisLabelColor':'#1b1533','xAxisTitleColor':'#1b1533','yAxisTitleColor':'#1b1533','xAxisLineColor':'#6b5bd6','yAxisLineColor':'#6b5bd6','xAxisTickColor':'#6b5bd6','yAxisTickColor':'#6b5bd6'}}}}%%
+stateDiagram-v2
+    accTitle: Where one agent answer goes
+    accDescr {
+        A Run click starts an agent, which reads its task and appends its answer to
+        its own outbox file and exits. That part is automatic. Folding the outbox
+        into the shared log, committing it, and pushing it are a separate relay step
+        that you start, and the push has never run against this repository.
+    }
+    [*] --> Running: click Run
+    Running --> InOutbox: answer appended to AGENT_OUTBOX_agent.md
+    InOutbox --> Folded: relay folds it into AGENT_SYNC.md
+    Folded --> Committed: relay commits vault/
+    Committed --> Pushed: relay pushes, only if VAULT_REPO is set
+    note right of InOutbox
+        Automatic up to here.
+        Everything below needs the relay,
+        which valhallaai relay starts.
+    end note
+```
+
+**Reading it.** This is the single biggest gap between the design and the daily reality, so it is stated in three places. If an answer seems to be missing from `AGENT_SYNC.md`, it is almost certainly sitting in its outbox, waiting for a relay that is not running.
 
 ### Why a run is fast now (and was not before)
 
@@ -192,6 +359,42 @@ The ladder, the three levers that *don't* work, and the honest note that `claude
 | xAI Grok | yes | per token | `.env` — `XAI_API_KEY` |
 
 Anything else that speaks the OpenAI dialect can be added from **Settings → Custom Providers** (name + chat-completions URL + model ids). The id is namespaced `custom:<slug>` so it can never shadow a built-in. Why the list has this shape, and what was removed from it, is in [POSITIONING.md §3.2](./POSITIONING.md#32-genuinely-novel-for-this-category-breadth-of-provider-catalog-behind-one-interface). How each one is actually called is in [ARCHITECTURE.md §7](./ARCHITECTURE.md#7-provider-catalog).
+
+### Picking a provider
+
+```mermaid
+%%{init: {'fontFamily':'Arial, Helvetica, sans-serif','theme':'base','themeVariables':{'primaryColor':'#efe9ff','primaryTextColor':'#1b1533','primaryBorderColor':'#8b6cef','lineColor':'#6b5bd6','secondaryColor':'#e4eaff','tertiaryColor':'#f7f5ff','edgeLabelBackground':'#ffffff','fontFamily':'Arial, Helvetica, sans-serif','fontSize':'14px','noteBkgColor':'#fff6dc','noteTextColor':'#3a2f00','actorBkg':'#efe9ff','actorBorder':'#8b6cef','actorTextColor':'#1b1533','signalColor':'#4a3fb0','signalTextColor':'#1b1533','xyChart':{'backgroundColor':'#ffffff','plotColorPalette':'#8b6cef','titleColor':'#1b1533','xAxisLabelColor':'#1b1533','yAxisLabelColor':'#1b1533','xAxisTitleColor':'#1b1533','yAxisTitleColor':'#1b1533','xAxisLineColor':'#6b5bd6','yAxisLineColor':'#6b5bd6','xAxisTickColor':'#6b5bd6','yAxisTickColor':'#6b5bd6'}}}}%%
+flowchart TD
+    accTitle: Picking a provider
+    accDescr {
+        A decision guide. If you need to send screenshots, avoid the default and
+        Perplexity and choose Google or Nous. If you want nothing billed per
+        message, use the default, Nous or Ollama. If your data must stay on this
+        machine, use Ollama. If your provider is not listed but speaks the OpenAI
+        dialect, add it as a custom provider.
+    }
+    Q["What matters most?"] --> A{"sending screenshots?"}
+    A -->|yes| IMG["Google Gemini · Nous Portal<br/>or any of the other 10 that read images<br/>not the default, not Perplexity"]
+    A -->|no| B{"no per-message cost?"}
+    B -->|yes| FLAT["Claude Subscription DirectSDK (default)<br/>Nous Portal · Ollama"]
+    B -->|no| C{"data must stay<br/>on this machine?"}
+    C -->|yes| OLL["Ollama"]
+    C -->|no| D{"provider<br/>not listed?"}
+    D -->|"speaks the OpenAI dialect"| CUS["Settings → Custom Providers"]
+    D -->|"different request shape"| SRC["needs a source change"]
+    D -->|"it is listed"| ANY["pick it in the model bar"]
+    class IMG,FLAT,OLL,CUS,ANY ok
+    class SRC human
+    class A,B,C,D human
+    classDef live fill:#667eea,stroke:#4c51bf,color:#ffffff
+    classDef machine fill:#f0f4ff,stroke:#8b9cf4,color:#1b1533
+    classDef human fill:#fff4e6,stroke:#e0a458,color:#3a2a00
+    classDef gate fill:#ffe6e6,stroke:#e08080,color:#4a1010
+    classDef ok fill:#e6ffe6,stroke:#6fbf73,color:#0f3a12
+    classDef idle fill:#f5f5f5,stroke:#b8b8b8,color:#444444
+```
+
+**Reading it.** Each question prunes a real constraint rather than a preference. The first one is about a hard limit: the default provider cannot carry an image at all, and Perplexity stopped reading them when it was rewritten onto the Agent API. The fourth separates a Settings action from a code change, which is the same decision as the diagram in `CONTRIBUTING.md`.
 
 ## The caveats worth knowing before you rely on it
 
@@ -238,6 +441,40 @@ ValhallaAI/
 ## Troubleshooting
 
 Every entry here is a real failure that cost time, not a hypothetical.
+
+### A first triage for run problems
+
+```mermaid
+%%{init: {'fontFamily':'Arial, Helvetica, sans-serif','theme':'base','themeVariables':{'primaryColor':'#efe9ff','primaryTextColor':'#1b1533','primaryBorderColor':'#8b6cef','lineColor':'#6b5bd6','secondaryColor':'#e4eaff','tertiaryColor':'#f7f5ff','edgeLabelBackground':'#ffffff','fontFamily':'Arial, Helvetica, sans-serif','fontSize':'14px','noteBkgColor':'#fff6dc','noteTextColor':'#3a2f00','actorBkg':'#efe9ff','actorBorder':'#8b6cef','actorTextColor':'#1b1533','signalColor':'#4a3fb0','signalTextColor':'#1b1533','xyChart':{'backgroundColor':'#ffffff','plotColorPalette':'#8b6cef','titleColor':'#1b1533','xAxisLabelColor':'#1b1533','yAxisLabelColor':'#1b1533','xAxisTitleColor':'#1b1533','yAxisTitleColor':'#1b1533','xAxisLineColor':'#6b5bd6','yAxisLineColor':'#6b5bd6','xAxisTickColor':'#6b5bd6','yAxisTickColor':'#6b5bd6'}}}}%%
+flowchart LR
+    accTitle: A first triage for run problems
+    accDescr {
+        A symptom-first guide for agent and sign-in problems. A frozen window means
+        an old build. A run that falls through to Docker means the tool was not
+        found on the GUI path. A run that takes minutes means the prompt invites
+        tools. Sign-in failures split by provider into a missing variable, a
+        registered callback with a port in it, or a consent screen still in Testing.
+    }
+    S["Something is wrong"] --> W1["window freezes for minutes on Run"] --> F1["an old build: run_agent was not async yet<br/>→ valhallaai build"]
+    S --> W2["no subscription, then docker: command not found"] --> F2["GUI PATH is minimal<br/>→ install in ~/.local/bin, ~/.grok/bin, ~/.hermes/bin"]
+    S --> W3["DirectSDK: No claude CLI could be run"] --> F3["same trap in the chat path<br/>→ set CLAUDE_SUBSCRIPTION_DIRECTSDK_COMMAND"]
+    S --> W4["a grok-build run takes about 3 minutes"] --> F4["the prompt invites tool use<br/>→ check agent-tasks.json"]
+    S --> W5["answer missing from AGENT_SYNC.md"] --> F5["the relay is not running<br/>→ read the outbox, or run valhallaai relay"]
+    S --> W6["GitHub sign-in button is disabled"] --> F6["GITHUB_CLIENT_ID or SECRET missing<br/>→ add both, restart the app"]
+    S --> W7["GitHub: redirect_uri_mismatch"] --> F7["callback has a port<br/>→ use http://127.0.0.1/callback"]
+    S --> W8["Google: access_denied"] --> F8["consent screen still in Testing<br/>→ add yourself as a test user"]
+    class S live
+    class W1,W2,W3,W4,W5,W6,W7,W8 human
+    class F1,F2,F3,F4,F5,F6,F7,F8 ok
+    classDef live fill:#667eea,stroke:#4c51bf,color:#ffffff
+    classDef machine fill:#f0f4ff,stroke:#8b9cf4,color:#1b1533
+    classDef human fill:#fff4e6,stroke:#e0a458,color:#3a2a00
+    classDef gate fill:#ffe6e6,stroke:#e08080,color:#4a1010
+    classDef ok fill:#e6ffe6,stroke:#6fbf73,color:#0f3a12
+    classDef idle fill:#f5f5f5,stroke:#b8b8b8,color:#444444
+```
+
+**Reading it.** The table below has the full symptom, cause and fix for each of these. The shape to notice is that most rows are the same two root causes: the GUI-launched app has a minimal `PATH`, and a Vite hot reload does not re-read `.env` or Rust code. When something fails in the app but works in Terminal, suspect the environment before the code.
 
 | Symptom | Cause | Fix |
 |---|---|---|

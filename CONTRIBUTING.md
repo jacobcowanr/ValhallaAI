@@ -69,6 +69,7 @@ ValhallaAI/
 ### Adding a new LLM provider
 
 ```mermaid
+%%{init: {'fontFamily':'Arial, Helvetica, sans-serif','theme':'base','themeVariables':{'primaryColor':'#efe9ff','primaryTextColor':'#1b1533','primaryBorderColor':'#8b6cef','lineColor':'#6b5bd6','secondaryColor':'#e4eaff','tertiaryColor':'#f7f5ff','edgeLabelBackground':'#ffffff','fontFamily':'Arial, Helvetica, sans-serif','fontSize':'14px','noteBkgColor':'#fff6dc','noteTextColor':'#3a2f00','actorBkg':'#efe9ff','actorBorder':'#8b6cef','actorTextColor':'#1b1533','signalColor':'#4a3fb0','signalTextColor':'#1b1533','xyChart':{'backgroundColor':'#ffffff','plotColorPalette':'#8b6cef','titleColor':'#1b1533','xAxisLabelColor':'#1b1533','yAxisLabelColor':'#1b1533','xAxisTitleColor':'#1b1533','yAxisTitleColor':'#1b1533','xAxisLineColor':'#6b5bd6','yAxisLineColor':'#6b5bd6','xAxisTickColor':'#6b5bd6','yAxisTickColor':'#6b5bd6'}}}}%%
 flowchart TD
     accTitle: Which provider path to take
     accDescr {
@@ -121,6 +122,38 @@ bash scripts/secret-scan.sh --staged    # added lines in the index only
 - **A gate that fails on every run gets deleted, so this one matches values, not words.** It deliberately does *not* flag `127.0.0.1` (the GitHub OAuth callback is portless on purpose) or empty `NAME=` assignments (`env.example` is made of them). The vault's `scripts/secret_scan.sh` flags both, correctly — it guards a coordination log, not this repo. Do not merge the two rule sets.
 - **`docs:check` verifies anchors, not diagram syntax.** Mermaid parsing is still manual; see the note in [Known open issues](#known-open-issues).
 
+#### What CI does on every push
+
+```mermaid
+%%{init: {'fontFamily':'Arial, Helvetica, sans-serif','theme':'base','themeVariables':{'primaryColor':'#efe9ff','primaryTextColor':'#1b1533','primaryBorderColor':'#8b6cef','lineColor':'#6b5bd6','secondaryColor':'#e4eaff','tertiaryColor':'#f7f5ff','edgeLabelBackground':'#ffffff','fontFamily':'Arial, Helvetica, sans-serif','fontSize':'14px','noteBkgColor':'#fff6dc','noteTextColor':'#3a2f00','actorBkg':'#efe9ff','actorBorder':'#8b6cef','actorTextColor':'#1b1533','signalColor':'#4a3fb0','signalTextColor':'#1b1533','xyChart':{'backgroundColor':'#ffffff','plotColorPalette':'#8b6cef','titleColor':'#1b1533','xAxisLabelColor':'#1b1533','yAxisLabelColor':'#1b1533','xAxisTitleColor':'#1b1533','yAxisTitleColor':'#1b1533','xAxisLineColor':'#6b5bd6','yAxisLineColor':'#6b5bd6','xAxisTickColor':'#6b5bd6','yAxisTickColor':'#6b5bd6'}}}}%%
+flowchart LR
+    accTitle: What CI does on every push
+    accDescr {
+        Four independent jobs start on every push to main and on every pull request:
+        the secret scan over files, history and staged additions plus gitleaks, the
+        web job with type check, doc anchors and production build, the Linux Rust
+        tests, and the Windows Rust tests. The two installer jobs each wait on their
+        own test job and then upload a bundle as an artifact.
+    }
+    P["push to main · pull request · manual"] --> SEC["secrets<br/>scan files · full history · staged additions<br/>then gitleaks over the full history"]
+    P --> WEB["web<br/>svelte-check · docs:check anchors · vite build"]
+    P --> RL["rust · ubuntu-22.04<br/>cargo test"]
+    P --> RW["rust-windows<br/>cargo test"]
+    RL -->|"needs"| BL["build-linux<br/>deb + AppImage artifact"]
+    RW -->|"needs"| BW["build-windows<br/>msi + exe artifact"]
+    class SEC,WEB,RL,RW machine
+    class BL,BW ok
+    class P live
+    classDef live fill:#667eea,stroke:#4c51bf,color:#ffffff
+    classDef machine fill:#f0f4ff,stroke:#8b9cf4,color:#1b1533
+    classDef human fill:#fff4e6,stroke:#e0a458,color:#3a2a00
+    classDef gate fill:#ffe6e6,stroke:#e08080,color:#4a1010
+    classDef ok fill:#e6ffe6,stroke:#6fbf73,color:#0f3a12
+    classDef idle fill:#f5f5f5,stroke:#b8b8b8,color:#444444
+```
+
+**Reading it.** Only the two build jobs have a `needs:`; the other four run in parallel. The secret job reads the whole history on purpose, because a key that was committed and later deleted is still in every clone. None of the four jobs interpolates a `github.event.*` value into a shell step: every step invokes a checked-in script by path, which removes the Actions command-injection class by construction rather than by escaping.
+
 ### Agent runtimes
 
 - Each agent run is **one-shot**, not a daemon — `restart: "no"` in `docker-compose.local.yml`, not `unless-stopped`. This was gotten wrong once already: `unless-stopped` on a container that calls a paid API and exits 0 is an unbounded billing loop.
@@ -171,6 +204,43 @@ This bit the project **twice**, in two different languages, and the second time 
 
 **And when the lookup does fail, say what was tried.** The old message named a cause it had not checked ("not installed") and prescribed a fix for a different machine's install method. The current one lists the exact paths searched, states that a GUI PATH is the reason, and offers both the install route and the override variable. That distinction matters more than the fix: a wrong-but-confident error message costs the user the same hour whether or not the code underneath is correct.
 
+#### The GUI PATH trap, in one picture
+
+```mermaid
+%%{init: {'fontFamily':'Arial, Helvetica, sans-serif','theme':'base','themeVariables':{'primaryColor':'#efe9ff','primaryTextColor':'#1b1533','primaryBorderColor':'#8b6cef','lineColor':'#6b5bd6','secondaryColor':'#e4eaff','tertiaryColor':'#f7f5ff','edgeLabelBackground':'#ffffff','fontFamily':'Arial, Helvetica, sans-serif','fontSize':'14px','noteBkgColor':'#fff6dc','noteTextColor':'#3a2f00','actorBkg':'#efe9ff','actorBorder':'#8b6cef','actorTextColor':'#1b1533','signalColor':'#4a3fb0','signalTextColor':'#1b1533','xyChart':{'backgroundColor':'#ffffff','plotColorPalette':'#8b6cef','titleColor':'#1b1533','xAxisLabelColor':'#1b1533','yAxisLabelColor':'#1b1533','xAxisTitleColor':'#1b1533','yAxisTitleColor':'#1b1533','xAxisLineColor':'#6b5bd6','yAxisLineColor':'#6b5bd6','xAxisTickColor':'#6b5bd6','yAxisTickColor':'#6b5bd6'}}}}%%
+flowchart TD
+    accTitle: The GUI PATH trap, in one picture
+    accDescr {
+        A program started from a terminal inherits the login shell's PATH, which
+        includes the directories where developers install tools. A program started
+        by double-clicking an app inherits only four system directories. Every tool
+        this project shells out to lives outside those four, so a bare command name
+        fails. The fix, applied in three places, is to resolve to an absolute path
+        from a list and to prepend that list to the child's PATH.
+    }
+    T["Started from Terminal"] --> TP["login-shell PATH<br/>~/.local/bin · ~/.cargo/bin · ~/.grok/bin · …"]
+    TP --> OK1["claude, grok, cargo found"]
+    GUI["Started by double-clicking the app"] --> GP["PATH = /usr/bin:/bin:/usr/sbin:/sbin"]
+    GP --> BAD["bare command name → not found"]
+    BAD --> S1["run_agent.sh<br/>grok read as absent → paid Docker path → docker: command not found"]
+    BAD --> S2["claude_subscription<br/>reported not installed → advised a second npm install"]
+    BAD --> S3["valhallaai launcher<br/>needs cargo"]
+    S1 --> FX1["path_helper + prepend ~/.grok/bin, ~/.local/bin,<br/>~/.hermes/bin, ~/.orbstack/bin"]
+    S2 --> FX2["resolve_claude() searches absolute locations;<br/>subscription_env() prepends them"]
+    S3 --> FX3["prepend $HOME/.cargo/bin"]
+    class OK1,FX1,FX2,FX3 ok
+    class BAD,S1,S2,S3 gate
+    class T,GUI human
+    classDef live fill:#667eea,stroke:#4c51bf,color:#ffffff
+    classDef machine fill:#f0f4ff,stroke:#8b9cf4,color:#1b1533
+    classDef human fill:#fff4e6,stroke:#e0a458,color:#3a2a00
+    classDef gate fill:#ffe6e6,stroke:#e08080,color:#4a1010
+    classDef ok fill:#e6ffe6,stroke:#6fbf73,color:#0f3a12
+    classDef idle fill:#f5f5f5,stroke:#b8b8b8,color:#444444
+```
+
+**Reading it.** The left column works and the right column does not, and the difference is a single environment variable. The first symptom is the nasty one: a missing `grok` read as "no subscription", so the runner silently fell through to a paid path that then failed with a different error. One bad PATH produced two wrong conclusions. Test any new spawn with `PATH=/usr/bin:/bin:/usr/sbin:/sbin`, because that is the app's real environment.
+
 ### Recording agent output
 
 - One outbox entry is one **line** of flattened text (capped at 2000 chars), headed `## [timestamp] <agent>`, then `Status:` (`OK (subscription)`, `OK (paid-key)`, or `ERROR`).
@@ -191,6 +261,7 @@ This bit the project **twice**, in two different languages, and the second time 
 ### Profiles and per-profile storage
 
 ```mermaid
+%%{init: {'fontFamily':'Arial, Helvetica, sans-serif','theme':'base','themeVariables':{'primaryColor':'#efe9ff','primaryTextColor':'#1b1533','primaryBorderColor':'#8b6cef','lineColor':'#6b5bd6','secondaryColor':'#e4eaff','tertiaryColor':'#f7f5ff','edgeLabelBackground':'#ffffff','fontFamily':'Arial, Helvetica, sans-serif','fontSize':'14px','noteBkgColor':'#fff6dc','noteTextColor':'#3a2f00','actorBkg':'#efe9ff','actorBorder':'#8b6cef','actorTextColor':'#1b1533','signalColor':'#4a3fb0','signalTextColor':'#1b1533','xyChart':{'backgroundColor':'#ffffff','plotColorPalette':'#8b6cef','titleColor':'#1b1533','xAxisLabelColor':'#1b1533','yAxisLabelColor':'#1b1533','xAxisTitleColor':'#1b1533','yAxisTitleColor':'#1b1533','xAxisLineColor':'#6b5bd6','yAxisLineColor':'#6b5bd6','xAxisTickColor':'#6b5bd6','yAxisTickColor':'#6b5bd6'}}}}%%
 flowchart TD
     accTitle: How one localStorage key becomes per-profile
     accDescr {
@@ -255,6 +326,54 @@ Identity only, for either provider. A sign-in attaches a name, email, and avatar
 
 **One field, two meanings.** `Profile.emailVerified` is surfaced, not enforced (§[First-launch onboarding](#first-launch-onboarding-and-email-verification)), and each provider fills it from a different place: Google from the `email_verified` claim inside the `id_token`, GitHub from the `verified` flag on the primary entry returned by `GET /user/emails`.
 
+#### The OAuth loopback flow, step by step
+
+```mermaid
+%%{init: {'fontFamily':'Arial, Helvetica, sans-serif','theme':'base','themeVariables':{'primaryColor':'#efe9ff','primaryTextColor':'#1b1533','primaryBorderColor':'#8b6cef','lineColor':'#6b5bd6','secondaryColor':'#e4eaff','tertiaryColor':'#f7f5ff','edgeLabelBackground':'#ffffff','fontFamily':'Arial, Helvetica, sans-serif','fontSize':'14px','noteBkgColor':'#fff6dc','noteTextColor':'#3a2f00','actorBkg':'#efe9ff','actorBorder':'#8b6cef','actorTextColor':'#1b1533','signalColor':'#4a3fb0','signalTextColor':'#1b1533','xyChart':{'backgroundColor':'#ffffff','plotColorPalette':'#8b6cef','titleColor':'#1b1533','xAxisLabelColor':'#1b1533','yAxisLabelColor':'#1b1533','xAxisTitleColor':'#1b1533','yAxisTitleColor':'#1b1533','xAxisLineColor':'#6b5bd6','yAxisLineColor':'#6b5bd6','xAxisTickColor':'#6b5bd6','yAxisTickColor':'#6b5bd6'}}}}%%
+sequenceDiagram
+    accTitle: The OAuth loopback flow, step by step
+    accDescr {
+        Both providers use the same shape. The Rust command generates a PKCE
+        verifier and challenge and a random state, binds a loopback socket on an OS-
+        chosen port, and opens the system browser at the provider's consent page.
+        The browser redirects to the loopback address, the command checks the state,
+        closes the socket, and exchanges the code for a token with the verifier and
+        the client secret. Google then reads identity from the id token. GitHub
+        makes two REST calls. The token is discarded.
+    }
+    participant UI as profiles.ts
+    participant R as Rust command
+    participant B as System browser
+    participant P as Provider
+    UI->>R: invoke google_sign_in or github_sign_in
+    R->>R: verifier, S256 challenge, random state
+    R->>R: bind 127.0.0.1:0 and note the port
+    R->>B: open the consent URL with challenge and state
+    B->>P: user approves
+    P-->>B: redirect to 127.0.0.1:port/callback?code&state
+    B->>R: GET /callback
+    R->>R: exactly one callback, wait at most 180 s
+    R-->>B: Signed in. You can close this tab.
+    R->>R: close the socket
+    alt state does not match
+        R-->>UI: error, nothing changed
+    else state matches
+        R->>P: POST token endpoint: code, verifier, client secret
+        alt Google
+            P-->>R: id_token
+            R->>R: decode the claims, no local signature check
+        else GitHub
+            P-->>R: access_token
+            R->>P: GET /user and GET /user/emails, with a User-Agent
+            P-->>R: name, avatar, primary email, verified flag
+        end
+        R->>R: discard the token
+        R-->>UI: name, email, avatar, emailVerified
+    end
+```
+
+**Reading it.** The `state` check is not optional: without it the loopback callback is forgeable by anything that can reach localhost. Everything after the socket closes can fail without leaving anything listening. The `alt` at the bottom is the only real difference between providers, and it is the whole reason GitHub needs a `User-Agent` and an `Accept: application/json` header while Google does not. The client secret is required by both token endpoints despite PKCE, because both treat the Desktop client type that way.
+
 #### Google specifics
 - **Two variables, and the prefix difference is load-bearing.** `VITE_GOOGLE_CLIENT_ID` is read by the frontend, so it needs the `VITE_` prefix and is inlined into the bundle — public by design, since it ships inside the binary anyway. `GOOGLE_CLIENT_SECRET` has **no** prefix on purpose: it is read by the Rust process via `envfile::value()`, and a `VITE_` prefix would inline it into the JS bundle for no reason.
 - **The secret is required**, contrary to what a plain reading of RFC 8252 suggests. Google's "Desktop app" client type still demands `client_secret` at the token endpoint even with PKCE, and answers `400 invalid_request: client_secret is missing` without it. Google treats it as a low-value secret (it ships in every installed copy); PKCE is the actual protection.
@@ -315,6 +434,43 @@ A stale pointer (moved or deleted checkout) fails the marker test and falls thro
 
 **This does not make the build distributable.** The `.app` is ad-hoc signed, arm64-only, and still expects a checkout to exist somewhere on the machine. Shipping it to someone else needs a Developer ID, notarization, and a decision about what the app should do when there is no checkout at all.
 
+#### How the app finds the checkout
+
+```mermaid
+%%{init: {'fontFamily':'Arial, Helvetica, sans-serif','theme':'base','themeVariables':{'primaryColor':'#efe9ff','primaryTextColor':'#1b1533','primaryBorderColor':'#8b6cef','lineColor':'#6b5bd6','secondaryColor':'#e4eaff','tertiaryColor':'#f7f5ff','edgeLabelBackground':'#ffffff','fontFamily':'Arial, Helvetica, sans-serif','fontSize':'14px','noteBkgColor':'#fff6dc','noteTextColor':'#3a2f00','actorBkg':'#efe9ff','actorBorder':'#8b6cef','actorTextColor':'#1b1533','signalColor':'#4a3fb0','signalTextColor':'#1b1533','xyChart':{'backgroundColor':'#ffffff','plotColorPalette':'#8b6cef','titleColor':'#1b1533','xAxisLabelColor':'#1b1533','yAxisLabelColor':'#1b1533','xAxisTitleColor':'#1b1533','yAxisTitleColor':'#1b1533','xAxisLineColor':'#6b5bd6','yAxisLineColor':'#6b5bd6','xAxisTickColor':'#6b5bd6','yAxisTickColor':'#6b5bd6'}}}}%%
+flowchart TD
+    accTitle: How the app finds the checkout
+    accDescr {
+        Every backend command needs the project folder. The finder tries four
+        candidates in order and validates each against a marker file, so a stale or
+        wrong path is skipped rather than trusted. An explicit environment variable
+        wins and is an error if wrong. Then comes the pointer file written by the
+        launcher, then a walk up from the working directory, then the folder baked
+        in at compile time. If none match, the app says so and names the fix.
+    }
+    S["project_root()<br/>override: VALHALLAAI_PROJECT_DIR"] --> E{"override<br/>set?"}
+    E -->|"set and valid"| R["use it"]
+    E -->|"set but no marker"| ER["error: set but no marker there"]
+    E -->|unset| PF{"pointer file names<br/>a valid checkout?"}
+    PF -->|yes| R
+    PF -->|"missing or stale"| W{"walk up from cwd<br/>finds the marker?"}
+    W -->|yes| R
+    W -->|no| CM{"compile-time path<br/>is a valid checkout?"}
+    CM -->|yes| R
+    CM -->|no| ER2["error: run with valhallaai<br/>or set VALHALLAAI_PROJECT_DIR"]
+    class R ok
+    class ER,ER2 gate
+    class E,PF,W,CM human
+    classDef live fill:#667eea,stroke:#4c51bf,color:#ffffff
+    classDef machine fill:#f0f4ff,stroke:#8b9cf4,color:#1b1533
+    classDef human fill:#fff4e6,stroke:#e0a458,color:#3a2a00
+    classDef gate fill:#ffe6e6,stroke:#e08080,color:#4a1010
+    classDef ok fill:#e6ffe6,stroke:#6fbf73,color:#0f3a12
+    classDef idle fill:#f5f5f5,stroke:#b8b8b8,color:#444444
+```
+
+**Reading it.** The marker is `docker-compose.local.yml`. The old version used the compile-time path with a silent fallback to the working directory, and both halves break in a release build: the baked-in path names whichever machine built the app, and a double-clicked `.app` has `/` as its working directory. The fallback then "succeeded" with a path containing nothing, so every feature quietly found an empty world. Now the failure is loud and names its own cure.
+
 ### The vault relay
 
 `scripts/vault_relay.sh` in the `vault-relay` container folds each `AGENT_OUTBOX_<agent>.md` into `AGENT_SYNC.md`, clears the outbox, and commits. It is `profiles: optional`, so a plain `docker compose up` never starts it.
@@ -336,6 +492,45 @@ Things that were wrong and are worth not reintroducing:
 - **`set -eu` around unguarded git commands crash-looped the container** on its first cycle. Every git step is now individually guarded so a failure degrades instead of killing the loop.
 
 **Push does not work over the current remote.** `origin` is HTTPS and the container has no credential helper, so `git push` cannot authenticate — the mounted `HOST_SSH_DIR` only helps an `ssh://` remote. Push is gated behind `VAULT_REPO` being set and every git step is individually guarded, so the relay folds and commits locally without crash-looping. Switch `origin` to SSH or add a token helper before expecting push to work.
+
+#### The Docker services and what they mount
+
+```mermaid
+%%{init: {'fontFamily':'Arial, Helvetica, sans-serif','theme':'base','themeVariables':{'primaryColor':'#efe9ff','primaryTextColor':'#1b1533','primaryBorderColor':'#8b6cef','lineColor':'#6b5bd6','secondaryColor':'#e4eaff','tertiaryColor':'#f7f5ff','edgeLabelBackground':'#ffffff','fontFamily':'Arial, Helvetica, sans-serif','fontSize':'14px','noteBkgColor':'#fff6dc','noteTextColor':'#3a2f00','actorBkg':'#efe9ff','actorBorder':'#8b6cef','actorTextColor':'#1b1533','signalColor':'#4a3fb0','signalTextColor':'#1b1533','xyChart':{'backgroundColor':'#ffffff','plotColorPalette':'#8b6cef','titleColor':'#1b1533','xAxisLabelColor':'#1b1533','yAxisLabelColor':'#1b1533','xAxisTitleColor':'#1b1533','yAxisTitleColor':'#1b1533','xAxisLineColor':'#6b5bd6','yAxisLineColor':'#6b5bd6','xAxisTickColor':'#6b5bd6','yAxisTickColor':'#6b5bd6'}}}}%%
+flowchart LR
+    accTitle: The Docker services and what they mount
+    accDescr {
+        Four services share one network. The claude and hermes agents start only
+        when asked and never restart. The grok agent and the relay are in the
+        optional profile, so a plain compose up never starts them. The relay is the
+        only one that restarts unless stopped, and it mounts the whole checkout plus
+        your SSH folder, while the agents mount only the vault. Hermes mounts your
+        Hermes home from a host path set in the env file.
+    }
+    subgraph DC["docker-compose.local.yml · network: valhallaai"]
+        CA["claude-agent<br/>restart: no<br/>env: ANTHROPIC_API_KEY"]
+        HA["hermes-agent<br/>restart: no<br/>image has no hermes binary"]
+        GB["grok-build · optional<br/>restart: no<br/>env: XAI_API_KEY"]
+        VR["vault-relay · optional<br/>restart: unless-stopped"]
+    end
+    V[("./vault")] --- CA
+    V --- HA
+    V --- GB
+    HH[("HOST_HERMES_DIR → /root/.hermes")] --- HA
+    CK[("whole checkout → /repo")] --- VR
+    SSH[("HOST_SSH_DIR → /root/.ssh")] --- VR
+    class CA,HA,GB machine
+    class VR human
+    class V,HH,CK,SSH ok
+    classDef live fill:#667eea,stroke:#4c51bf,color:#ffffff
+    classDef machine fill:#f0f4ff,stroke:#8b9cf4,color:#1b1533
+    classDef human fill:#fff4e6,stroke:#e0a458,color:#3a2a00
+    classDef gate fill:#ffe6e6,stroke:#e08080,color:#4a1010
+    classDef ok fill:#e6ffe6,stroke:#6fbf73,color:#0f3a12
+    classDef idle fill:#f5f5f5,stroke:#b8b8b8,color:#444444
+```
+
+**Reading it.** The restart policies are the point. `unless-stopped` on a container that calls a paid API and exits is an unbounded billing loop, so every agent is `restart: "no"`. Only the relay restarts, because it is the one thing meant to stay up, and even then it is behind the `optional` profile. The hermes container exists for completeness: the real Hermes run is a host CLI, because the installed Hermes is a macOS virtualenv that a Linux container cannot execute.
 
 ### Model lists rot, and silently
 
@@ -359,9 +554,44 @@ Distinguish a dead id from a quota error. `claude-fable-5-1` returns "You're out
 
 When adding or editing a provider's models, check against its endpoint rather than writing ids from memory. Gemini retires them fastest.
 
+#### Checking a model id against reality
+
+```mermaid
+%%{init: {'fontFamily':'Arial, Helvetica, sans-serif','theme':'base','themeVariables':{'primaryColor':'#efe9ff','primaryTextColor':'#1b1533','primaryBorderColor':'#8b6cef','lineColor':'#6b5bd6','secondaryColor':'#e4eaff','tertiaryColor':'#f7f5ff','edgeLabelBackground':'#ffffff','fontFamily':'Arial, Helvetica, sans-serif','fontSize':'14px','noteBkgColor':'#fff6dc','noteTextColor':'#3a2f00','actorBkg':'#efe9ff','actorBorder':'#8b6cef','actorTextColor':'#1b1533','signalColor':'#4a3fb0','signalTextColor':'#1b1533','xyChart':{'backgroundColor':'#ffffff','plotColorPalette':'#8b6cef','titleColor':'#1b1533','xAxisLabelColor':'#1b1533','yAxisLabelColor':'#1b1533','xAxisTitleColor':'#1b1533','yAxisTitleColor':'#1b1533','xAxisLineColor':'#6b5bd6','yAxisLineColor':'#6b5bd6','xAxisTickColor':'#6b5bd6','yAxisTickColor':'#6b5bd6'}}}}%%
+flowchart TD
+    accTitle: Checking a model id against reality
+    accDescr {
+        A model id listed by a provider's models endpoint is not proof that the
+        model answers. The check is to send a real request. A success keeps the id.
+        A not-found response means it is retired and should be removed. A quota or
+        credit error means the id is valid and the account is out of allowance, so
+        the id must be kept. The first id in a provider's list is the default, so
+        order matters.
+    }
+    L["id appears in the provider's list"] --> Q["send a real request with that id"]
+    Q --> R{"response"}
+    R -->|"200 with a reply"| KEEP["keep it"]
+    R -->|"404 no longer available"| DROP["retired: remove or replace it"]
+    R -->|"out of credits or quota"| VALID["the id is valid, the account is empty<br/>keep it"]
+    KEEP --> ORD["order: newest answering model first<br/>models[0] is the default"]
+    VALID --> ORD
+    class KEEP,VALID,ORD ok
+    class DROP gate
+    class R human
+    classDef live fill:#667eea,stroke:#4c51bf,color:#ffffff
+    classDef machine fill:#f0f4ff,stroke:#8b9cf4,color:#1b1533
+    classDef human fill:#fff4e6,stroke:#e0a458,color:#3a2a00
+    classDef gate fill:#ffe6e6,stroke:#e08080,color:#4a1010
+    classDef ok fill:#e6ffe6,stroke:#6fbf73,color:#0f3a12
+    classDef idle fill:#f5f5f5,stroke:#b8b8b8,color:#444444
+```
+
+**Reading it.** Gemini lists `gemini-2.5-flash` with `generateContent` support and a real request returns 404. Equally, `claude-fable-5-1` answers "out of usage credits" through the CLI: removing it on that evidence would delete a perfectly good id. Distinguish a dead id from a quota error before touching the list, and never write ids from memory.
+
 ### Before claiming something works
 
 ```mermaid
+%%{init: {'fontFamily':'Arial, Helvetica, sans-serif','theme':'base','themeVariables':{'primaryColor':'#efe9ff','primaryTextColor':'#1b1533','primaryBorderColor':'#8b6cef','lineColor':'#6b5bd6','secondaryColor':'#e4eaff','tertiaryColor':'#f7f5ff','edgeLabelBackground':'#ffffff','fontFamily':'Arial, Helvetica, sans-serif','fontSize':'14px','noteBkgColor':'#fff6dc','noteTextColor':'#3a2f00','actorBkg':'#efe9ff','actorBorder':'#8b6cef','actorTextColor':'#1b1533','signalColor':'#4a3fb0','signalTextColor':'#1b1533','xyChart':{'backgroundColor':'#ffffff','plotColorPalette':'#8b6cef','titleColor':'#1b1533','xAxisLabelColor':'#1b1533','yAxisLabelColor':'#1b1533','xAxisTitleColor':'#1b1533','yAxisTitleColor':'#1b1533','xAxisLineColor':'#6b5bd6','yAxisLineColor':'#6b5bd6','xAxisTickColor':'#6b5bd6','yAxisTickColor':'#6b5bd6'}}}}%%
 flowchart TD
     accTitle: The three checks, and what each one actually covers
     accDescr {

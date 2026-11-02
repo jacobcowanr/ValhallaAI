@@ -35,6 +35,7 @@ Every diagram in this document and in the project's other docs uses one visual v
 |---|---|
 | 🟦 Blue / indigo | The live target — the thing the design is aiming at |
 | ⬜ Light blue | Machine-side, automated work |
+| 🟩 Green | The healthy outcome, or a store that holds the answer |
 | 🟨 Amber | A human step, or a step that needs care |
 | 🟥 Rose / red | A gate that can block, or a stop condition |
 | ⬜ Grey | Archived, or not-active-yet |
@@ -44,6 +45,7 @@ Every diagram carries `accTitle:` and `accDescr {}` so a screen reader (and a pl
 ## 3. System map
 
 ```mermaid
+%%{init: {'fontFamily':'Arial, Helvetica, sans-serif','theme':'base','themeVariables':{'primaryColor':'#efe9ff','primaryTextColor':'#1b1533','primaryBorderColor':'#8b6cef','lineColor':'#6b5bd6','secondaryColor':'#e4eaff','tertiaryColor':'#f7f5ff','edgeLabelBackground':'#ffffff','fontFamily':'Arial, Helvetica, sans-serif','fontSize':'14px','noteBkgColor':'#fff6dc','noteTextColor':'#3a2f00','actorBkg':'#efe9ff','actorBorder':'#8b6cef','actorTextColor':'#1b1533','signalColor':'#4a3fb0','signalTextColor':'#1b1533','xyChart':{'backgroundColor':'#ffffff','plotColorPalette':'#8b6cef','titleColor':'#1b1533','xAxisLabelColor':'#1b1533','yAxisLabelColor':'#1b1533','xAxisTitleColor':'#1b1533','yAxisTitleColor':'#1b1533','xAxisLineColor':'#6b5bd6','yAxisLineColor':'#6b5bd6','xAxisTickColor':'#6b5bd6','yAxisTickColor':'#6b5bd6'}}}}%%
 graph TB
     accTitle: ValhallaAI system map
     accDescr {
@@ -117,6 +119,152 @@ graph TB
 
 **Reading it.** Three observations matter more than the boxes. First, **there are two arrows into the agent runtimes but only one path out of them** — an agent reads its task and its config, and its only write is to its own outbox. It never edits the shared log directly, which is the whole concurrency design (§9.3). Second, **the relay arrows are dotted**: folding and pushing is a separate step that a running relay performs, and it is not running by default (§9.3). Third, **the Vault Browser arrow is one-way** — the app can read the vault and report `git status`, and it has no push path at all. That is a deliberate property, not an unfinished feature: the app cannot publish your log to a remote on its own.
 
+### 3.1 Runtime topology
+
+```mermaid
+%%{init: {'fontFamily':'Arial, Helvetica, sans-serif','theme':'base','themeVariables':{'primaryColor':'#efe9ff','primaryTextColor':'#1b1533','primaryBorderColor':'#8b6cef','lineColor':'#6b5bd6','secondaryColor':'#e4eaff','tertiaryColor':'#f7f5ff','edgeLabelBackground':'#ffffff','fontFamily':'Arial, Helvetica, sans-serif','fontSize':'14px','noteBkgColor':'#fff6dc','noteTextColor':'#3a2f00','actorBkg':'#efe9ff','actorBorder':'#8b6cef','actorTextColor':'#1b1533','signalColor':'#4a3fb0','signalTextColor':'#1b1533','xyChart':{'backgroundColor':'#ffffff','plotColorPalette':'#8b6cef','titleColor':'#1b1533','xAxisLabelColor':'#1b1533','yAxisLabelColor':'#1b1533','xAxisTitleColor':'#1b1533','yAxisTitleColor':'#1b1533','xAxisLineColor':'#6b5bd6','yAxisLineColor':'#6b5bd6','xAxisTickColor':'#6b5bd6','yAxisTickColor':'#6b5bd6'}}}}%%
+flowchart TB
+    accTitle: 3.1 Runtime topology
+    accDescr {
+        One desktop window talks to three kinds of thing. The Svelte webview calls
+        provider APIs directly with fetch, except Anthropic, which goes through the
+        Rust core. It invokes ten Rust commands for everything that needs the
+        filesystem or a process. The Rust core reads the allowlisted keys from the
+        env file, runs the agent script, which runs a host CLI or falls back to a
+        Docker container, and reads the vault. The relay container is separate and
+        optional.
+    }
+    subgraph Web["Tauri webview"]
+        direction LR
+        UI["Svelte UI<br/>App.svelte + 9 routes"]
+        RT["llm-router.ts<br/>fetch straight to provider APIs,<br/>Ollama and the Hermes proxy<br/>(Anthropic goes via Rust)"]
+        LS[("localStorage<br/>vai:profileId:…")]
+    end
+    subgraph Core["Rust core · main.rs"]
+        direction LR
+        CMD["10 invoke commands"]
+        ENVR["envfile.rs<br/>5 allowlisted keys"]
+    end
+    subgraph Host["Host processes · started on demand"]
+        direction LR
+        SH["bash run_agent.sh"]
+        CLI["claude · grok · hermes CLIs"]
+        UT["git status<br/>system browser (OAuth)"]
+    end
+    subgraph Opt["Docker · optional"]
+        direction LR
+        CT["fallback containers<br/>claude-agent · grok-build"]
+        RL["vault-relay"]
+    end
+    DISK[(".env and vault/<br/>in the project checkout")]
+    UI ==>|"invoke"| CMD
+    UI --> RT
+    UI -.-> LS
+    CMD --> ENVR
+    CMD --> SH
+    CMD -->|"claude_subscription"| CLI
+    CMD -->|"vault_status · sign-in"| UT
+    SH --> CLI
+    SH -.->|"no login"| CT
+    ENVR --> DISK
+    CLI --> DISK
+    CT --> DISK
+    RL --> DISK
+    class UI,RT live
+    class CMD,ENVR,SH machine
+    class CLI,UT human
+    class CT,RL idle
+    class DISK ok
+    classDef live fill:#667eea,stroke:#4c51bf,color:#ffffff
+    classDef machine fill:#f0f4ff,stroke:#8b9cf4,color:#1b1533
+    classDef human fill:#fff4e6,stroke:#e0a458,color:#3a2a00
+    classDef gate fill:#ffe6e6,stroke:#e08080,color:#4a1010
+    classDef ok fill:#e6ffe6,stroke:#6fbf73,color:#0f3a12
+    classDef idle fill:#f5f5f5,stroke:#b8b8b8,color:#444444
+```
+
+**Reading it.** Follow the thick arrow: everything that touches the filesystem or starts a process goes through `invoke`, so the ten commands in §3.2 are the entire attack surface between the webview and your machine. Chat requests skip the Rust core and go straight from the webview to the provider (Anthropic is the exception, because WebKit hides its CORS rejection). The grey boxes are optional: the containers are the paid fallback, and the relay is a separate process you start.
+
+### 3.2 The ten Tauri commands
+
+```mermaid
+%%{init: {'fontFamily':'Arial, Helvetica, sans-serif','theme':'base','themeVariables':{'primaryColor':'#efe9ff','primaryTextColor':'#1b1533','primaryBorderColor':'#8b6cef','lineColor':'#6b5bd6','secondaryColor':'#e4eaff','tertiaryColor':'#f7f5ff','edgeLabelBackground':'#ffffff','fontFamily':'Arial, Helvetica, sans-serif','fontSize':'14px','noteBkgColor':'#fff6dc','noteTextColor':'#3a2f00','actorBkg':'#efe9ff','actorBorder':'#8b6cef','actorTextColor':'#1b1533','signalColor':'#4a3fb0','signalTextColor':'#1b1533','xyChart':{'backgroundColor':'#ffffff','plotColorPalette':'#8b6cef','titleColor':'#1b1533','xAxisLabelColor':'#1b1533','yAxisLabelColor':'#1b1533','xAxisTitleColor':'#1b1533','yAxisTitleColor':'#1b1533','xAxisLineColor':'#6b5bd6','yAxisLineColor':'#6b5bd6','xAxisTickColor':'#6b5bd6','yAxisTickColor':'#6b5bd6'}}}}%%
+flowchart LR
+    accTitle: 3.2 The ten Tauri commands
+    accDescr {
+        Ten Tauri commands are the whole bridge between the webview and the machine.
+        run_agent and vault_file take values from the frontend and guard them.
+        agent_status, vault_status and provider_keys read local files.
+        anthropic_messages and claude_subscription carry chat for the two providers
+        that cannot be called from the webview. google_sign_in, github_sign_in and
+        github_client_configured handle identity.
+    }
+    subgraph FE["Frontend caller"]
+        AC["AgentControl.svelte"]
+        VB["VaultBrowser.svelte"]
+        PKT["provider-keys.ts"]
+        LRT["llm-router.ts"]
+        PFT["profiles.ts"]
+        OBP["Onboarding + Profile"]
+    end
+    subgraph CM["Tauri command"]
+        RA["run_agent"]
+        AS["agent_status"]
+        VS["vault_status"]
+        VF["vault_file"]
+        PK["provider_keys"]
+        AM["anthropic_messages"]
+        CS["claude_subscription"]
+        GS["google_sign_in"]
+        HS["github_sign_in"]
+        GC["github_client_configured"]
+    end
+    subgraph EF["What it touches"]
+        RAE["scripts/run_agent.sh<br/>one allowlisted runtime"]
+        ASE["agents-config.json<br/>+ last entry of each outbox"]
+        VSE["file list + git status"]
+        VFE["one file under vault/<br/>guarded · 2 MB max"]
+        PKE[".env · 5 allowlisted names"]
+        AME["api.anthropic.com"]
+        CSE["host claude CLI<br/>text prompt only"]
+        GSE["Google OAuth + PKCE"]
+        HSE["GitHub OAuth + PKCE"]
+        GCE["is the secret set?<br/>presence only"]
+    end
+    AC --> RA
+    AC --> AS
+    VB --> VS
+    VB --> VF
+    PKT --> PK
+    LRT --> AM
+    LRT --> CS
+    PFT --> GS
+    PFT --> HS
+    OBP --> GC
+    RA --> RAE
+    AS --> ASE
+    VS --> VSE
+    VF --> VFE
+    PK --> PKE
+    AM --> AME
+    CS --> CSE
+    GS --> GSE
+    HS --> HSE
+    GC --> GCE
+    class RA,VF gate
+    class AS,VS,PK,GC,AM,CS,GS,HS machine
+    class AC,VB,PKT,LRT,PFT,OBP live
+    class RAE,ASE,VSE,VFE,PKE,AME,CSE,GSE,HSE,GCE idle
+    classDef live fill:#667eea,stroke:#4c51bf,color:#ffffff
+    classDef machine fill:#f0f4ff,stroke:#8b9cf4,color:#1b1533
+    classDef human fill:#fff4e6,stroke:#e0a458,color:#3a2a00
+    classDef gate fill:#ffe6e6,stroke:#e08080,color:#4a1010
+    classDef ok fill:#e6ffe6,stroke:#6fbf73,color:#0f3a12
+    classDef idle fill:#f5f5f5,stroke:#b8b8b8,color:#444444
+```
+
+**Reading it.** The two red commands are the ones that accept a value from the frontend and could be abused with a bad one: `run_agent` re-checks its runtime against a three-name allowlist, and `vault_file` canonicalizes its path before opening anything (§10). Everything else either takes no frontend input or is a thin wrapper around a network call. There is no command that writes to the vault, pushes to a remote, or reads a file outside `vault/` and the allowlisted `.env` keys.
+
 ## 4. Design principles
 
 | Principle | What it means here |
@@ -163,7 +311,113 @@ sudo pacman -S --needed webkit2gtk-4.1 base-devel curl wget file openssl \
 
 Both tracked in [CONTRIBUTING.md](./CONTRIBUTING.md#known-open-issues) until actually done.
 
+### 4.2 Build and release paths
+
+```mermaid
+%%{init: {'fontFamily':'Arial, Helvetica, sans-serif','theme':'base','themeVariables':{'primaryColor':'#efe9ff','primaryTextColor':'#1b1533','primaryBorderColor':'#8b6cef','lineColor':'#6b5bd6','secondaryColor':'#e4eaff','tertiaryColor':'#f7f5ff','edgeLabelBackground':'#ffffff','fontFamily':'Arial, Helvetica, sans-serif','fontSize':'14px','noteBkgColor':'#fff6dc','noteTextColor':'#3a2f00','actorBkg':'#efe9ff','actorBorder':'#8b6cef','actorTextColor':'#1b1533','signalColor':'#4a3fb0','signalTextColor':'#1b1533','xyChart':{'backgroundColor':'#ffffff','plotColorPalette':'#8b6cef','titleColor':'#1b1533','xAxisLabelColor':'#1b1533','yAxisLabelColor':'#1b1533','xAxisTitleColor':'#1b1533','yAxisTitleColor':'#1b1533','xAxisLineColor':'#6b5bd6','yAxisLineColor':'#6b5bd6','xAxisTickColor':'#6b5bd6','yAxisTickColor':'#6b5bd6'}}}}%%
+flowchart LR
+    accTitle: 4.2 Build and release paths
+    accDescr {
+        The same source builds three ways. On macOS the user builds from source with
+        the launcher, which produces an unquarantined app. On Windows and Linux,
+        continuous integration runs the Rust tests first and then builds the
+        installers: an msi and exe on Windows, a deb and an AppImage on Linux. Those
+        installers are attached to the version 0.1.0 release. Very new Linux
+        distributions cannot build because of a pinned libsoup and webkit version.
+    }
+    SRC["Source<br/>Svelte + Rust"] --> MAC["valhallaai build<br/>.app + .dmg · arm64 · ad-hoc signed"]
+    MAC -.->|"never downloaded"| NOQ["no quarantine flag,<br/>Gatekeeper stays out of the way"]
+    SRC --> CIBOX
+    subgraph CIBOX["GitHub Actions · ci.yml"]
+        direction LR
+        RL["rust<br/>ubuntu-22.04 · cargo test"] --> BL["build-linux"]
+        RW["rust-windows<br/>cargo test"] --> BW["build-windows"]
+    end
+    BL --> LIN[".deb + .AppImage"]
+    BW --> WIN[".msi + .exe"]
+    LIN --> REL["v0.1.0 release assets"]
+    WIN --> REL
+    TRX["Debian 13 and other very new distros<br/>cannot build: libsoup-2.4, webkit2gtk-4.0"] -.-> LIN
+    ARM["arm64 Linux<br/>build from source: AppImage bundling fails"] -.-> LIN
+    class SRC live
+    class MAC,NOQ human
+    class RL,RW,BL,BW machine
+    class LIN,WIN,REL ok
+    class TRX,ARM gate
+    classDef live fill:#667eea,stroke:#4c51bf,color:#ffffff
+    classDef machine fill:#f0f4ff,stroke:#8b9cf4,color:#1b1533
+    classDef human fill:#fff4e6,stroke:#e0a458,color:#3a2a00
+    classDef gate fill:#ffe6e6,stroke:#e08080,color:#4a1010
+    classDef ok fill:#e6ffe6,stroke:#6fbf73,color:#0f3a12
+    classDef idle fill:#f5f5f5,stroke:#b8b8b8,color:#444444
+```
+
+**Reading it.** Each installer job `needs:` its own test job, so a commit that fails `cargo test` never spends ten minutes bundling. The macOS branch is deliberately separate and dotted at the end: a locally built app has no quarantine flag, which is the whole reason macOS is build-from-source (Shape A). The red boxes are known gaps, not bugs awaiting a fix: they come from the Tauri version this project is pinned to.
+
 ## 5. Component responsibilities
+
+### 5.0 How the source is layered
+
+```mermaid
+%%{init: {'fontFamily':'Arial, Helvetica, sans-serif','theme':'base','themeVariables':{'primaryColor':'#efe9ff','primaryTextColor':'#1b1533','primaryBorderColor':'#8b6cef','lineColor':'#6b5bd6','secondaryColor':'#e4eaff','tertiaryColor':'#f7f5ff','edgeLabelBackground':'#ffffff','fontFamily':'Arial, Helvetica, sans-serif','fontSize':'14px','noteBkgColor':'#fff6dc','noteTextColor':'#3a2f00','actorBkg':'#efe9ff','actorBorder':'#8b6cef','actorTextColor':'#1b1533','signalColor':'#4a3fb0','signalTextColor':'#1b1533','xyChart':{'backgroundColor':'#ffffff','plotColorPalette':'#8b6cef','titleColor':'#1b1533','xAxisLabelColor':'#1b1533','yAxisLabelColor':'#1b1533','xAxisTitleColor':'#1b1533','yAxisTitleColor':'#1b1533','xAxisLineColor':'#6b5bd6','yAxisLineColor':'#6b5bd6','xAxisTickColor':'#6b5bd6','yAxisTickColor':'#6b5bd6'}}}}%%
+flowchart TD
+    accTitle: 5.0 How the source is layered
+    accDescr {
+        The frontend has three layers. App.svelte is the shell. Nine route
+        components sit under it. Seven library modules sit under those, and only
+        llm-router.ts talks to providers. Settings and Profile deliberately never
+        import each other: their only shared dependency is the profiles store. The
+        library modules reach the machine only through the Tauri bridge.
+    }
+    APP["App.svelte<br/>shell · sidebar · gate"] --> ROUTES
+    subgraph ROUTES["routes/ · one component per screen"]
+        MP["ModelPicker"]
+        RC["Recent · Projects · Sessions"]
+        AGC["AgentControl"]
+        VBR["VaultBrowser"]
+        SET["Settings"]
+        PRO["Profile"]
+        ONB["Onboarding"]
+    end
+    subgraph LIB["lib/ · state and logic"]
+        RTR["llm-router.ts<br/>the only caller of providers"]
+        PV["providers.ts<br/>the only catalog"]
+        PKY["provider-keys.ts"]
+        SES["sessions.ts"]
+        PRF["profiles.ts<br/>storage namespace · sign-in"]
+        CPR["custom-providers.ts"]
+        CAG["custom-agents.ts"]
+    end
+    BRIDGE["Tauri bridge · invoke()"]
+    MP --> RTR
+    MP --> SES
+    MP --> PKY
+    RC --> SES
+    RC --> PV
+    AGC --> CAG
+    SET --> PV
+    SET --> CPR
+    SET --> PRF
+    PRO --> PRF
+    ONB --> PRF
+    RTR --> PKY
+    PV --> CPR
+    RTR --> BRIDGE
+    PRF --> BRIDGE
+    PKY --> BRIDGE
+    class APP live
+    class MP,RC,AGC,VBR,SET,PRO,ONB machine
+    class RTR,PV,PKY,SES,PRF,CPR,CAG ok
+    class BRIDGE human
+    classDef live fill:#667eea,stroke:#4c51bf,color:#ffffff
+    classDef machine fill:#f0f4ff,stroke:#8b9cf4,color:#1b1533
+    classDef human fill:#fff4e6,stroke:#e0a458,color:#3a2a00
+    classDef gate fill:#ffe6e6,stroke:#e08080,color:#4a1010
+    classDef ok fill:#e6ffe6,stroke:#6fbf73,color:#0f3a12
+    classDef idle fill:#f5f5f5,stroke:#b8b8b8,color:#444444
+```
+
+**Reading it.** Two things are absent on purpose. There is no arrow between `Settings` and `Profile`: identity and configuration share only the `profiles` store, which is what makes the split real rather than cosmetic (§5.3). And no route calls a provider directly: `ModelPicker` goes through `llm-router.ts`, so adding a provider never touches the UI. Everything that persists is scoped by `profiles.ts` (`sessions.ts`, `provider-keys.ts` and Settings all call its `scopedKey()`; those arrows are omitted to keep the picture readable).
 
 ### 5.1 LLM Router (`src/lib/llm-router.ts`)
 Single abstraction (`callLLM(config, messages)`) that fans out to one function per built-in provider. The provider *catalog* (names, display names, model lists) lives separately in `src/lib/providers.ts` — the single source of truth `Settings.svelte` and `ModelPicker.svelte` both import from, so the count can't drift between files the way it did before that extraction (see [CONTRIBUTING.md](./CONTRIBUTING.md#known-open-issues)). Adding a built-in provider means adding one function + one switch case in `llm-router.ts`, and one entry in `providers.ts` — nothing else in the app should need to change.
@@ -176,6 +430,44 @@ Current counts, verified by counting rather than by reading a number in a doc: *
 User picks a **default provider + model**, saved to `localStorage`. Nothing is hardcoded as "the" default — every user configures their own, mirroring how Hermes's own provider/account settings work. Provider API keys come from the project `.env` when that file has one (`provider_keys` in the desktop app: Anthropic, OpenAI, OpenRouter, Google, xAI). A key saved in Settings is used only for a provider the file does not cover. Nous Portal does not use a pasted key (§7.3).
 
 Settings also owns the **Custom Providers** section (§5.5). It deliberately does not import Profile, and Profile does not import it.
+
+#### Where an API key comes from
+
+```mermaid
+%%{init: {'fontFamily':'Arial, Helvetica, sans-serif','theme':'base','themeVariables':{'primaryColor':'#efe9ff','primaryTextColor':'#1b1533','primaryBorderColor':'#8b6cef','lineColor':'#6b5bd6','secondaryColor':'#e4eaff','tertiaryColor':'#f7f5ff','edgeLabelBackground':'#ffffff','fontFamily':'Arial, Helvetica, sans-serif','fontSize':'14px','noteBkgColor':'#fff6dc','noteTextColor':'#3a2f00','actorBkg':'#efe9ff','actorBorder':'#8b6cef','actorTextColor':'#1b1533','signalColor':'#4a3fb0','signalTextColor':'#1b1533','xyChart':{'backgroundColor':'#ffffff','plotColorPalette':'#8b6cef','titleColor':'#1b1533','xAxisLabelColor':'#1b1533','yAxisLabelColor':'#1b1533','xAxisTitleColor':'#1b1533','yAxisTitleColor':'#1b1533','xAxisLineColor':'#6b5bd6','yAxisLineColor':'#6b5bd6','xAxisTickColor':'#6b5bd6','yAxisTickColor':'#6b5bd6'}}}}%%
+flowchart TD
+    accTitle: Where an API key comes from
+    accDescr {
+        When a message is sent, the key for the chosen provider is resolved in a
+        fixed order. Outside the desktop app there is no env file to read, so only a
+        key stored from Settings is used. Inside the desktop app, a key in the env
+        file wins over a stored one, unless the active profile ignores env keys.
+        Only five providers have an env entry. A custom provider never does.
+    }
+    S["Send with provider P"] --> D{"inside the<br/>desktop app?"}
+    D -->|no| ST["stored key from Settings<br/>vai:profileId:valhallaai-apikey-P"]
+    D -->|yes| LD["loadEnvProviderKeys()<br/>Rust reads .env: only anthropic, chatgpt,<br/>openrouter, google, xai_grok"]
+    LD --> IG{"profile sets<br/>ignoreEnvKeys?"}
+    IG -->|yes| ST
+    IG -->|no| EN{"key for P<br/>in .env?"}
+    EN -->|yes| ENV["use the .env value"]
+    EN -->|no| ST
+    ST --> NK{"does P<br/>need a key?"}
+    ENV --> OUT["config.apiKey"]
+    NK -->|"yes"| OUT
+    NK -->|"no: DirectSDK · Nous · Ollama<br/>custom with no key"| OUT2["send without one"]
+    class ENV,ST machine
+    class IG,EN,D,NK human
+    class OUT,OUT2 ok
+    classDef live fill:#667eea,stroke:#4c51bf,color:#ffffff
+    classDef machine fill:#f0f4ff,stroke:#8b9cf4,color:#1b1533
+    classDef human fill:#fff4e6,stroke:#e0a458,color:#3a2a00
+    classDef gate fill:#ffe6e6,stroke:#e08080,color:#4a1010
+    classDef ok fill:#e6ffe6,stroke:#6fbf73,color:#0f3a12
+    classDef idle fill:#f5f5f5,stroke:#b8b8b8,color:#444444
+```
+
+**Reading it.** The rule is one line in `provider-keys.ts`: `envKeyFor(P) || stored`. A rotated `.env` therefore wins on the next message, and a profile that wants isolation sets `ignoreEnvKeys` so it falls through to its own pasted keys. `.env` itself is machine-wide on purpose, because `run_agent.sh` and Docker Compose read the same file with no notion of a profile.
 
 ### 5.3 Profile (`src/routes/Profile.svelte`)
 Split out of Settings.svelte on 2026-09-22 — identity (who is signed in) and app configuration (which provider/model/keys) were sharing one page for no reason but history. Reached from the **profile card at the top of the sidebar** (above the nav — see §5.13 for the full layout), not from the `sections` array or the Settings gear.
@@ -190,6 +482,45 @@ Deliberately does not import anything from Settings.svelte or vice versa — the
 
 **Per-profile storage.** Every persisted key is namespaced `vai:<profileId>:<base>`, resolved by `storageKey()` in `profiles.ts`. That is why two profiles can hold different API keys, different custom providers, and different chat history on one machine with no server. Changing the active profile reloads the window (`switchProfile()`), because stores read their key at module load.
 
+#### What a sign-in keeps and what it throws away
+
+```mermaid
+%%{init: {'fontFamily':'Arial, Helvetica, sans-serif','theme':'base','themeVariables':{'primaryColor':'#efe9ff','primaryTextColor':'#1b1533','primaryBorderColor':'#8b6cef','lineColor':'#6b5bd6','secondaryColor':'#e4eaff','tertiaryColor':'#f7f5ff','edgeLabelBackground':'#ffffff','fontFamily':'Arial, Helvetica, sans-serif','fontSize':'14px','noteBkgColor':'#fff6dc','noteTextColor':'#3a2f00','actorBkg':'#efe9ff','actorBorder':'#8b6cef','actorTextColor':'#1b1533','signalColor':'#4a3fb0','signalTextColor':'#1b1533','xyChart':{'backgroundColor':'#ffffff','plotColorPalette':'#8b6cef','titleColor':'#1b1533','xAxisLabelColor':'#1b1533','yAxisLabelColor':'#1b1533','xAxisTitleColor':'#1b1533','yAxisTitleColor':'#1b1533','xAxisLineColor':'#6b5bd6','yAxisLineColor':'#6b5bd6','xAxisTickColor':'#6b5bd6','yAxisTickColor':'#6b5bd6'}}}}%%
+flowchart LR
+    accTitle: What a sign-in keeps and what it throws away
+    accDescr {
+        Google returns an id token, from which the app reads the name, email,
+        picture and the email-verified claim. GitHub returns only an access token,
+        so the app makes two follow-up requests, one for the user and one for the
+        emails, and takes the primary address and its verified flag. Both feed the
+        same four identity fields on a local profile. Neither token is stored.
+    }
+    subgraph G["Google · OpenID Connect"]
+        GT["id_token (JWT)"] --> GC["claims: name · email<br/>picture · email_verified"]
+    end
+    subgraph H["GitHub · plain OAuth 2.0"]
+        HT["access_token"] --> HU["GET /user<br/>name or login · avatar_url"]
+        HT --> HE["GET /user/emails<br/>primary address + verified"]
+    end
+    GC --> ID["identity<br/>name · email · avatarUrl · emailVerified"]
+    HU --> ID
+    HE --> ID
+    ID --> PROF[("Profile record<br/>+ authProvider<br/>valhallaai-profiles")]
+    GT -.-> DROP["token discarded<br/>never written anywhere"]
+    HT -.-> DROP
+    class ID,PROF ok
+    class DROP gate
+    class GT,HT,GC,HU,HE machine
+    classDef live fill:#667eea,stroke:#4c51bf,color:#ffffff
+    classDef machine fill:#f0f4ff,stroke:#8b9cf4,color:#1b1533
+    classDef human fill:#fff4e6,stroke:#e0a458,color:#3a2a00
+    classDef gate fill:#ffe6e6,stroke:#e08080,color:#4a1010
+    classDef ok fill:#e6ffe6,stroke:#6fbf73,color:#0f3a12
+    classDef idle fill:#f5f5f5,stroke:#b8b8b8,color:#444444
+```
+
+**Reading it.** The red box is the point. Nothing in the app calls Google or GitHub again after the handshake, so keeping a token would be holding a credential for no reason. The only asymmetry between the providers is where the verified flag comes from: a signed claim for Google, a REST field for GitHub, which is also why GitHub costs two more calls.
+
 ### 5.4 Onboarding (`src/routes/Onboarding.svelte`)
 A sign-in gate, mounted unconditionally at the top of `App.svelte`. `visible` is derived from `!hasPassedGate(activeProfile)`, so there is no local open/close state to fall out of sync with the profile store, and no backdrop-click or Escape handler — the ways through are a sign-in with **Google or GitHub**, or **Continue without an account**.
 
@@ -200,6 +531,42 @@ The split that keeps this honest is two predicates, not one: **`hasPassedGate()`
 Each button carries its own disabled-state hint (`Set VITE_GOOGLE_CLIENT_ID in .env`, `Set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET in .env`), and the two are gated by different mechanisms for the reason given in §5.3. The "neither provider is configured" hint is now informational rather than a dead end: the local button is always enabled, including in a plain browser tab where `inTauri()` is false and both OAuth buttons are disabled.
 
 The `onboarded` flag and its backfill still exist but no longer control this screen. Keying the gate off that flag would hide it from every profile that predates it, which is the opposite of what was asked.
+
+#### The sign-in gate as a state machine
+
+```mermaid
+%%{init: {'fontFamily':'Arial, Helvetica, sans-serif','theme':'base','themeVariables':{'primaryColor':'#efe9ff','primaryTextColor':'#1b1533','primaryBorderColor':'#8b6cef','lineColor':'#6b5bd6','secondaryColor':'#e4eaff','tertiaryColor':'#f7f5ff','edgeLabelBackground':'#ffffff','fontFamily':'Arial, Helvetica, sans-serif','fontSize':'14px','noteBkgColor':'#fff6dc','noteTextColor':'#3a2f00','actorBkg':'#efe9ff','actorBorder':'#8b6cef','actorTextColor':'#1b1533','signalColor':'#4a3fb0','signalTextColor':'#1b1533','xyChart':{'backgroundColor':'#ffffff','plotColorPalette':'#8b6cef','titleColor':'#1b1533','xAxisLabelColor':'#1b1533','yAxisLabelColor':'#1b1533','xAxisTitleColor':'#1b1533','yAxisTitleColor':'#1b1533','xAxisLineColor':'#6b5bd6','yAxisLineColor':'#6b5bd6','xAxisTickColor':'#6b5bd6','yAxisTickColor':'#6b5bd6'}}}}%%
+stateDiagram-v2
+    accTitle: The sign-in gate as a state machine
+    accDescr {
+        A profile starts at the gate. Signing in with Google or GitHub opens it as a
+        signed-in profile. Continuing without an account opens it as a local
+        profile, which is not signed in but passes the gate. A local profile can
+        sign in later from the Profile page. Signing out clears the identity fields
+        and the authProvider, so the gate returns.
+    }
+    state "Gate · overlay visible" as Gate
+    state "Open · signed in" as SignedIn
+    state "Open · local profile" as Local
+    [*] --> Gate: new profile
+    Gate --> SignedIn: Google or GitHub round trip succeeds
+    Gate --> Local: Continue without an account
+    Local --> SignedIn: sign in from the Profile page
+    SignedIn --> Gate: Sign out clears identity and authProvider
+    note right of Local
+        authProvider is local and email is unset.
+        hasPassedGate is true, isSignedIn is false,
+        so the chip still offers sign-in.
+    end note
+```
+
+**Reading it.** Two predicates, not one. `hasPassedGate()` answers the gate's question (`isSignedIn(profile) || authProvider === "local"`), while `isSignedIn()` stays the identity test that the sidebar chip and the Profile page ask. A local profile is deliberately not signed in, and a chip that claimed otherwise would be lying. Note the arrow back to `Gate`: signing out clears `authProvider`, so a signed-out profile sees the gate again.
+
+| State | `isSignedIn()` | `hasPassedGate()` | Sidebar chip says |
+|---|---|---|---|
+| Gate | false | false | (overlay covers the app) |
+| Local profile | false | true | Sign in |
+| Signed in | true | true | the profile's name and email |
 
 ### 5.5 Custom providers (`src/lib/custom-providers.ts`, Settings → "Custom Providers")
 
@@ -213,20 +580,140 @@ The constraints are deliberate:
 
 Together AI was removed from the catalog on 2026-09-22; this is the path for bringing it — or anything else OpenAI-compatible — back without a fork.
 
+#### From a Settings form to a routable provider
+
+```mermaid
+%%{init: {'fontFamily':'Arial, Helvetica, sans-serif','theme':'base','themeVariables':{'primaryColor':'#efe9ff','primaryTextColor':'#1b1533','primaryBorderColor':'#8b6cef','lineColor':'#6b5bd6','secondaryColor':'#e4eaff','tertiaryColor':'#f7f5ff','edgeLabelBackground':'#ffffff','fontFamily':'Arial, Helvetica, sans-serif','fontSize':'14px','noteBkgColor':'#fff6dc','noteTextColor':'#3a2f00','actorBkg':'#efe9ff','actorBorder':'#8b6cef','actorTextColor':'#1b1533','signalColor':'#4a3fb0','signalTextColor':'#1b1533','xyChart':{'backgroundColor':'#ffffff','plotColorPalette':'#8b6cef','titleColor':'#1b1533','xAxisLabelColor':'#1b1533','yAxisLabelColor':'#1b1533','xAxisTitleColor':'#1b1533','yAxisTitleColor':'#1b1533','xAxisLineColor':'#6b5bd6','yAxisLineColor':'#6b5bd6','xAxisTickColor':'#6b5bd6','yAxisTickColor':'#6b5bd6'}}}}%%
+flowchart TD
+    accTitle: From a Settings form to a routable provider
+    accDescr {
+        A custom provider starts as a form with a name, a chat-completions URL and
+        model ids. It is validated, given a namespaced id, saved to local storage
+        and registered with the router at app start. When a message names that id,
+        the router's default branch finds the registered endpoint and sends it
+        through the same OpenAI-compatible function the built-in providers use, with
+        a bearer header only if a key exists.
+    }
+    F["Settings → Custom Providers<br/>name · URL · model ids, one per line"] --> V{"buildCustomProvider()"}
+    V -->|"no name, URL not http(s),<br/>or no model"| E["error shown on the form<br/>nothing saved"]
+    V -->|valid| ID["id = custom:slug<br/>suffix -2, -3 if taken"]
+    ID --> SV[("localStorage<br/>valhallaai-custom-providers")]
+    SV --> INIT["initCustomProviders() at app start<br/>registers every saved provider"]
+    INIT --> PK["appears in the Provider picker"]
+    PK --> CALL["callLLM(custom:slug)"]
+    CALL --> DEF["default branch of the switch<br/>resolveCustomEndpoint()"]
+    DEF --> OAI["callOpenAICompatible<br/>Authorization header only if a key is set"]
+    OAI --> EP["the user's own endpoint<br/>LiteLLM · vLLM · llama.cpp · LM Studio"]
+    class E gate
+    class SV,PK ok
+    class F human
+    class V human
+    class CALL,DEF,OAI,INIT,ID machine
+    class EP idle
+    classDef live fill:#667eea,stroke:#4c51bf,color:#ffffff
+    classDef machine fill:#f0f4ff,stroke:#8b9cf4,color:#1b1533
+    classDef human fill:#fff4e6,stroke:#e0a458,color:#3a2a00
+    classDef gate fill:#ffe6e6,stroke:#e08080,color:#4a1010
+    classDef ok fill:#e6ffe6,stroke:#6fbf73,color:#0f3a12
+    classDef idle fill:#f5f5f5,stroke:#b8b8b8,color:#444444
+```
+
+**Reading it.** The red branch is why a bad form never half-saves. The registration step runs in `App.svelte` before Settings is ever opened, which is what makes a provider saved last session routable immediately. The bearer header is dropped entirely when no key is configured, because a localhost gateway usually has no auth and refusing a keyless send client-side would make the main use case unusable.
+
 ### 5.6 Model Picker (`src/routes/ModelPicker.svelte`)
 Loads the saved default on mount, lets the user override per-conversation, sends through the router, renders responses with token usage.
 
 The model bar (bottom strip) carries three pickers — Provider, Model, Project — plus **+ New session**. The Project picker files the active conversation; when there is no session yet it holds the choice in `pendingProject` and applies it to the session that the first message creates. Without that, picking a project and then typing would silently drop the choice, since sessions are created lazily.
 
-**Image ingestion, and its limits.** Attaching a file happens through one function, `ingestImageFiles(files, fallbackName)`, called by the file picker, the drag/drop handler, and the paste handler — three entry points, one code path. The caps are enforced there and reported to the user rather than silently applied:
+**Attachments, and their limits.** There are two separate paths, because they travel differently. A screenshot is an *image*: `ingestImageFiles(files, fallbackName)` is the single entry point for the file picker, the drag/drop handler and the paste handler, and the image rides to the provider as multimodal content. A text or source file is *inlined into the prompt* by `ingestFiles()`, so it works on every provider, image-capable or not. The caps are enforced in those two functions and reported to the user rather than silently applied:
 
-| Limit | Value | Why |
+| Path | Limit | Why |
 |---|---|---|
-| Per file | 256 KB | A screenshot is typically well under this; a photo is not |
-| Per message | 1 MB total | Stays inside every provider's request-body budget |
-| Count | 40 files | Beyond this the UI stops being usable, not the API |
+| Image (`ingestImageFiles`) | 12 MB each; non-image files ignored with a pointer to *Upload file* | The ceiling is the provider's request budget, not ours; a retina screenshot is typically 1–3 MB |
+| Text file (`ingestFiles`) | 256 KB per file | One stray click on a big folder must not lock the UI or blow the context window |
+| Text files together | 1 MB total, 40 files | Beyond this the UI stops being usable, not the API |
+| Text file that is binary | refused (a NUL in the first 4 KB) | Source and config never contain one |
 
 Anything skipped is named in a visible list (`over the 40-file limit`, `too large`), because silently dropping a screenshot the user just dragged in is the failure mode this whole path exists to prevent. Drag/drop uses a depth counter on the overlay: `dragenter`/`dragleave` fire for every child element, so a naive boolean flickers the overlay off while the cursor is still over the chat.
+
+#### Two attachment paths
+
+```mermaid
+%%{init: {'fontFamily':'Arial, Helvetica, sans-serif','theme':'base','themeVariables':{'primaryColor':'#efe9ff','primaryTextColor':'#1b1533','primaryBorderColor':'#8b6cef','lineColor':'#6b5bd6','secondaryColor':'#e4eaff','tertiaryColor':'#f7f5ff','edgeLabelBackground':'#ffffff','fontFamily':'Arial, Helvetica, sans-serif','fontSize':'14px','noteBkgColor':'#fff6dc','noteTextColor':'#3a2f00','actorBkg':'#efe9ff','actorBorder':'#8b6cef','actorTextColor':'#1b1533','signalColor':'#4a3fb0','signalTextColor':'#1b1533','xyChart':{'backgroundColor':'#ffffff','plotColorPalette':'#8b6cef','titleColor':'#1b1533','xAxisLabelColor':'#1b1533','yAxisLabelColor':'#1b1533','xAxisTitleColor':'#1b1533','yAxisTitleColor':'#1b1533','xAxisLineColor':'#6b5bd6','yAxisLineColor':'#6b5bd6','xAxisTickColor':'#6b5bd6','yAxisTickColor':'#6b5bd6'}}}}%%
+flowchart TD
+    accTitle: Two attachment paths
+    accDescr {
+        Images and text files take different routes. A picked, dropped or pasted
+        image is read as a data URL, limited to twelve megabytes, and sent as
+        multimodal content only if the selected provider can take images. A text or
+        source file is limited to 256 kilobytes, one megabyte in total and forty
+        files, refused if binary, and inlined into the prompt text, so it works on
+        every provider.
+    }
+    IN["picker · drop · paste"] --> K{"image or<br/>other file?"}
+    K -->|image| II["ingestImageFiles()<br/>12 MB each, data URL<br/>IMAGE_CAPABLE_PROVIDERS decides next"]
+    K -->|"text or source file"| TF["ingestFiles()<br/>256 KB each · 1 MB total · 40 files"]
+    II --> CAP{"provider can<br/>read images?"}
+    CAP -->|no| WARN["warning shown<br/>Send disabled"]
+    CAP -->|yes| IMG["attachedImages"]
+    TF --> BIN{"binary?"}
+    BIN -->|yes| SK["skipped and named"]
+    BIN -->|no| TXT["attachedFiles"]
+    IMG --> SEND["message sent as multimodal content"]
+    TXT --> INL["inlined ahead of the typed text<br/>works on every provider"]
+    INL --> SEND
+    class WARN,SK gate
+    class IMG,TXT,SEND ok
+    class K,CAP,BIN human
+    class II,TF,INL machine
+    classDef live fill:#667eea,stroke:#4c51bf,color:#ffffff
+    classDef machine fill:#f0f4ff,stroke:#8b9cf4,color:#1b1533
+    classDef human fill:#fff4e6,stroke:#e0a458,color:#3a2a00
+    classDef gate fill:#ffe6e6,stroke:#e08080,color:#4a1010
+    classDef ok fill:#e6ffe6,stroke:#6fbf73,color:#0f3a12
+    classDef idle fill:#f5f5f5,stroke:#b8b8b8,color:#444444
+```
+
+**Reading it.** Everything that can be refused is refused out loud: the warning, the skip list and the non-image notice all name the file and the reason, because silently dropping a screenshot the user just dragged in is the failure this whole path exists to prevent. Only the image path depends on the provider; the text path is why a source file works even on the default, text-only provider.
+
+#### What happens when you press send
+
+```mermaid
+%%{init: {'fontFamily':'Arial, Helvetica, sans-serif','theme':'base','themeVariables':{'primaryColor':'#efe9ff','primaryTextColor':'#1b1533','primaryBorderColor':'#8b6cef','lineColor':'#6b5bd6','secondaryColor':'#e4eaff','tertiaryColor':'#f7f5ff','edgeLabelBackground':'#ffffff','fontFamily':'Arial, Helvetica, sans-serif','fontSize':'14px','noteBkgColor':'#fff6dc','noteTextColor':'#3a2f00','actorBkg':'#efe9ff','actorBorder':'#8b6cef','actorTextColor':'#1b1533','signalColor':'#4a3fb0','signalTextColor':'#1b1533','xyChart':{'backgroundColor':'#ffffff','plotColorPalette':'#8b6cef','titleColor':'#1b1533','xAxisLabelColor':'#1b1533','yAxisLabelColor':'#1b1533','xAxisTitleColor':'#1b1533','yAxisTitleColor':'#1b1533','xAxisLineColor':'#6b5bd6','yAxisLineColor':'#6b5bd6','xAxisTickColor':'#6b5bd6','yAxisTickColor':'#6b5bd6'}}}}%%
+sequenceDiagram
+    accTitle: What happens when you press send
+    accDescr {
+        The first message creates the session lazily, carrying any project chosen
+        earlier. The whole prior conversation is sent as text turns, followed by the
+        new message with its inlined files and images. The router returns a result,
+        and both the user turn and the assistant turn are appended to the session,
+        where the user turn stores only the typed text, the file names and an image
+        count, never the file contents or image data.
+    }
+    participant U as You
+    participant MP as ModelPicker
+    participant SS as sessions.ts
+    participant R as llm-router
+    participant P as Provider
+    U->>MP: send
+    opt images attached and provider cannot read them
+        MP-->>U: refuse, warning already shown
+    end
+    alt no active session yet
+        MP->>SS: createSession(provider, model, pendingProject)
+        SS-->>MP: new session id
+    end
+    MP->>MP: priorTurns = every earlier turn as text
+    MP->>R: callLLM(config, priorTurns + new turn)
+    R->>P: request in the provider's own shape
+    P-->>R: reply or error body
+    R-->>MP: success, content, usage
+    MP->>SS: appendToSession(user turn, assistant turn)
+    Note over SS: stores typed text, file names, image count.<br/>Never file contents or image data.
+    MP-->>U: reply and token usage
+```
+
+**Reading it.** Two decisions are visible here. Sessions are created on the first message, not on a button, so the empty state's promise ("send a message to start chatting") is literally true. And the transcript stores the *names* of attached files and an *image count*, not their bytes, because a 40-file paste would otherwise bury the record it is supposed to be. The full prior conversation is re-sent on every turn: that is the model's only memory.
 
 ### 5.7 Recent, Projects and Sessions (`src/routes/Recent.svelte`, `Projects.svelte`, `Sessions.svelte`)
 All three read the same `sessions` store and differ only in filter, which is why none of them needs its own storage:
@@ -241,6 +728,42 @@ All three read the same `sessions` store and differ only in filter, which is why
 
 **`project` is a label on a session, not a container holding them.** That is the load-bearing decision behind this whole screen group: deleting a project can never delete a conversation, and a session can never be orphaned inside a group that no longer exists.
 
+#### One flat list, three filtered views
+
+```mermaid
+%%{init: {'fontFamily':'Arial, Helvetica, sans-serif','theme':'base','themeVariables':{'primaryColor':'#efe9ff','primaryTextColor':'#1b1533','primaryBorderColor':'#8b6cef','lineColor':'#6b5bd6','secondaryColor':'#e4eaff','tertiaryColor':'#f7f5ff','edgeLabelBackground':'#ffffff','fontFamily':'Arial, Helvetica, sans-serif','fontSize':'14px','noteBkgColor':'#fff6dc','noteTextColor':'#3a2f00','actorBkg':'#efe9ff','actorBorder':'#8b6cef','actorTextColor':'#1b1533','signalColor':'#4a3fb0','signalTextColor':'#1b1533','xyChart':{'backgroundColor':'#ffffff','plotColorPalette':'#8b6cef','titleColor':'#1b1533','xAxisLabelColor':'#1b1533','yAxisLabelColor':'#1b1533','xAxisTitleColor':'#1b1533','yAxisTitleColor':'#1b1533','xAxisLineColor':'#6b5bd6','yAxisLineColor':'#6b5bd6','xAxisTickColor':'#6b5bd6','yAxisTickColor':'#6b5bd6'}}}}%%
+flowchart LR
+    accTitle: One flat list, three filtered views
+    accDescr {
+        All chats live in one flat list of sessions in local storage. A project is
+        only an optional label on a session. The list of project names is computed
+        as the union of explicitly created projects and any name a session
+        references. Three views filter the same list: Recent shows sessions with no
+        project, Projects groups the filed ones, and Sessions shows everything and
+        is the only place to delete.
+    }
+    STORE[("valhallaai-sessions<br/>flat list · per profile")] --> V1["Recent<br/>project is undefined<br/>newest first"]
+    STORE --> V2["Projects<br/>grouped by project label"]
+    STORE --> V3["Sessions<br/>everything · newest first<br/>the only view with delete"]
+    CREATED[("valhallaai-projects<br/>names created explicitly")] --> PN["projectNames()<br/>union of created + referenced"]
+    STORE --> PN
+    PN --> V2
+    DP["deleteProject(name)"] -->|"clears the label"| STORE
+    DP -.->|"never removes a session"| STORE
+    class STORE,CREATED ok
+    class V1,V2,V3 machine
+    class PN machine
+    class DP human
+    classDef live fill:#667eea,stroke:#4c51bf,color:#ffffff
+    classDef machine fill:#f0f4ff,stroke:#8b9cf4,color:#1b1533
+    classDef human fill:#fff4e6,stroke:#e0a458,color:#3a2a00
+    classDef gate fill:#ffe6e6,stroke:#e08080,color:#4a1010
+    classDef ok fill:#e6ffe6,stroke:#6fbf73,color:#0f3a12
+    classDef idle fill:#f5f5f5,stroke:#b8b8b8,color:#444444
+```
+
+**Reading it.** `project` is a label on a session, not a container holding it, and every other choice here follows from that. Deleting a project can never delete a conversation, and a session restored from a backup can never name a project the UI refuses to list, because `projectNames()` derives the list instead of trusting the stored one. Filing a chat is two clicks away in two places (the row dropdown in Recent and the Project picker in the model bar) and both write the same label.
+
 ### 5.8 Agent Control (`src/routes/AgentControl.svelte`)
 Run starts one agent and waits for it to exit. The button calls the Tauri command `run_agent`, which runs `scripts/run_agent.sh` with an allowlisted name (`claude-agent`, `hermes-agent`, `grok-build`). §6.2 covers how that call is dispatched and why it is asynchronous. §5.11 covers what each runtime does and how fast.
 
@@ -248,11 +771,73 @@ The cards read real state via `agent_status`: enabled flags come from `vault/age
 
 A card's blurb is generated from the runtime it is bound to (`RUNTIME_BLURB` in `src/lib/custom-agents.ts`), so the description of what a runtime bills and where it runs has exactly one home. An earlier version hardcoded "One-shot Docker container … bills per token" into six places, which was wrong for two of the three runtimes after the subscription-first change.
 
+#### The life of an agent card
+
+```mermaid
+%%{init: {'fontFamily':'Arial, Helvetica, sans-serif','theme':'base','themeVariables':{'primaryColor':'#efe9ff','primaryTextColor':'#1b1533','primaryBorderColor':'#8b6cef','lineColor':'#6b5bd6','secondaryColor':'#e4eaff','tertiaryColor':'#f7f5ff','edgeLabelBackground':'#ffffff','fontFamily':'Arial, Helvetica, sans-serif','fontSize':'14px','noteBkgColor':'#fff6dc','noteTextColor':'#3a2f00','actorBkg':'#efe9ff','actorBorder':'#8b6cef','actorTextColor':'#1b1533','signalColor':'#4a3fb0','signalTextColor':'#1b1533','xyChart':{'backgroundColor':'#ffffff','plotColorPalette':'#8b6cef','titleColor':'#1b1533','xAxisLabelColor':'#1b1533','yAxisLabelColor':'#1b1533','xAxisTitleColor':'#1b1533','yAxisTitleColor':'#1b1533','xAxisLineColor':'#6b5bd6','yAxisLineColor':'#6b5bd6','xAxisTickColor':'#6b5bd6','yAxisTickColor':'#6b5bd6'}}}}%%
+stateDiagram-v2
+    accTitle: The life of an agent card
+    accDescr {
+        An agent card starts stopped. Pressing Run invokes run_agent and the card
+        shows running. A zero exit returns it to stopped and a failure puts it in
+        error with the message shown. After either outcome the card re-reads
+        agent_status from disk, so the last-run time and status come from what the
+        outbox actually recorded, not from the clock.
+    }
+    [*] --> Stopped: app opens, agent_status read from disk
+    Stopped --> Running: click Run
+    Running --> Stopped: run_agent returns
+    Running --> Error: run_agent fails
+    Error --> Running: click Run
+    note right of Stopped
+        After every run, and on open, loadStatus()
+        re-reads the outbox. Last run is the timestamp
+        written inside the newest entry, not file mtime,
+        because the relay rewrites outbox files.
+    end note
+```
+
+**Reading it.** Nothing about run history lives in component state, which is why it survives a relaunch. Last-run time is read from the `## [timestamp]` header inside the newest entry rather than from file modification time: the relay rewrites outbox files when it folds them, so mtime would report a relay run as an agent run. A run that failed before it could write an outbox shows `Error` with its message and no timestamp.
+
 ### 5.9 Custom agents (`src/lib/custom-agents.ts`, Agent Control → "Add an agent")
 
 A display name bound to one of the three runtimes above, added from Agent Control and stored in `localStorage` under `valhallaai-custom-agents`. `run_agent` takes an optional `runtime`; the Rust side re-checks it against the same allowlist and passes the allowlisted value to the script, never the display name. A custom agent therefore cannot run anything the three built-in agents cannot already run.
 
 That is also its limit, stated on the card: it runs the same prompt and writes the same outbox as the runtime it is bound to. It is a second entry point, not an agent with its own behaviour. Behaviour that differs per agent lives in `vault/agent-tasks.json`, keyed by the runtime name, which is shared.
+
+#### A custom agent is a name bound to a runtime
+
+```mermaid
+%%{init: {'fontFamily':'Arial, Helvetica, sans-serif','theme':'base','themeVariables':{'primaryColor':'#efe9ff','primaryTextColor':'#1b1533','primaryBorderColor':'#8b6cef','lineColor':'#6b5bd6','secondaryColor':'#e4eaff','tertiaryColor':'#f7f5ff','edgeLabelBackground':'#ffffff','fontFamily':'Arial, Helvetica, sans-serif','fontSize':'14px','noteBkgColor':'#fff6dc','noteTextColor':'#3a2f00','actorBkg':'#efe9ff','actorBorder':'#8b6cef','actorTextColor':'#1b1533','signalColor':'#4a3fb0','signalTextColor':'#1b1533','xyChart':{'backgroundColor':'#ffffff','plotColorPalette':'#8b6cef','titleColor':'#1b1533','xAxisLabelColor':'#1b1533','yAxisLabelColor':'#1b1533','xAxisTitleColor':'#1b1533','yAxisTitleColor':'#1b1533','xAxisLineColor':'#6b5bd6','yAxisLineColor':'#6b5bd6','xAxisTickColor':'#6b5bd6','yAxisTickColor':'#6b5bd6'}}}}%%
+flowchart TB
+    accTitle: A custom agent is a name bound to a runtime
+    accDescr {
+        A custom agent is a display name plus one of three runtimes, stored in local
+        storage. When it runs, the frontend sends the display name as the service
+        and the runtime separately. The Rust side checks the runtime against the
+        three-name allowlist, rejects anything else, and passes only the allowlisted
+        runtime to the script. The display name never reaches the shell.
+    }
+    ADD["Add an agent<br/>name + runtime"] --> LS[("valhallaai-custom-agents")]
+    LS --> CARD["card on Agent Control"]
+    CARD -->|"Run"| INV["invoke run_agent<br/>service = display name<br/>runtime = bound runtime<br/>allowlist: claude-agent · hermes-agent · grok-build"]
+    INV --> K{"runtime on<br/>the allowlist?"}
+    K -->|no| REJ["Unknown agent runtime<br/>nothing runs"]
+    K -->|yes| TGT["target = the runtime"]
+    TGT --> SH["bash scripts/run_agent.sh target"]
+    class REJ gate
+    class K human
+    class LS ok
+    class SH machine
+    classDef live fill:#667eea,stroke:#4c51bf,color:#ffffff
+    classDef machine fill:#f0f4ff,stroke:#8b9cf4,color:#1b1533
+    classDef human fill:#fff4e6,stroke:#e0a458,color:#3a2a00
+    classDef gate fill:#ffe6e6,stroke:#e08080,color:#4a1010
+    classDef ok fill:#e6ffe6,stroke:#6fbf73,color:#0f3a12
+    classDef idle fill:#f5f5f5,stroke:#b8b8b8,color:#444444
+```
+
+**Reading it.** This is why adding a custom agent cannot widen what the app can run: the only value that crosses into the shell is one of three fixed strings. It is also its limit. A custom agent runs the same prompt and writes the same outbox as the runtime it is bound to, so it is a second entry point, not an agent with its own behaviour.
 
 ### 5.10 Agent tasks (`vault/agent-tasks.json`)
 What each agent *does*, kept separate from `agents-config.json`, which says how it *runs* (model, provider, enabled). The two change on different schedules.
@@ -265,9 +850,53 @@ An entry has an `instruction`, a `context` list of vault-relative files to inclu
 
 **Agent output is evidence, not fact.** The first real run correctly read the config and log, and also asserted that `grok-4.7` on provider `nous` was a mismatch — it is not; Nous Portal is an aggregator and serves `x-ai/grok-4.7`. Treat outbox entries as a lead to verify, the same as any other model output.
 
+#### How a task becomes a prompt
+
+```mermaid
+%%{init: {'fontFamily':'Arial, Helvetica, sans-serif','theme':'base','themeVariables':{'primaryColor':'#efe9ff','primaryTextColor':'#1b1533','primaryBorderColor':'#8b6cef','lineColor':'#6b5bd6','secondaryColor':'#e4eaff','tertiaryColor':'#f7f5ff','edgeLabelBackground':'#ffffff','fontFamily':'Arial, Helvetica, sans-serif','fontSize':'14px','noteBkgColor':'#fff6dc','noteTextColor':'#3a2f00','actorBkg':'#efe9ff','actorBorder':'#8b6cef','actorTextColor':'#1b1533','signalColor':'#4a3fb0','signalTextColor':'#1b1533','xyChart':{'backgroundColor':'#ffffff','plotColorPalette':'#8b6cef','titleColor':'#1b1533','xAxisLabelColor':'#1b1533','yAxisLabelColor':'#1b1533','xAxisTitleColor':'#1b1533','yAxisTitleColor':'#1b1533','xAxisLineColor':'#6b5bd6','yAxisLineColor':'#6b5bd6','xAxisTickColor':'#6b5bd6','yAxisTickColor':'#6b5bd6'}}}}%%
+flowchart TD
+    accTitle: How a task becomes a prompt
+    accDescr {
+        The prompt builder looks up the agent's entry in the tasks file. With no
+        entry it returns nothing and the runner falls back to a short self-
+        description ping. With an entry it reads each listed context file. Every
+        path is resolved with realpath and refused if it lands outside the vault.
+        Files are read in order against a character budget, keeping the tail of an
+        over-long file. The instruction and the context blocks are joined into one
+        prompt.
+    }
+    T["agent-tasks.json<br/>tasks[agent-name]"] --> E{"entry with an<br/>instruction?"}
+    E -->|no| PING["null → runner uses a<br/>two-line self-description ping"]
+    E -->|yes| L["for each path in context[]"]
+    L --> RP["realpath(vault/path)"]
+    RP --> IN{"inside vault/?"}
+    IN -->|no| REF["block: outside the vault, refused"]
+    IN -->|yes| RD{"readable and<br/>budget left?"}
+    RD -->|no| ERR["block: error note"]
+    RD -->|yes| TR["read it; if longer than the room left,<br/>keep the LAST chars"]
+    TR --> J["instruction + Context from the vault<br/>file blocks"]
+    REF --> J
+    ERR --> J
+    J --> RUN["prompt handed to the runtime"]
+    class REF gate
+    class IN,E,RD human
+    class PING idle
+    class RUN ok
+    class TR,RP,L machine
+    classDef live fill:#667eea,stroke:#4c51bf,color:#ffffff
+    classDef machine fill:#f0f4ff,stroke:#8b9cf4,color:#1b1533
+    classDef human fill:#fff4e6,stroke:#e0a458,color:#3a2a00
+    classDef gate fill:#ffe6e6,stroke:#e08080,color:#4a1010
+    classDef ok fill:#e6ffe6,stroke:#6fbf73,color:#0f3a12
+    classDef idle fill:#f5f5f5,stroke:#b8b8b8,color:#444444
+```
+
+**Reading it.** Two guards matter. `realpath` resolves `..` and symlinks before the containment check, so neither can point the host runner at `../.env`, which for `hermes-agent` is a real secret on the host. And the budget keeps the *tail* of each file, since the vault files are append-only logs and the newest entries are the useful ones. The same instruction must also say the context is already supplied and tools should not be called, or the model spends minutes fetching a file it already holds (§8).
+
 ### 5.11 Agent Runtime (`agents/*`, `scripts/run_agent.sh`)
 
 ```mermaid
+%%{init: {'fontFamily':'Arial, Helvetica, sans-serif','theme':'base','themeVariables':{'primaryColor':'#efe9ff','primaryTextColor':'#1b1533','primaryBorderColor':'#8b6cef','lineColor':'#6b5bd6','secondaryColor':'#e4eaff','tertiaryColor':'#f7f5ff','edgeLabelBackground':'#ffffff','fontFamily':'Arial, Helvetica, sans-serif','fontSize':'14px','noteBkgColor':'#fff6dc','noteTextColor':'#3a2f00','actorBkg':'#efe9ff','actorBorder':'#8b6cef','actorTextColor':'#1b1533','signalColor':'#4a3fb0','signalTextColor':'#1b1533','xyChart':{'backgroundColor':'#ffffff','plotColorPalette':'#8b6cef','titleColor':'#1b1533','xAxisLabelColor':'#1b1533','yAxisLabelColor':'#1b1533','xAxisTitleColor':'#1b1533','yAxisTitleColor':'#1b1533','xAxisLineColor':'#6b5bd6','yAxisLineColor':'#6b5bd6','xAxisTickColor':'#6b5bd6','yAxisTickColor':'#6b5bd6'}}}}%%
 flowchart TD
     accTitle: What happens on one Run click
     accDescr {
@@ -324,10 +953,88 @@ Each agent is one-shot:
 
 **Records are one line, and say how they were billed.** Each outbox entry is `## [timestamp] agent`, then `Status:` (`OK (subscription)`, `OK (paid-key)`, or `ERROR`), then the answer flattened to a single line, capped at 2000 characters. On failure the stderr text is kept — losing it would record a failure with no reason — but on success stderr is dropped, because the CLIs emit their own hook diagnostics there and recording those as the agent's answer was a real bug (a node `MODULE_NOT_FOUND` stack trace appeared in the outbox as if the agent had said it).
 
+#### How an answer becomes an outbox entry
+
+```mermaid
+%%{init: {'fontFamily':'Arial, Helvetica, sans-serif','theme':'base','themeVariables':{'primaryColor':'#efe9ff','primaryTextColor':'#1b1533','primaryBorderColor':'#8b6cef','lineColor':'#6b5bd6','secondaryColor':'#e4eaff','tertiaryColor':'#f7f5ff','edgeLabelBackground':'#ffffff','fontFamily':'Arial, Helvetica, sans-serif','fontSize':'14px','noteBkgColor':'#fff6dc','noteTextColor':'#3a2f00','actorBkg':'#efe9ff','actorBorder':'#8b6cef','actorTextColor':'#1b1533','signalColor':'#4a3fb0','signalTextColor':'#1b1533','xyChart':{'backgroundColor':'#ffffff','plotColorPalette':'#8b6cef','titleColor':'#1b1533','xAxisLabelColor':'#1b1533','yAxisLabelColor':'#1b1533','xAxisTitleColor':'#1b1533','yAxisTitleColor':'#1b1533','xAxisLineColor':'#6b5bd6','yAxisLineColor':'#6b5bd6','xAxisTickColor':'#6b5bd6','yAxisTickColor':'#6b5bd6'}}}}%%
+flowchart TD
+    accTitle: How an answer becomes an outbox entry
+    accDescr {
+        The runner keeps the CLI's standard output and standard error apart until it
+        knows the outcome. On success only standard output is the answer. On failure
+        both are kept. A timeout wrapper sends SIGTERM at the limit and SIGKILL five
+        seconds later, and a killed run is labelled as a timeout. The text is then
+        redacted, flattened to one line and capped at two thousand characters before
+        the entry is appended.
+    }
+    RUN["CLI or container runs<br/>stdout and stderr kept apart<br/>limit: AGENT_TIMEOUT_SECS, default 900"] --> TO{"within the<br/>time limit?"}
+    TO -->|"no: SIGTERM, then SIGKILL after 5 s"| KILL["exit 143 or 137<br/>body starts: Timed out after Ns"]
+    TO -->|yes| EX{"exit code 0?"}
+    EX -->|yes| OKB["body = stdout only<br/>hook noise on stderr is dropped"]
+    EX -->|no| ERB["body = stdout + stderr<br/>a failure keeps its reason"]
+    KILL --> RD["redact()<br/>strip dotenv warnings and job-control lines,<br/>mask key-shaped strings"]
+    OKB --> RD
+    ERB --> RD
+    RD --> FL["flatten to one line<br/>cut to 2000 chars"]
+    FL --> W["append to AGENT_OUTBOX_agent.md<br/>## [timestamp] agent<br/>Status: OK or ERROR, with how it was billed"]
+    class KILL,ERB gate
+    class OKB,W ok
+    class TO,EX human
+    class RUN,RD,FL machine
+    classDef live fill:#667eea,stroke:#4c51bf,color:#ffffff
+    classDef machine fill:#f0f4ff,stroke:#8b9cf4,color:#1b1533
+    classDef human fill:#fff4e6,stroke:#e0a458,color:#3a2a00
+    classDef gate fill:#ffe6e6,stroke:#e08080,color:#4a1010
+    classDef ok fill:#e6ffe6,stroke:#6fbf73,color:#0f3a12
+    classDef idle fill:#f5f5f5,stroke:#b8b8b8,color:#444444
+```
+
+**Reading it.** The split between the two red-and-green branches is a real bug turned into structure: capturing `2>&1` once recorded a node `MODULE_NOT_FOUND` stack trace as if the agent had said it. So success keeps stdout alone, while failure keeps stderr too, because a failure with no reason is worse than noise. The timeout wrapper exists because macOS has no `timeout(1)`; without it, a CLI waiting on a prompt that will never come leaves a Run click spinning forever.
+
 ### 5.12 Vault Browser (`src/routes/VaultBrowser.svelte`)
 Refresh calls the Tauri command `vault_status`. It lists the files under `vault/`, runs `git status --short -- vault`, and reports the last commit touching `AGENT_SYNC.md`. It does not pull or push — the app has no push path anywhere in the codebase, by design.
 
 Clicking a file calls `vault_file`, which returns its text. **This command does take a path from the frontend**, so it is untrusted input to a filesystem read. `resolve_vault_path()` canonicalizes the candidate — which resolves `..` *and* symlinks — and refuses anything landing outside `vault/`, anything that is not a file, and anything over 2 MB. Four unit tests cover it directly, including a symlink pointing out of the vault (§11).
+
+#### Reading the vault, and what the guard refuses
+
+```mermaid
+%%{init: {'fontFamily':'Arial, Helvetica, sans-serif','theme':'base','themeVariables':{'primaryColor':'#efe9ff','primaryTextColor':'#1b1533','primaryBorderColor':'#8b6cef','lineColor':'#6b5bd6','secondaryColor':'#e4eaff','tertiaryColor':'#f7f5ff','edgeLabelBackground':'#ffffff','fontFamily':'Arial, Helvetica, sans-serif','fontSize':'14px','noteBkgColor':'#fff6dc','noteTextColor':'#3a2f00','actorBkg':'#efe9ff','actorBorder':'#8b6cef','actorTextColor':'#1b1533','signalColor':'#4a3fb0','signalTextColor':'#1b1533','xyChart':{'backgroundColor':'#ffffff','plotColorPalette':'#8b6cef','titleColor':'#1b1533','xAxisLabelColor':'#1b1533','yAxisLabelColor':'#1b1533','xAxisTitleColor':'#1b1533','yAxisTitleColor':'#1b1533','xAxisLineColor':'#6b5bd6','yAxisLineColor':'#6b5bd6','xAxisTickColor':'#6b5bd6','yAxisTickColor':'#6b5bd6'}}}}%%
+flowchart TD
+    accTitle: Reading the vault, and what the guard refuses
+    accDescr {
+        Refreshing the Vault Browser lists the files under the vault, skipping
+        dotfiles, and runs git status scoped to the vault. Clicking a file sends its
+        path to vault_file, which canonicalizes it, which resolves dot-dot and
+        symlinks, and refuses it unless it is inside the vault, is a regular file,
+        is under two megabytes and reads as text. Nothing in this path writes, pulls
+        or pushes.
+    }
+    R["Refresh"] --> VS["vault_status<br/>list vault/ (skip dotfiles)<br/>git status --short -- vault<br/>last commit touching AGENT_SYNC.md"]
+    C["click a file"] --> VF["vault_file(path)"]
+    VF --> CN["canonicalize(vault/path)<br/>resolves .. and symlinks"]
+    CN --> IN{"still inside vault/?"}
+    IN -->|no| R1["refused"]
+    IN -->|yes| FI{"regular file?"}
+    FI -->|no| R2["refused"]
+    FI -->|yes| SZ{"2 MB or less?"}
+    SZ -->|no| R3["refused: open it in an editor"]
+    SZ -->|yes| TX{"valid text?"}
+    TX -->|no| R4["refused: probably binary"]
+    TX -->|yes| OK["text returned to the pane"]
+    class R1,R2,R3,R4 gate
+    class OK ok
+    class IN,FI,SZ,TX human
+    class VS,CN,VF machine
+    classDef live fill:#667eea,stroke:#4c51bf,color:#ffffff
+    classDef machine fill:#f0f4ff,stroke:#8b9cf4,color:#1b1533
+    classDef human fill:#fff4e6,stroke:#e0a458,color:#3a2a00
+    classDef gate fill:#ffe6e6,stroke:#e08080,color:#4a1010
+    classDef ok fill:#e6ffe6,stroke:#6fbf73,color:#0f3a12
+    classDef idle fill:#f5f5f5,stroke:#b8b8b8,color:#444444
+```
+
+**Reading it.** The path arrives from the frontend, so it is untrusted input to a filesystem read, and the guard is four independent refusals in a row. Canonicalizing rather than screening the string for `..` is what catches a symlink inside `vault/` pointing somewhere else. Four unit tests cover it, including the symlink case. The absence of any other arrow is also a claim: the browser has no code path that writes, pulls or pushes.
 
 ### 5.13 App shell and sidebar (`src/App.svelte`)
 Top to bottom, as of 2026-09-22:
@@ -347,6 +1054,59 @@ Top to bottom, as of 2026-09-22:
 
 `Onboarding.svelte` (§5.4) is mounted once, unconditionally, above the `.shell` div — it is `position: fixed`, so its place in the DOM does not affect layout, only stacking order.
 
+#### The shell, screen by screen
+
+```mermaid
+%%{init: {'fontFamily':'Arial, Helvetica, sans-serif','theme':'base','themeVariables':{'primaryColor':'#efe9ff','primaryTextColor':'#1b1533','primaryBorderColor':'#8b6cef','lineColor':'#6b5bd6','secondaryColor':'#e4eaff','tertiaryColor':'#f7f5ff','edgeLabelBackground':'#ffffff','fontFamily':'Arial, Helvetica, sans-serif','fontSize':'14px','noteBkgColor':'#fff6dc','noteTextColor':'#3a2f00','actorBkg':'#efe9ff','actorBorder':'#8b6cef','actorTextColor':'#1b1533','signalColor':'#4a3fb0','signalTextColor':'#1b1533','xyChart':{'backgroundColor':'#ffffff','plotColorPalette':'#8b6cef','titleColor':'#1b1533','xAxisLabelColor':'#1b1533','yAxisLabelColor':'#1b1533','xAxisTitleColor':'#1b1533','yAxisTitleColor':'#1b1533','xAxisLineColor':'#6b5bd6','yAxisLineColor':'#6b5bd6','xAxisTickColor':'#6b5bd6','yAxisTickColor':'#6b5bd6'}}}}%%
+flowchart LR
+    accTitle: The shell, screen by screen
+    accDescr {
+        The Onboarding overlay is mounted above the layout and is fixed-position, so
+        it only affects stacking. The sidebar has a profile card at the top that
+        opens the Profile page, a profile switcher shown only with more than one
+        profile, six section buttons and Settings pinned at the bottom. Each button
+        sets one string, activeTab, and a single if chain maps it to a component.
+        Picking a chat in Recent, Projects or Sessions jumps to Models and Chat.
+    }
+    ONB["Onboarding overlay<br/>position: fixed · shown while the gate is closed"]
+    subgraph SB["Sidebar"]
+        direction TB
+        PC["profile card → Profile"]
+        SW["profile switcher<br/>only if more than one profile"]
+        N1["Models & Chat"]
+        N2["Recent"]
+        N3["Projects"]
+        N4["Sessions"]
+        N5["Vault Browser"]
+        N6["Agent Control"]
+        ST["Settings (pinned to the bottom)"]
+    end
+    SW -->|"switchProfile()<br/>reloads the window"| RELOAD["new namespace<br/>loaded from scratch"]
+    PC --> PRO["Profile.svelte"]
+    N1 --> MP["ModelPicker"]
+    N2 --> RC["Recent"]
+    N3 --> PR["Projects"]
+    N4 --> SE["Sessions"]
+    N5 --> VB["VaultBrowser"]
+    N6 --> AG["AgentControl"]
+    ST --> SET["Settings"]
+    RC -->|"select a chat"| MP
+    PR -->|"select a chat"| MP
+    SE -->|"select a chat"| MP
+    class ONB gate
+    class MP,PRO,SET live
+    class RC,PR,SE,VB,AG machine
+    class RELOAD human
+    classDef live fill:#667eea,stroke:#4c51bf,color:#ffffff
+    classDef machine fill:#f0f4ff,stroke:#8b9cf4,color:#1b1533
+    classDef human fill:#fff4e6,stroke:#e0a458,color:#3a2a00
+    classDef gate fill:#ffe6e6,stroke:#e08080,color:#4a1010
+    classDef ok fill:#e6ffe6,stroke:#6fbf73,color:#0f3a12
+    classDef idle fill:#f5f5f5,stroke:#b8b8b8,color:#444444
+```
+
+**Reading it.** `activeTab` is a plain string rather than a router, and the red overlay is the only thing that can cover everything. Identity (top) and configuration (bottom) anchor opposite ends of the sidebar on purpose. There is no "New Session" entry: starting a conversation is the **+ New session** button in the model bar, inside the screen where the conversation actually lives.
+
 ## 6. Data flow
 
 ### 6.1 Sending a chat message
@@ -354,6 +1114,7 @@ Top to bottom, as of 2026-09-22:
 A message is text, images, or both. Images arrive three ways — the file picker, a drag onto the chat, and a clipboard paste — and all three call the same `ingestImageFiles()`. The diagram shows the drop path; the other two differ only in how the `File` arrives.
 
 ```mermaid
+%%{init: {'fontFamily':'Arial, Helvetica, sans-serif','theme':'base','themeVariables':{'primaryColor':'#efe9ff','primaryTextColor':'#1b1533','primaryBorderColor':'#8b6cef','lineColor':'#6b5bd6','secondaryColor':'#e4eaff','tertiaryColor':'#f7f5ff','edgeLabelBackground':'#ffffff','fontFamily':'Arial, Helvetica, sans-serif','fontSize':'14px','noteBkgColor':'#fff6dc','noteTextColor':'#3a2f00','actorBkg':'#efe9ff','actorBorder':'#8b6cef','actorTextColor':'#1b1533','signalColor':'#4a3fb0','signalTextColor':'#1b1533','xyChart':{'backgroundColor':'#ffffff','plotColorPalette':'#8b6cef','titleColor':'#1b1533','xAxisLabelColor':'#1b1533','yAxisLabelColor':'#1b1533','xAxisTitleColor':'#1b1533','yAxisTitleColor':'#1b1533','xAxisLineColor':'#6b5bd6','yAxisLineColor':'#6b5bd6','xAxisTickColor':'#6b5bd6','yAxisTickColor':'#6b5bd6'}}}}%%
 sequenceDiagram
     accTitle: One chat message, drop path
     accDescr {
@@ -371,7 +1132,7 @@ sequenceDiagram
     participant P as Provider API
 
     U->>MP: drops a screenshot, types a caption, hits send
-    MP->>MP: ingestImageFiles() reads it as a data URL<br/>caps: 256KB/file, 1MB total, 40 files
+    MP->>MP: ingestImageFiles() reads it as a data URL<br/>cap: 12 MB per image
     alt provider cannot take images
         MP-->>U: warning shown, Send disabled
     else provider can take images
@@ -409,6 +1170,7 @@ sequenceDiagram
 **A screenshot with no caption is still a message.** `toAnthropicMessages()` used to drop any turn whose text was empty. A dropped screenshot often has no caption, so that filter would have discarded the image. A turn now survives if it has text *or* an image.
 
 ```mermaid
+%%{init: {'fontFamily':'Arial, Helvetica, sans-serif','theme':'base','themeVariables':{'primaryColor':'#efe9ff','primaryTextColor':'#1b1533','primaryBorderColor':'#8b6cef','lineColor':'#6b5bd6','secondaryColor':'#e4eaff','tertiaryColor':'#f7f5ff','edgeLabelBackground':'#ffffff','fontFamily':'Arial, Helvetica, sans-serif','fontSize':'14px','noteBkgColor':'#fff6dc','noteTextColor':'#3a2f00','actorBkg':'#efe9ff','actorBorder':'#8b6cef','actorTextColor':'#1b1533','signalColor':'#4a3fb0','signalTextColor':'#1b1533','xyChart':{'backgroundColor':'#ffffff','plotColorPalette':'#8b6cef','titleColor':'#1b1533','xAxisLabelColor':'#1b1533','yAxisLabelColor':'#1b1533','xAxisTitleColor':'#1b1533','yAxisTitleColor':'#1b1533','xAxisLineColor':'#6b5bd6','yAxisLineColor':'#6b5bd6','xAxisTickColor':'#6b5bd6','yAxisTickColor':'#6b5bd6'}}}}%%
 flowchart TD
     accTitle: How a failed response becomes a readable error
     accDescr {
@@ -445,6 +1207,38 @@ Two smaller facts follow from the same incident:
 - **A host CLI run has a hard time limit.** `run_with_timeout` in `scripts/run_agent.sh` implements what macOS's missing `timeout(1)` would do — SIGTERM, then SIGKILL five seconds later — defaulting to `AGENT_TIMEOUT_SECS=900` and overridable. Without it, a CLI waiting on something that will never arrive (an approval prompt with no TTY, a stalled socket) leaves a Run click spinning with no end. A killed run exits 143 or 137, and the outbox records `Timed out after Ns (SIGTERM)` rather than letting a time limit masquerade as an ordinary failure.
 - **The recorded output is filtered.** `redact()` strips known noise — `python-dotenv` parse warnings, bash's `Terminated: 15` job-control line — and masks anything key-shaped. A killed run should read as "this was killed deliberately", not as a wall of shell noise.
 
+#### Why a Run click does not freeze the window
+
+```mermaid
+%%{init: {'fontFamily':'Arial, Helvetica, sans-serif','theme':'base','themeVariables':{'primaryColor':'#efe9ff','primaryTextColor':'#1b1533','primaryBorderColor':'#8b6cef','lineColor':'#6b5bd6','secondaryColor':'#e4eaff','tertiaryColor':'#f7f5ff','edgeLabelBackground':'#ffffff','fontFamily':'Arial, Helvetica, sans-serif','fontSize':'14px','noteBkgColor':'#fff6dc','noteTextColor':'#3a2f00','actorBkg':'#efe9ff','actorBorder':'#8b6cef','actorTextColor':'#1b1533','signalColor':'#4a3fb0','signalTextColor':'#1b1533','xyChart':{'backgroundColor':'#ffffff','plotColorPalette':'#8b6cef','titleColor':'#1b1533','xAxisLabelColor':'#1b1533','yAxisLabelColor':'#1b1533','xAxisTitleColor':'#1b1533','yAxisTitleColor':'#1b1533','xAxisLineColor':'#6b5bd6','yAxisLineColor':'#6b5bd6','xAxisTickColor':'#6b5bd6','yAxisTickColor':'#6b5bd6'}}}}%%
+sequenceDiagram
+    accTitle: Why a Run click does not freeze the window
+    accDescr {
+        Pressing Run invokes the async Tauri command. The runtime hands it to a
+        worker thread, so the main thread stays free to paint and the card shows
+        running. The worker blocks on the shell script for as long as the agent
+        takes, up to the timeout, and then returns the text. If the command had been
+        synchronous, it would have run on the main thread and frozen the window for
+        the whole run.
+    }
+    participant UI as Webview (main thread)
+    participant RT as Tauri async runtime
+    participant W as Worker thread
+    participant SH as run_agent.sh
+    UI->>RT: invoke run_agent
+    RT->>W: dispatch off the main thread
+    UI-->>UI: card shows Running, window keeps painting
+    W->>SH: bash run_agent.sh target (blocks here)
+    SH-->>W: exit and output, up to 900 s later
+    W-->>RT: text, truncated at 4000 characters
+    RT-->>UI: resolve, card re-reads status
+    rect rgb(255, 230, 230)
+        Note over UI,SH: If run_agent were a plain fn, the same bash call would<br/>run on the main thread: no painting for up to 3.5 minutes.
+    end
+```
+
+**Reading it.** The red band is the bug this section exists to prevent: a synchronous Tauri command runs on the main thread, and one real `grok-build` run measured 3.5 minutes with a window that could only be force-quit. It comes back as a hang with no error message, which is the worst failure shape, so `CONTRIBUTING.md` carries it as a rule: never make `run_agent` synchronous again.
+
 ## 7. Provider catalog
 
 13 providers (`Object.keys(PROVIDERS).length` in `src/lib/providers.ts` — check there directly rather than trusting this number by hand), router-abstracted so the list can grow without touching the UI logic. A provider that is not here can be added from Settings without editing the source — see §5.5.
@@ -468,10 +1262,11 @@ Two smaller facts follow from the same incident:
 **12 of 13 read images.** The count is not decoration: it is the set `IMAGE_CAPABLE_PROVIDERS` in `llm-router.ts`, and the UI reads it to decide whether to warn before a send.
 
 ```mermaid
+%%{init: {'fontFamily':'Arial, Helvetica, sans-serif','theme':'base','themeVariables':{'primaryColor':'#efe9ff','primaryTextColor':'#1b1533','primaryBorderColor':'#8b6cef','lineColor':'#6b5bd6','secondaryColor':'#e4eaff','tertiaryColor':'#f7f5ff','edgeLabelBackground':'#ffffff','fontFamily':'Arial, Helvetica, sans-serif','fontSize':'14px','noteBkgColor':'#fff6dc','noteTextColor':'#3a2f00','actorBkg':'#efe9ff','actorBorder':'#8b6cef','actorTextColor':'#1b1533','signalColor':'#4a3fb0','signalTextColor':'#1b1533','xyChart':{'backgroundColor':'#ffffff','plotColorPalette':'#8b6cef','titleColor':'#1b1533','xAxisLabelColor':'#1b1533','yAxisLabelColor':'#1b1533','xAxisTitleColor':'#1b1533','yAxisTitleColor':'#1b1533','xAxisLineColor':'#6b5bd6','yAxisLineColor':'#6b5bd6','xAxisTickColor':'#6b5bd6','yAxisTickColor':'#6b5bd6'}}}}%%
 flowchart LR
     accTitle: How the router picks an implementation
     accDescr {
-        One entry point, callLLM, branches on the provider id. Seven providers
+        One entry point, callLLM, branches on the provider id. Six built-in providers
         share a single OpenAI-compatible implementation because their APIs
         genuinely are that dialect. Anthropic, Google, MiniMax and Qwen each
         have their own function because their request or response shapes are
@@ -482,7 +1277,7 @@ flowchart LR
         object.
     }
     Send["callLLM(config, messages)"] --> Switch{"provider"}
-    Switch -->|"7 providers"| Shim["callOpenAICompatible<br/>one implementation"]
+    Switch -->|"6 providers"| Shim["callOpenAICompatible<br/>one implementation"]
     Switch -->|Anthropic| A["callAnthropic<br/>content blocks"]
     Switch -->|Google| G["callGoogle<br/>contents and parts"]
     Switch -->|MiniMax| M["callMiniMax"]
@@ -503,11 +1298,63 @@ flowchart LR
     style C fill:#fff4e6
 ```
 
-**Reading it.** The `Switch` diamond is the whole router: everything above the response box is one of eight paths, and the response box is the contract they all satisfy. Note that the largest branch is deliberately the *shared* one — seven providers, one implementation — because copying an identical dialect seven times would be seven copies of the same bug waiting to diverge. The bespoke branches are the four APIs that are genuinely not that dialect.
+**Reading it.** The `Switch` diamond is the whole router: everything above the response box is one of eight paths, and the response box is the contract they all satisfy. Note that the largest branch is deliberately the *shared* one — six built-in providers, plus every custom one, on one implementation — because copying an identical dialect seven times would be seven copies of the same bug waiting to diverge. The bespoke branches are the four APIs that are genuinely not that dialect.
+
+#### How each provider authenticates and bills
+
+```mermaid
+%%{init: {'fontFamily':'Arial, Helvetica, sans-serif','theme':'base','themeVariables':{'primaryColor':'#efe9ff','primaryTextColor':'#1b1533','primaryBorderColor':'#8b6cef','lineColor':'#6b5bd6','secondaryColor':'#e4eaff','tertiaryColor':'#f7f5ff','edgeLabelBackground':'#ffffff','fontFamily':'Arial, Helvetica, sans-serif','fontSize':'14px','noteBkgColor':'#fff6dc','noteTextColor':'#3a2f00','actorBkg':'#efe9ff','actorBorder':'#8b6cef','actorTextColor':'#1b1533','signalColor':'#4a3fb0','signalTextColor':'#1b1533','xyChart':{'backgroundColor':'#ffffff','plotColorPalette':'#8b6cef','titleColor':'#1b1533','xAxisLabelColor':'#1b1533','yAxisLabelColor':'#1b1533','xAxisTitleColor':'#1b1533','yAxisTitleColor':'#1b1533','xAxisLineColor':'#6b5bd6','yAxisLineColor':'#6b5bd6','xAxisTickColor':'#6b5bd6','yAxisTickColor':'#6b5bd6'}}}}%%
+flowchart LR
+    accTitle: How each provider authenticates and bills
+    accDescr {
+        Providers fall into four groups by how they authenticate. Two use a flat-
+        rate login with no pasted key: Claude Subscription DirectSDK through the
+        claude CLI, and Nous Portal through the local Hermes proxy. Five take a per-
+        token key that the desktop app reads from the env file. Five take a per-
+        token key pasted in Settings. Ollama is free and local. Any OpenAI-
+        compatible endpoint can be added as a custom provider. Two providers do not
+        accept images.
+    }
+    subgraph USER["Added by you"]
+        CU["custom:slug<br/>any OpenAI-compatible endpoint"]
+    end
+    subgraph FREE["No key"]
+        OL["Ollama · runs on this machine"]
+    end
+    subgraph SETK["Per-token · key from Settings"]
+        FW["Fireworks AI"]
+        GQ["Groq"]
+        MM["MiniMax"]
+        PX["Perplexity"]
+        QW["Qwen Code"]
+    end
+    subgraph ENVK["Per-token · key from .env"]
+        AN["Anthropic"]
+        CG["ChatGPT / Codex"]
+        OR["OpenRouter"]
+        GO["Google Gemini"]
+        XA["xAI Grok"]
+    end
+    subgraph FLAT["Flat-rate login · no pasted key"]
+        DS["Claude Subscription DirectSDK<br/>claude auth login · the default"]
+        NO["Nous Portal<br/>hermes portal · local proxy"]
+    end
+    class DS,PX gate
+    class NO,OL,CU ok
+    class AN,CG,OR,GO,XA,FW,GQ,MM,QW machine
+    classDef live fill:#667eea,stroke:#4c51bf,color:#ffffff
+    classDef machine fill:#f0f4ff,stroke:#8b9cf4,color:#1b1533
+    classDef human fill:#fff4e6,stroke:#e0a458,color:#3a2a00
+    classDef gate fill:#ffe6e6,stroke:#e08080,color:#4a1010
+    classDef ok fill:#e6ffe6,stroke:#6fbf73,color:#0f3a12
+    classDef idle fill:#f5f5f5,stroke:#b8b8b8,color:#444444
+```
+
+**Reading it.** The red boxes are the two providers that cannot read an image: DirectSDK because it pipes a single text prompt to a CLI, and Perplexity because the Agent API rewrite sends text only. The other eleven built-in providers can. The first group is why the default costs nothing per message and also why it is blind to a screenshot (§8.4): the cheapest path and the image-capable path are different paths.
 
 ### 7.1 "OpenAI-compatible" means one implementation, not a shortcut
 
-It means the provider speaks `{model, messages, temperature, max_tokens}` and answers `{choices:[{message:{content}}]}`, so they share `callOpenAICompatible` instead of seven copies of it. The four that do not — Anthropic, Google, MiniMax, Qwen — each have a request or response shape different enough to need its own function. [POSITIONING.md §3.2](./POSITIONING.md) explains why that split is the design and not an accident.
+It means the provider speaks `{model, messages, temperature, max_tokens}` and answers `{choices:[{message:{content}}]}`, so they share `callOpenAICompatible` instead of six copies of it. The four that do not — Anthropic, Google, MiniMax, Qwen — each have a request or response shape different enough to need its own function. [POSITIONING.md §3.2](./POSITIONING.md) explains why that split is the design and not an accident.
 
 **Two providers were removed on 2026-09-22, and the reason is worth keeping.** Replicate and Hugging Face were both in the catalog, and neither could be verified on this machine — no key, no public model list. Worse, both were text-to-output endpoints, so an attached image had nowhere to go and would have been silently dropped. Removing them made the catalog's promise match its behaviour. The three places that must agree were re-counted afterwards: 13 catalog keys, 13 `callLLM` switch cases, 13 members of the `LLMProvider` union.
 
@@ -517,6 +1364,33 @@ Gemini's `GET /v1beta/models` lists `gemini-2.5-flash` and reports `generateCont
 ### 7.3 Nous Portal does not take a pasted API key
 `callNous()` posts to the local Hermes subscription proxy at `http://127.0.0.1:8645/v1` (`hermes portal` once, then `hermes proxy start`), which attaches the Portal credential. A direct call to `inference-api.nousresearch.com` 401s, because the portal login never produces a key you can paste. **Unverified by this project:** the proxy answered a real completion on 2026-09-22 (a live `x-ai/grok-4.7` response came back through `127.0.0.1:8645`), but that is the Hermes side of the contract; ValhallaAI's own `callNous` path has not been exercised against it since the provider-count changes.
 
+#### The Nous Portal path
+
+```mermaid
+%%{init: {'fontFamily':'Arial, Helvetica, sans-serif','theme':'base','themeVariables':{'primaryColor':'#efe9ff','primaryTextColor':'#1b1533','primaryBorderColor':'#8b6cef','lineColor':'#6b5bd6','secondaryColor':'#e4eaff','tertiaryColor':'#f7f5ff','edgeLabelBackground':'#ffffff','fontFamily':'Arial, Helvetica, sans-serif','fontSize':'14px','noteBkgColor':'#fff6dc','noteTextColor':'#3a2f00','actorBkg':'#efe9ff','actorBorder':'#8b6cef','actorTextColor':'#1b1533','signalColor':'#4a3fb0','signalTextColor':'#1b1533','xyChart':{'backgroundColor':'#ffffff','plotColorPalette':'#8b6cef','titleColor':'#1b1533','xAxisLabelColor':'#1b1533','yAxisLabelColor':'#1b1533','xAxisTitleColor':'#1b1533','yAxisTitleColor':'#1b1533','xAxisLineColor':'#6b5bd6','yAxisLineColor':'#6b5bd6','xAxisTickColor':'#6b5bd6','yAxisTickColor':'#6b5bd6'}}}}%%
+sequenceDiagram
+    accTitle: The Nous Portal path
+    accDescr {
+        Nous Portal does not take a pasted key. The router posts an OpenAI-style
+        request to the local Hermes subscription proxy on port 8645. The proxy
+        attaches the Portal credential and forwards to the Portal, then returns the
+        reply. A direct call to the Portal without the proxy gets a 401, because the
+        portal login never produces a key that can be pasted.
+    }
+    participant R as llm-router · callNous
+    participant X as Hermes proxy (port 8645)
+    participant N as Nous Portal
+    Note over X: started once with hermes portal,<br/>then hermes proxy start
+    R->>X: POST /v1/chat/completions (no key)
+    X->>X: attach the Portal credential
+    X->>N: forward the request
+    N-->>X: completion
+    X-->>R: OpenAI-shaped response
+    Note over R,N: Calling the Portal directly with no credential returns 401.
+```
+
+**Reading it.** The proxy is the credential. That is why Nous has no key field in Settings, why it counts as flat-rate, and why it fails with a connection error rather than an auth error when the proxy is not running. The Hermes side of this contract is verified; ValhallaAI's own `callNous` has not been exercised against the live proxy since the provider-count changes (§12).
+
 ### 7.4 Known third-party deadline
 Perplexity's Sonar Chat Completions endpoint is supported **only until 2026-09-27**, so on 2026-09-22 the catalog's `perplexity` entry was rewritten onto Perplexity's **Agent API** (`POST /v1/agent`) rather than left to break. It is no longer an OpenAI-dialect provider: the request sends a **`preset`** (`low` | `fast` | `medium`) instead of a model id and an `input` string instead of `messages`, and the reply arrives as a typed `output` array (`{type: "message"}` → `content[].type === "output_text"`) rather than `choices[0].message.content`. Three things follow, and all three are recorded rather than smoothed over: **it has never been run** (no Perplexity key exists on this machine), the model dropdown therefore shows a raw preset name, and it was **removed from `IMAGE_CAPABLE_PROVIDERS`** because the new path sends text only — leaving it listed would have let the composer accept an attachment the provider silently drops, which is the exact failure that set exists to prevent.
 
@@ -524,6 +1398,47 @@ Perplexity's Sonar Chat Completions endpoint is supported **only until 2026-09-2
 Claude Subscription DirectSDK and Nous Portal run on a flat-rate login and never touch a per-token key. Anthropic (API key) and xAI Grok have no subscription path and bill per token. The chat defaults to Claude Subscription DirectSDK on Haiku for exactly this reason: the out-of-the-box path costs nothing per message. §8.4 lists the cost, honestly, of choosing it.
 
 **One implementation note that is really a whole class of bug.** This path shells out to the `claude` CLI, and the app is GUI-launched — so its `PATH` is `/usr/bin:/bin:/usr/sbin:/sbin`, which does not contain the native installer's `~/.local/bin`. A bare `Command::new("claude")` therefore failed with ENOENT on a machine where the CLI was installed and working in Terminal, and the app reported "not installed" and advised an `npm install` that would have created a second, unmanaged copy. The fix resolves the binary from a list of known absolute locations and prepends those directories to the child's `PATH`; the search order is unit-tested, and the same trap is documented as a rule in [CONTRIBUTING.md](./CONTRIBUTING.md#the-gui-path-trap-resolve-host-tools-by-absolute-path-never-trust-path), because `scripts/run_agent.sh` had already hit it once for agent runs.
+
+#### Chat on the subscription default, end to end
+
+```mermaid
+%%{init: {'fontFamily':'Arial, Helvetica, sans-serif','theme':'base','themeVariables':{'primaryColor':'#efe9ff','primaryTextColor':'#1b1533','primaryBorderColor':'#8b6cef','lineColor':'#6b5bd6','secondaryColor':'#e4eaff','tertiaryColor':'#f7f5ff','edgeLabelBackground':'#ffffff','fontFamily':'Arial, Helvetica, sans-serif','fontSize':'14px','noteBkgColor':'#fff6dc','noteTextColor':'#3a2f00','actorBkg':'#efe9ff','actorBorder':'#8b6cef','actorTextColor':'#1b1533','signalColor':'#4a3fb0','signalTextColor':'#1b1533','xyChart':{'backgroundColor':'#ffffff','plotColorPalette':'#8b6cef','titleColor':'#1b1533','xAxisLabelColor':'#1b1533','yAxisLabelColor':'#1b1533','xAxisTitleColor':'#1b1533','yAxisTitleColor':'#1b1533','xAxisLineColor':'#6b5bd6','yAxisLineColor':'#6b5bd6','xAxisTickColor':'#6b5bd6','yAxisTickColor':'#6b5bd6'}}}}%%
+flowchart TD
+    accTitle: Chat on the subscription default, end to end
+    accDescr {
+        Claude Subscription DirectSDK only works inside the desktop app. The Rust
+        side finds the claude binary by an override variable or a list of known
+        absolute locations, because a GUI-launched app has a minimal PATH. It checks
+        auth status with the paid keys stripped from the environment, builds a text-
+        only prompt that forbids tools, runs the CLI in a throwaway temporary
+        directory with a restricted permission mode, deletes the directory, and
+        returns the reply.
+    }
+    S["callClaudeDirectSDK"] --> D{"inside the<br/>desktop app?"}
+    D -->|no| E1["error: only runs in the desktop app"]
+    D -->|yes| B["resolve the claude binary<br/>1. CLAUDE_SUBSCRIPTION_DIRECTSDK_COMMAND<br/>2. ~/.local/bin · ~/.claude/local · ~/.npm-global/bin<br/>3. /opt/homebrew/bin · /usr/local/bin"]
+    B --> A["claude auth status<br/>env cleared; ANTHROPIC_* stripped;<br/>known dirs prepended to PATH"]
+    A --> F{"binary ran?"}
+    F -->|no| E2["error lists every path tried<br/>and why a GUI PATH is the reason"]
+    F -->|yes| L{"loggedIn?"}
+    L -->|no| E3["error: run claude auth login"]
+    L -->|yes| P["build one text prompt<br/>images are not carried<br/>Do not use tools"]
+    P --> R["run claude in a throwaway temp dir<br/>no session persistence · no slash commands"]
+    R --> C["delete the temp dir"]
+    C --> OUT["reply text"]
+    class E1,E2,E3 gate
+    class OUT ok
+    class D,F,L human
+    class B,A,P,R,C machine
+    classDef live fill:#667eea,stroke:#4c51bf,color:#ffffff
+    classDef machine fill:#f0f4ff,stroke:#8b9cf4,color:#1b1533
+    classDef human fill:#fff4e6,stroke:#e0a458,color:#3a2a00
+    classDef gate fill:#ffe6e6,stroke:#e08080,color:#4a1010
+    classDef ok fill:#e6ffe6,stroke:#6fbf73,color:#0f3a12
+    classDef idle fill:#f5f5f5,stroke:#b8b8b8,color:#444444
+```
+
+**Reading it.** Every red box is an error that names its own cause. The wording of the second one matters most: a bare `Command::new("claude")` once reported "not installed" and advised an `npm install` for a CLI that was installed and working in Terminal, because the GUI's PATH is only `/usr/bin:/bin:/usr/sbin:/sbin`. The paid-key variables are stripped so that "subscription" cannot silently mean "paid key", the same rule the agent runner applies.
 
 ## 8. Agent run performance
 
@@ -545,6 +1460,7 @@ Measured from the Grok CLI's own session event log on 2026-09-22, two runs of th
 **The tools were free. The deciding was the entire cost.** And in both runs, the file being fetched by hand was a log that `agents/_shared/task.cjs` had already pasted into the prompt. The instruction said *"Read the coordination log"* — which is, literally, an invitation to go and read it.
 
 ```mermaid
+%%{init: {'fontFamily':'Arial, Helvetica, sans-serif','theme':'base','themeVariables':{'primaryColor':'#efe9ff','primaryTextColor':'#1b1533','primaryBorderColor':'#8b6cef','lineColor':'#6b5bd6','secondaryColor':'#e4eaff','tertiaryColor':'#f7f5ff','edgeLabelBackground':'#ffffff','fontFamily':'Arial, Helvetica, sans-serif','fontSize':'14px','noteBkgColor':'#fff6dc','noteTextColor':'#3a2f00','actorBkg':'#efe9ff','actorBorder':'#8b6cef','actorTextColor':'#1b1533','signalColor':'#4a3fb0','signalTextColor':'#1b1533','xyChart':{'backgroundColor':'#ffffff','plotColorPalette':'#8b6cef','titleColor':'#1b1533','xAxisLabelColor':'#1b1533','yAxisLabelColor':'#1b1533','xAxisTitleColor':'#1b1533','yAxisTitleColor':'#1b1533','xAxisLineColor':'#6b5bd6','yAxisLineColor':'#6b5bd6','xAxisTickColor':'#6b5bd6','yAxisTickColor':'#6b5bd6'}}}}%%
 flowchart LR
     accTitle: Why an agent run took three minutes
     accDescr {
@@ -590,6 +1506,26 @@ Same prompt, same log, measured one change at a time:
 
 The 23-second answer was checked against the log and cites the same entries as the 197-second one, including the entry describing the fix itself. **Speed here is not quality traded away** — but the check was necessary, not assumed, because the two levers (`build-fast`, `low` effort) are exactly the ones that could degrade an answer.
 
+#### The measured ladder
+
+```mermaid
+%%{init: {'fontFamily':'Arial, Helvetica, sans-serif','theme':'base','themeVariables':{'primaryColor':'#efe9ff','primaryTextColor':'#1b1533','primaryBorderColor':'#8b6cef','lineColor':'#6b5bd6','secondaryColor':'#e4eaff','tertiaryColor':'#f7f5ff','edgeLabelBackground':'#ffffff','fontFamily':'Arial, Helvetica, sans-serif','fontSize':'14px','noteBkgColor':'#fff6dc','noteTextColor':'#3a2f00','actorBkg':'#efe9ff','actorBorder':'#8b6cef','actorTextColor':'#1b1533','signalColor':'#4a3fb0','signalTextColor':'#1b1533','xyChart':{'backgroundColor':'#ffffff','plotColorPalette':'#8b6cef','titleColor':'#1b1533','xAxisLabelColor':'#1b1533','yAxisLabelColor':'#1b1533','xAxisTitleColor':'#1b1533','yAxisTitleColor':'#1b1533','xAxisLineColor':'#6b5bd6','yAxisLineColor':'#6b5bd6','xAxisTickColor':'#6b5bd6','yAxisTickColor':'#6b5bd6'}}}}%%
+xychart-beta
+    accTitle: The measured ladder
+    accDescr {
+        A bar chart of wall time in seconds for the same prompt and the same log,
+        one change at a time. Defaults take 197 seconds. Forbidding tools takes 133.
+        The fast model takes 72. Low reasoning effort takes 58. All flags together
+        take 23 in the CLI directly and 41 end to end through the runner script.
+    }
+    title "Seconds for one grok-build run, one change at a time"
+    x-axis ["CLI defaults", "forbid tools", "fast model", "low effort", "all flags", "via run_agent.sh"]
+    y-axis "seconds" 0 --> 220
+    bar [197, 133, 72, 58, 23, 41]
+```
+
+**Reading it.** Each step is one lever on the same task. The largest single effect is reasoning effort (197 s to 58 s on its own), and the biggest jump overall is the instruction that stops the model fetching a file it already holds. The last bar is higher than the one before it only because it includes process start, the prompt build and the outbox write; it is the number a user actually waits.
+
 ### 8.3 Three things that do *not* work
 
 Recorded so they are not tried again:
@@ -618,9 +1554,53 @@ Claude Subscription DirectSDK is free at the margin and **cannot read images**, 
 - A secrets store. API keys never get written into vault files — they live in `.env` / `localStorage` / a proper secrets manager.
 - A queue. If two agents need to hand off a task in real time, that's a job queue's problem, not the vault's.
 
+#### Who reads and who writes each vault file
+
+```mermaid
+%%{init: {'fontFamily':'Arial, Helvetica, sans-serif','theme':'base','themeVariables':{'primaryColor':'#efe9ff','primaryTextColor':'#1b1533','primaryBorderColor':'#8b6cef','lineColor':'#6b5bd6','secondaryColor':'#e4eaff','tertiaryColor':'#f7f5ff','edgeLabelBackground':'#ffffff','fontFamily':'Arial, Helvetica, sans-serif','fontSize':'14px','noteBkgColor':'#fff6dc','noteTextColor':'#3a2f00','actorBkg':'#efe9ff','actorBorder':'#8b6cef','actorTextColor':'#1b1533','signalColor':'#4a3fb0','signalTextColor':'#1b1533','xyChart':{'backgroundColor':'#ffffff','plotColorPalette':'#8b6cef','titleColor':'#1b1533','xAxisLabelColor':'#1b1533','yAxisLabelColor':'#1b1533','xAxisTitleColor':'#1b1533','yAxisTitleColor':'#1b1533','xAxisLineColor':'#6b5bd6','yAxisLineColor':'#6b5bd6','xAxisTickColor':'#6b5bd6','yAxisTickColor':'#6b5bd6'}}}}%%
+flowchart TB
+    accTitle: Who reads and who writes each vault file
+    accDescr {
+        Four files matter. The tasks file says what each agent does and is read by
+        the runtimes. The config file says how each runs, is deliberately left
+        uncommitted, and is read by the container agents and the status command.
+        Each agent appends only to its own outbox, which is gitignored. Only the
+        relay writes the shared log, and the Vault Browser can read all of them.
+    }
+    TK["agent-tasks.json<br/>what an agent DOES<br/>tracked"]
+    CF["agents-config.json<br/>how it RUNS<br/>left uncommitted"]
+    OB["AGENT_OUTBOX_agent.md<br/>one per agent · gitignored"]
+    SY["AGENT_SYNC.md<br/>append-only shared log · tracked"]
+    RTM["agent runtimes"]
+    REL["vault_relay.sh"]
+    STS["agent_status"]
+    VB["Vault Browser"]
+    TK -->|"read"| RTM
+    CF -->|"read"| RTM
+    RTM ==>|"append · own file only"| OB
+    OB -->|"fold, then clear"| REL
+    REL ==>|"append"| SY
+    OB -->|"last entry"| STS
+    CF -->|"enabled flags"| STS
+    SY -->|"read-only"| VB
+    class TK,SY ok
+    class CF human
+    class OB machine
+    class RTM,REL live
+    classDef live fill:#667eea,stroke:#4c51bf,color:#ffffff
+    classDef machine fill:#f0f4ff,stroke:#8b9cf4,color:#1b1533
+    classDef human fill:#fff4e6,stroke:#e0a458,color:#3a2a00
+    classDef gate fill:#ffe6e6,stroke:#e08080,color:#4a1010
+    classDef ok fill:#e6ffe6,stroke:#6fbf73,color:#0f3a12
+    classDef idle fill:#f5f5f5,stroke:#b8b8b8,color:#444444
+```
+
+**Reading it.** Count the thick arrows: there are exactly two writers, and each writes a different file. An agent never touches the shared log, and the relay never touches an agent's task. That is the entire concurrency design, and it is why two agents can run without a merge conflict: git conflicts on a single shared log are the failure mode this layout is built to avoid. The amber file is a reminder that its state in the working tree is not what source control holds.
+
 ### 9.2 The full agent-and-vault picture
 
 ```mermaid
+%%{init: {'fontFamily':'Arial, Helvetica, sans-serif','theme':'base','themeVariables':{'primaryColor':'#efe9ff','primaryTextColor':'#1b1533','primaryBorderColor':'#8b6cef','lineColor':'#6b5bd6','secondaryColor':'#e4eaff','tertiaryColor':'#f7f5ff','edgeLabelBackground':'#ffffff','fontFamily':'Arial, Helvetica, sans-serif','fontSize':'14px','noteBkgColor':'#fff6dc','noteTextColor':'#3a2f00','actorBkg':'#efe9ff','actorBorder':'#8b6cef','actorTextColor':'#1b1533','signalColor':'#4a3fb0','signalTextColor':'#1b1533','xyChart':{'backgroundColor':'#ffffff','plotColorPalette':'#8b6cef','titleColor':'#1b1533','xAxisLabelColor':'#1b1533','yAxisLabelColor':'#1b1533','xAxisTitleColor':'#1b1533','yAxisTitleColor':'#1b1533','xAxisLineColor':'#6b5bd6','yAxisLineColor':'#6b5bd6','xAxisTickColor':'#6b5bd6','yAxisTickColor':'#6b5bd6'}}}}%%
 sequenceDiagram
     accTitle: Agent run to coordination log, with the relay step
     accDescr {
@@ -684,6 +1664,49 @@ sequenceDiagram
 
 **A custom agent is a name, not a new runtime.** It is a display name bound to one of the three above, stored in `localStorage`, and the Rust side re-validates the runtime against the same allowlist before anything runs (§5.9).
 
+#### One relay cycle
+
+```mermaid
+%%{init: {'fontFamily':'Arial, Helvetica, sans-serif','theme':'base','themeVariables':{'primaryColor':'#efe9ff','primaryTextColor':'#1b1533','primaryBorderColor':'#8b6cef','lineColor':'#6b5bd6','secondaryColor':'#e4eaff','tertiaryColor':'#f7f5ff','edgeLabelBackground':'#ffffff','fontFamily':'Arial, Helvetica, sans-serif','fontSize':'14px','noteBkgColor':'#fff6dc','noteTextColor':'#3a2f00','actorBkg':'#efe9ff','actorBorder':'#8b6cef','actorTextColor':'#1b1533','signalColor':'#4a3fb0','signalTextColor':'#1b1533','xyChart':{'backgroundColor':'#ffffff','plotColorPalette':'#8b6cef','titleColor':'#1b1533','xAxisLabelColor':'#1b1533','yAxisLabelColor':'#1b1533','xAxisTitleColor':'#1b1533','yAxisTitleColor':'#1b1533','xAxisLineColor':'#6b5bd6','yAxisLineColor':'#6b5bd6','xAxisTickColor':'#6b5bd6','yAxisTickColor':'#6b5bd6'}}}}%%
+flowchart TD
+    accTitle: One relay cycle
+    accDescr {
+        At start the relay checks that git is installed and that the mount is a git
+        repository. Each cycle optionally pulls, then folds every non-empty outbox
+        into the shared log under a separator and clears it. If anything was folded
+        it stages the vault directory only, commits, and pushes only when a remote
+        is configured. Every git step is guarded individually so a failure degrades
+        instead of crash-looping, and the loop sleeps five minutes between cycles.
+    }
+    S["start"] --> G{"git and .git<br/>present?"}
+    G -->|no| X["exit with a FATAL message"]
+    G -->|yes| C["cycle"]
+    C --> PL{"VAULT_REPO<br/>set?"}
+    PL -->|yes| PU["git pull --ff-only<br/>failure: carry on locally"]
+    PL -->|no| FD
+    PU --> FD["fold: for each non-empty outbox,<br/>append --- and its text to AGENT_SYNC.md,<br/>then empty the outbox"]
+    FD --> CH{"anything<br/>folded?"}
+    CH -->|no| SL
+    CH -->|yes| CM["git add vault/ only, then git commit<br/>a failure at either step skips to sleep"]
+    CM --> PS{"VAULT_REPO<br/>set?"}
+    PS -->|no| SL
+    PS -->|yes| PH["git push<br/>failure: commit stays local"]
+    PH --> SL["sleep 300 s<br/>RELAY_INTERVAL"]
+    SL --> C
+    class X gate
+    class FD,CM ok
+    class G,PL,CH,PS human
+    class PU,PH machine
+    classDef live fill:#667eea,stroke:#4c51bf,color:#ffffff
+    classDef machine fill:#f0f4ff,stroke:#8b9cf4,color:#1b1533
+    classDef human fill:#fff4e6,stroke:#e0a458,color:#3a2a00
+    classDef gate fill:#ffe6e6,stroke:#e08080,color:#4a1010
+    classDef ok fill:#e6ffe6,stroke:#6fbf73,color:#0f3a12
+    classDef idle fill:#f5f5f5,stroke:#b8b8b8,color:#444444
+```
+
+**Reading it.** Everything above the push is local. The push branch is the part that has never run against this repo: `origin` is HTTPS and the container has no credential helper, so it cannot authenticate until the remote is switched to SSH or a token helper is added (§9.3 above). Scoping `git add` to `vault/` means the relay cannot sweep up an app-code change that happens to be in the working tree.
+
 ### 9.4 Subscription first, token billing second
 All three runtimes prefer a subscription login and fall back to a paid key only when there is none. `claude-agent` probes `claude auth status` and runs the host `claude` CLI on the Pro/Max login, stripping `ANTHROPIC_API_KEY` from that process so "subscription" cannot silently mean "paid key". `hermes-agent` runs the host Hermes CLI on the Portal login. `grok-build` probes `grok models` for a grok.com login and runs the host Grok Build CLI (`grok -p`), stripping `XAI_API_KEY` for the same reason; its Docker container is the fallback. The outbox records which path ran (`OK (subscription)` or `OK (paid-key)`), so the cost is visible afterwards rather than implied. Verified 2026-09-22: with no `XAI_API_KEY` set anywhere, a real `grok-build` run wrote `OK (subscription)`.
 
@@ -692,6 +1715,7 @@ An earlier version of this section said xAI had no subscription login and that G
 ## 10. Security model
 
 ```mermaid
+%%{init: {'fontFamily':'Arial, Helvetica, sans-serif','theme':'base','themeVariables':{'primaryColor':'#efe9ff','primaryTextColor':'#1b1533','primaryBorderColor':'#8b6cef','lineColor':'#6b5bd6','secondaryColor':'#e4eaff','tertiaryColor':'#f7f5ff','edgeLabelBackground':'#ffffff','fontFamily':'Arial, Helvetica, sans-serif','fontSize':'14px','noteBkgColor':'#fff6dc','noteTextColor':'#3a2f00','actorBkg':'#efe9ff','actorBorder':'#8b6cef','actorTextColor':'#1b1533','signalColor':'#4a3fb0','signalTextColor':'#1b1533','xyChart':{'backgroundColor':'#ffffff','plotColorPalette':'#8b6cef','titleColor':'#1b1533','xAxisLabelColor':'#1b1533','yAxisLabelColor':'#1b1533','xAxisTitleColor':'#1b1533','yAxisTitleColor':'#1b1533','xAxisLineColor':'#6b5bd6','yAxisLineColor':'#6b5bd6','xAxisTickColor':'#6b5bd6','yAxisTickColor':'#6b5bd6'}}}}%%
 flowchart TD
     accTitle: Trust boundaries and guards
     accDescr {
@@ -711,12 +1735,12 @@ flowchart TD
         U1["Provider response body"]
         U2["Path from the vault file list"]
         U3["Runtime name from a custom agent"]
-        U4["Image file from drop or paste"]
+        U4["File from drop, paste or picker"]
     end
     U1 --> G1["rendered as text; error bodies<br/>truncated to 200 chars"]
     U2 --> G2["resolve_vault_path():<br/>canonicalize, refuse outside vault/,<br/>refuse non-file, refuse over 2MB"]
     U3 --> G3["re-checked against the<br/>three-item runtime allowlist"]
-    U4 --> G4["256KB/file, 1MB total, 40 files;<br/>oversized files named, not dropped"]
+    U4 --> G4["images 12 MB each; text files 256KB each,<br/>1MB total, 40 files, binary refused;<br/>every skip is named, not dropped"]
 
     subgraph Secrets["Credentials"]
         S1[".env — gitignored, never in vault"]
@@ -738,7 +1762,7 @@ flowchart TD
 | Runtime allowlist | `main.rs` `run_agent` | Any runtime name that is not `claude-agent`, `hermes-agent`, or `grok-build`. A custom agent's display name never reaches the shell |
 | Vault path guard | `resolve_vault_path()` | `..` traversal, symlinks escaping `vault/`, directories, files over 2 MB. Four unit tests |
 | Context file guard | `agents/_shared/task.cjs` | Any `context` path in `agent-tasks.json` resolving outside `vault/` — matters most for the host runner, where `../.env` would be a real read |
-| Image caps | `ingestImageFiles()` | Files over 256 KB, totals over 1 MB, more than 40 files — each named in the UI rather than silently skipped |
+| Attachment caps | `ingestImageFiles()`, `ingestFiles()` | Images over 12 MB; text files over 256 KB, totals over 1 MB, more than 40 files, or binary — each named in the UI rather than silently skipped |
 | Secrets location | `.env`, `localStorage`, CLI logins | Keys are never written into vault files or git. `.env` is gitignored; the repo's own history was scanned for secret-shaped strings on 2026-09-21 |
 | OAuth scope and token retention | `github_sign_in` / `google_sign_in` | GitHub is asked for `read:user user:email` and nothing else — no `repo`, no write, no admin. Identity is read and the access token is **discarded**, never stored: GitHub's token is used for two REST calls and dropped, and Google's flow keeps nothing but the three display fields out of the `id_token` |
 | Listener lifetime | both sign-in flows | The loopback socket binds `127.0.0.1:0`, accepts exactly one callback, checks `state`, and closes. Nothing is left listening after a sign-in |
@@ -746,9 +1770,48 @@ flowchart TD
 
 **What is deliberately *not* claimed.** There is no sandbox around a host CLI run: `claude`, `grok` and `hermes` run as your user with your filesystem, and `grok`'s own config uses `permission_mode = "always-approve"`. The containment for an agent run is *the prompt and the allowlist*, not a container — which is exactly why the task file's context paths are guarded and why the container paths exist as an option. Anyone treating Agent Control as a security boundary should treat it as a convenience boundary instead.
 
+### 10.1 Where a credential travels
+
+```mermaid
+%%{init: {'fontFamily':'Arial, Helvetica, sans-serif','theme':'base','themeVariables':{'primaryColor':'#efe9ff','primaryTextColor':'#1b1533','primaryBorderColor':'#8b6cef','lineColor':'#6b5bd6','secondaryColor':'#e4eaff','tertiaryColor':'#f7f5ff','edgeLabelBackground':'#ffffff','fontFamily':'Arial, Helvetica, sans-serif','fontSize':'14px','noteBkgColor':'#fff6dc','noteTextColor':'#3a2f00','actorBkg':'#efe9ff','actorBorder':'#8b6cef','actorTextColor':'#1b1533','signalColor':'#4a3fb0','signalTextColor':'#1b1533','xyChart':{'backgroundColor':'#ffffff','plotColorPalette':'#8b6cef','titleColor':'#1b1533','xAxisLabelColor':'#1b1533','yAxisLabelColor':'#1b1533','xAxisTitleColor':'#1b1533','yAxisTitleColor':'#1b1533','xAxisLineColor':'#6b5bd6','yAxisLineColor':'#6b5bd6','xAxisTickColor':'#6b5bd6','yAxisTickColor':'#6b5bd6'}}}}%%
+flowchart LR
+    accTitle: 10.1 Where a credential travels
+    accDescr {
+        Provider keys start in the env file or are pasted into Settings. The Rust
+        core reads only five allowlisted names from the env file and hands them to
+        the webview, which sends them as request headers to the chosen provider.
+        Pasted keys live in per-profile local storage. The OAuth client secrets are
+        read only by Rust and never reach the JavaScript bundle. Nothing writes a
+        key into the vault or into git.
+    }
+    ENVF[(".env · gitignored")] -->|"5 allowlisted names"| RS["Rust: provider_keys"]
+    RS --> WV["webview memory cache"]
+    PASTE["key pasted in Settings"] --> LSK[("localStorage<br/>vai:profileId:valhallaai-apikey-…")]
+    WV --> HDR["request header"]
+    LSK --> HDR
+    HDR --> PROV["the provider you picked"]
+    ENVF -->|"GOOGLE_CLIENT_SECRET<br/>GITHUB_CLIENT_ID and SECRET"| RO["Rust only · no VITE_ prefix"]
+    RO -.->|"never inlined"| BUNDLE["JS bundle"]
+    ENVF -.->|"never"| VAULT[("vault/ and git")]
+    LSK -.->|"never"| VAULT
+    class ENVF,LSK ok
+    class RS,WV,HDR,RO machine
+    class BUNDLE,VAULT gate
+    class PROV idle
+    classDef live fill:#667eea,stroke:#4c51bf,color:#ffffff
+    classDef machine fill:#f0f4ff,stroke:#8b9cf4,color:#1b1533
+    classDef human fill:#fff4e6,stroke:#e0a458,color:#3a2a00
+    classDef gate fill:#ffe6e6,stroke:#e08080,color:#4a1010
+    classDef ok fill:#e6ffe6,stroke:#6fbf73,color:#0f3a12
+    classDef idle fill:#f5f5f5,stroke:#b8b8b8,color:#444444
+```
+
+**Reading it.** The dotted red arrows are the claims worth auditing. The only value with a `VITE_` prefix is the Google client id, which is public by design because it ships inside the binary anyway; the secrets deliberately have no prefix so the bundler cannot inline them. A key leaves the machine only inside the request to the provider you chose, and the router reads `config.apiKey` only, never `process.env`, which does not exist in a webview.
+
 ## 11. Deployment path (future)
 
 ```mermaid
+%%{init: {'fontFamily':'Arial, Helvetica, sans-serif','theme':'base','themeVariables':{'primaryColor':'#efe9ff','primaryTextColor':'#1b1533','primaryBorderColor':'#8b6cef','lineColor':'#6b5bd6','secondaryColor':'#e4eaff','tertiaryColor':'#f7f5ff','edgeLabelBackground':'#ffffff','fontFamily':'Arial, Helvetica, sans-serif','fontSize':'14px','noteBkgColor':'#fff6dc','noteTextColor':'#3a2f00','actorBkg':'#efe9ff','actorBorder':'#8b6cef','actorTextColor':'#1b1533','signalColor':'#4a3fb0','signalTextColor':'#1b1533','xyChart':{'backgroundColor':'#ffffff','plotColorPalette':'#8b6cef','titleColor':'#1b1533','xAxisLabelColor':'#1b1533','yAxisLabelColor':'#1b1533','xAxisTitleColor':'#1b1533','yAxisTitleColor':'#1b1533','xAxisLineColor':'#6b5bd6','yAxisLineColor':'#6b5bd6','xAxisTickColor':'#6b5bd6','yAxisTickColor':'#6b5bd6'}}}}%%
 flowchart LR
     accTitle: The four deployment stages
     accDescr {
@@ -775,6 +1838,7 @@ flowchart LR
 macOS, Windows, and Linux/Omarchy (§4.1) are all **desktop** targets — ValhallaAI currently requires a GUI to run at all, since it's Tauri desktop-only. The platforms below aren't a flat list of "OSes to also support" — they have a real dependency order, and building them out of order means building something with nothing to connect to.
 
 ```mermaid
+%%{init: {'fontFamily':'Arial, Helvetica, sans-serif','theme':'base','themeVariables':{'primaryColor':'#efe9ff','primaryTextColor':'#1b1533','primaryBorderColor':'#8b6cef','lineColor':'#6b5bd6','secondaryColor':'#e4eaff','tertiaryColor':'#f7f5ff','edgeLabelBackground':'#ffffff','fontFamily':'Arial, Helvetica, sans-serif','fontSize':'14px','noteBkgColor':'#fff6dc','noteTextColor':'#3a2f00','actorBkg':'#efe9ff','actorBorder':'#8b6cef','actorTextColor':'#1b1533','signalColor':'#4a3fb0','signalTextColor':'#1b1533','xyChart':{'backgroundColor':'#ffffff','plotColorPalette':'#8b6cef','titleColor':'#1b1533','xAxisLabelColor':'#1b1533','yAxisLabelColor':'#1b1533','xAxisTitleColor':'#1b1533','yAxisTitleColor':'#1b1533','xAxisLineColor':'#6b5bd6','yAxisLineColor':'#6b5bd6','xAxisTickColor':'#6b5bd6','yAxisTickColor':'#6b5bd6'}}}}%%
 flowchart TD
     accTitle: Platform dependency order
     accDescr {
@@ -844,6 +1908,7 @@ Kept as a table rather than scattered caveats, because this document's failure m
 
 ## 13. Related documents
 
+- [DIAGRAMS.md](./DIAGRAMS.md) — the diagram atlas: the system on one page, six requests traced end to end, and an index of every diagram
 - [POSITIONING.md](./POSITIONING.md) — how ValhallaAI differs from Hermes, LangChain, Open WebUI, AnythingLLM, and the rest of the field
 - [CONTRIBUTING.md](./CONTRIBUTING.md) — how to work on this project (even solo, even before it's public)
 - [README.md](./README.md) — quick start

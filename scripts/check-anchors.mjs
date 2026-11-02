@@ -2,7 +2,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve, join, dirname, normalize } from 'node:path';
 
-const DOCS = ['README.md', 'ARCHITECTURE.md', 'POSITIONING.md', 'CONTRIBUTING.md'];
+const DOCS = ['README.md', 'ARCHITECTURE.md', 'POSITIONING.md', 'CONTRIBUTING.md', 'DIAGRAMS.md'];
 const root = process.cwd();
 
 function slugify(text) {
